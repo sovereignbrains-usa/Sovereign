@@ -732,6 +732,46 @@ void TestResumeAfterSleep() {
   CHECK(!noCore.ResumeAfterSleep().replayed);
 }
 
+// The kill switch across sleep: its persistent filters are not the core's, so
+// restarting the core must neither lift nor rebuild them - including when the
+// restart fails (no network yet) and after an explicit stop.
+void TestResumeKeepsKillSwitch() {
+  LogRing log(10);
+  std::optional<std::string> lastConfig;
+  FakeCore core;
+  FakeKillSwitch killSwitch;
+  ControlHandler handler(&core, log, lastConfig, {}, &killSwitch);
+
+  CHECK(Send(handler, R"({"cmd":"kill_switch","enabled":true})").value("active", false) == true);
+  CHECK(Send(handler, R"({"cmd":"box_start","config":{"inbounds":[{"type":"tun","address":["172.19.0.1/30"]}]}})")
+            .value("cmd", "") == "box_started");
+  const int appliedBefore = killSwitch.applied;
+  const auto rulesBefore = killSwitch.last;
+  CHECK(killSwitch.active && !rulesBefore.empty());
+
+  const auto replay = handler.ResumeAfterSleep();
+  CHECK(replay.replayed && replay.startError.empty());
+  CHECK(killSwitch.active && killSwitch.applied == appliedBefore);
+
+  // A failed start: the filters stay, the tunnel's addresses stay in them.
+  core.startError = "no network yet";
+  CHECK(handler.ResumeAfterSleep().startError == "no network yet");
+  CHECK(killSwitch.active && killSwitch.applied == appliedBefore);
+  const json stats = Send(handler, R"({"cmd":"box_stats"})");
+  CHECK(stats.value("kill_switch", false) == true);
+  core.startError.clear();
+
+  // The next try, once the network is back, brings the core up again under the same filters.
+  CHECK(handler.ResumeAfterSleep().startError.empty() && core.running);
+  CHECK(killSwitch.active && killSwitch.last.size() == rulesBefore.size());
+
+  // After an explicit stop nothing is replayed, and the filters still hold
+  // (that is the point of a kill switch: off VPN means no leaks, not open).
+  CHECK(Send(handler, R"({"cmd":"box_stop"})").value("cmd", "") == "box_stopped");
+  CHECK(!handler.ResumeAfterSleep().replayed);
+  CHECK(killSwitch.active);
+}
+
 void TestLogsCarryTime() {
   LogRing log(10);
   const auto before = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -808,6 +848,7 @@ int main() {  // NOLINT(bugprone-exception-escape) — see the catch below
     TestBoot();
     TestKillSwitch();
     TestResumeAfterSleep();
+    TestResumeKeepsKillSwitch();
     TestUpdateInstall();
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Sovereign · цепочка и оплата токенами</title>
+<!-- Закон судьбы (law.md): цвета, шкала и альфы только из tokens.css.
+     Оттенок — только у судьбы потока: синий = трафик VPN, серый = напрямую.
+     Оплата — не поток: белое и графит. «Видит» — ядро, «не видит» — кольцо. -->
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; background: var(--surface-window); }
+  body { display: flex; justify-content: center; padding: var(--pad); }
+  svg { width: 100%; max-width: 1240px; height: auto; font-family: var(--font); }
+
+  .card  { fill: var(--surface-card); stroke: var(--hair); stroke-width: var(--stroke-hair); }
+  .panel { fill: var(--surface-panel); stroke: var(--hair); stroke-width: var(--stroke-hair); }
+  .groove { fill: var(--groove); }
+
+  .title   { fill: var(--ink-1); font-size: var(--t-title); font-weight: var(--w-strong); }
+  .head    { fill: var(--ink-1); font-size: var(--t-heading); font-weight: var(--w-strong); }
+  .body    { fill: var(--ink-1); font-size: var(--t-caption); }
+  .help    { fill: var(--ink-2); font-size: var(--t-caption); }
+  .engrave { fill: var(--ink-2); font-size: var(--t-micro); font-weight: var(--w-strong); letter-spacing: 2px; }
+  .note    { fill: var(--ink-2); font-size: var(--t-micro); }
+
+  .rail-vpn    { fill: rgb(var(--vpn-rgb) / var(--a-rail)); }
+  .rail-direct { fill: rgb(var(--direct-rgb) / var(--a-rail)); }
+  .vpn-line    { stroke: rgb(var(--vpn-rgb)); }
+  .vpn-tube    { fill: rgb(var(--vpn-rgb) / var(--a-glow)); stroke: rgb(var(--vpn-rgb) / var(--a-edge)); stroke-width: var(--stroke-edge); }
+  .direct-line { stroke: rgb(var(--direct-rgb)); }
+  .hand-line   { stroke: var(--ink-2); }
+
+  .core { fill: var(--lit); }
+  .ring { fill: none; stroke: var(--ink-2); stroke-width: 1.3; }
+  .warn { fill: var(--warning); }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1200 730" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="m-vpn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="rgb(76 146 255)"/>
+    </marker>
+    <marker id="m-direct" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="rgb(160 165 176)"/>
+    </marker>
+    <marker id="m-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="rgb(156 158 164)"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="44" class="title">Sovereign · вся цепочка и оплата токенами</text>
+  <text x="40" y="66" class="help">план, кода нет · пункты 0–3 из обсуждения 24.10</text>
+
+  <!-- ───────── ТРАФИК ───────── -->
+  <text x="40" y="104" class="engrave">ТРАФИК</text>
+
+  <!-- Устройство: на пути VPN — рейка VPN -->
+  <rect x="40" y="116" width="200" height="120" rx="8" class="card"/>
+  <rect x="40" y="124" width="3" height="104" rx="1.5" class="rail-vpn"/>
+  <text x="60" y="142" class="head">Твоё устройство</text>
+  <text x="60" y="161" class="help">Sovereign · sing-box</text>
+  <text x="60" y="214" class="note">цепочка собирается здесь</text>
+  <text x="60" y="228" class="note">(detour), тут же кошелёк</text>
+
+  <!-- Вход -->
+  <rect x="360" y="116" width="240" height="120" rx="8" class="card"/>
+  <rect x="360" y="124" width="3" height="104" rx="1.5" class="rail-vpn"/>
+  <text x="380" y="142" class="head">Вход · провайдер</text>
+  <text x="380" y="161" class="help">в РФ или рядом, REALITY</text>
+  <rect x="360" y="176" width="240" height="16" class="groove"/>
+  <text x="380" y="222" class="note">внешний кончается здесь,</text>
+  <text x="380" y="236" class="note" dy="-2">внутренний идёт сквозь</text>
+
+  <!-- Выход -->
+  <rect x="700" y="116" width="220" height="120" rx="8" class="card"/>
+  <rect x="700" y="124" width="3" height="104" rx="1.5" class="rail-vpn"/>
+  <text x="720" y="142" class="head">Выход · независимый</text>
+  <text x="720" y="161" class="help">другой оператор, без журналов</text>
+  <text x="720" y="214" class="note">обмен токенов (шаг 4)</text>
+  <text x="720" y="228" class="note">Maybenot — позже</text>
+
+  <!-- Сайт: дальше выхода — напрямую -->
+  <rect x="1010" y="116" width="150" height="120" rx="8" class="card"/>
+  <rect x="1010" y="124" width="3" height="104" rx="1.5" class="rail-direct"/>
+  <text x="1030" y="142" class="head">Сайт</text>
+  <text x="1030" y="161" class="help">любой</text>
+
+  <!-- туннели: VPN — синий; после выхода — напрямую, серый -->
+  <rect x="240" y="170" width="140" height="28" rx="14" class="vpn-tube"/>
+  <text x="300" y="162" class="note" text-anchor="middle">внешний</text>
+  <line x1="240" y1="184" x2="696" y2="184" class="vpn-line" stroke-width="3" marker-end="url(#m-vpn)"/>
+  <text x="645" y="174" class="note" text-anchor="middle">внутренний</text>
+  <line x1="920" y1="184" x2="1006" y2="184" class="direct-line" stroke-width="2" marker-end="url(#m-direct)"/>
+  <text x="963" y="174" class="note" text-anchor="middle">HTTPS</text>
+
+  <!-- кто что видит: ядро = видит, кольцо = не видит -->
+  <rect x="40" y="250" width="200" height="124" rx="8" class="panel"/>
+  <text x="60" y="274" class="engrave">ТОЛЬКО ЗДЕСЬ</text>
+  <circle cx="64" cy="290" r="3" class="core"/><text x="76" y="294" class="body">ключ выхода</text>
+  <circle cx="64" cy="308" r="3" class="core"/><text x="76" y="312" class="body">токены</text>
+  <circle cx="64" cy="326" r="3" class="core"/><text x="76" y="330" class="body">кто ты + куда ходишь</text>
+  <text x="60" y="358" class="note">поэтому клиент открытый</text>
+
+  <rect x="360" y="250" width="240" height="124" rx="8" class="panel"/>
+  <text x="380" y="274" class="engrave">ВИДИТ</text>
+  <circle cx="384" cy="290" r="3" class="core"/><text x="396" y="294" class="body">твой IP, устройства, время, объём</text>
+  <circle cx="384" cy="308" r="3" class="core"/><text x="396" y="312" class="body">твою оплату провайдеру</text>
+  <text x="380" y="336" class="engrave">НЕ ВИДИТ</text>
+  <circle cx="384" cy="352" r="3" class="ring"/><text x="396" y="356" class="help">сайты, содержимое, токены</text>
+
+  <rect x="700" y="250" width="220" height="124" rx="8" class="panel"/>
+  <text x="720" y="274" class="engrave">ВИДИТ</text>
+  <circle cx="724" cy="290" r="3" class="core"/><text x="736" y="294" class="body">куда идёт трафик</text>
+  <circle cx="724" cy="308" r="3" class="core"/><text x="736" y="312" class="body">IP входа, токен без имени</text>
+  <text x="720" y="336" class="engrave">НЕ ВИДИТ</text>
+  <circle cx="724" cy="352" r="3" class="ring"/><text x="736" y="356" class="help">твой IP, кто платил</text>
+
+  <rect x="1010" y="250" width="150" height="124" rx="8" class="panel"/>
+  <text x="1030" y="274" class="engrave">ВИДИТ</text>
+  <circle cx="1034" cy="290" r="3" class="core"/><text x="1046" y="294" class="body">IP выхода</text>
+  <text x="1030" y="336" class="engrave">НЕ ВИДИТ</text>
+  <circle cx="1034" cy="352" r="3" class="ring"/><text x="1046" y="356" class="help">тебя</text>
+
+  <!-- ───────── ОПЛАТА: не поток, поэтому без оттенка ───────── -->
+  <text x="40" y="414" class="engrave">ОПЛАТА · СЛЕПЫЕ ТОКЕНЫ</text>
+
+  <rect x="40" y="426" width="230" height="160" rx="8" class="card"/>
+  <text x="60" y="452" class="head">1 · Ты платишь</text>
+  <text x="60" y="472" class="help">картой или СБП, рублями</text>
+  <text x="60" y="498" class="engrave">ПЛАТЁЖКА ЗНАЕТ</text>
+  <circle cx="64" cy="511" r="3" class="core"/><text x="76" y="515" class="body">кто и сколько заплатил</text>
+  <text x="60" y="540" class="engrave">НЕ ЗНАЕТ</text>
+  <circle cx="64" cy="553" r="3" class="ring"/><text x="76" y="557" class="help">ничего о трафике</text>
+
+  <rect x="320" y="426" width="250" height="160" rx="8" class="card"/>
+  <text x="340" y="452" class="head">2 · Выдающий сервер</text>
+  <text x="340" y="472" class="help">подписывает 30 токенов вслепую</text>
+  <text x="340" y="498" class="engrave">ЗНАЕТ</text>
+  <circle cx="344" cy="511" r="3" class="core"/><text x="356" y="515" class="body">оплата прошла</text>
+  <text x="340" y="540" class="engrave">НЕ ЗНАЕТ</text>
+  <circle cx="344" cy="553" r="3" class="ring"/><text x="356" y="557" class="help">какие токены потом твои</text>
+  <text x="340" y="576" class="note">один ключ на всех за месяц</text>
+
+  <rect x="620" y="426" width="250" height="160" rx="8" class="card"/>
+  <text x="640" y="452" class="head">3 · Кошелёк в Sovereign</text>
+  <text x="640" y="472" class="body">снимает маску → токены годны</text>
+  <text x="640" y="492" class="body">все одинаковые: «1 день»</text>
+  <text x="640" y="512" class="body">хранятся под DPAPI</text>
+  <text x="640" y="532" class="body">тратит по одному в случайный</text>
+  <text x="640" y="550" class="body">момент, не сразу после покупки</text>
+  <text x="640" y="576" class="note">C++, 2–3 захода</text>
+
+  <rect x="920" y="426" width="240" height="160" rx="8" class="card"/>
+  <text x="940" y="452" class="head">4 · Обмен на выходе</text>
+  <text x="940" y="472" class="body">только через вход</text>
+  <text x="940" y="490" class="body">подпись + эмитент: «тратили?»</text>
+  <text x="940" y="508" class="body">в журнале хэш, без времени</text>
+  <text x="940" y="526" class="body">журнал сгорает с ключом</text>
+  <text x="940" y="544" class="body">пароль на 24 ч → sing-box</text>
+  <text x="940" y="576" class="note">выплата выходу раз в месяц</text>
+
+  <line x1="270" y1="506" x2="316" y2="506" class="hand-line" stroke-width="1.3" marker-end="url(#m-ink)"/>
+  <line x1="570" y1="506" x2="616" y2="506" class="hand-line" stroke-width="1.3" marker-end="url(#m-ink)"/>
+  <text x="594" y="496" class="note" text-anchor="middle">подпись</text>
+  <line x1="870" y1="506" x2="916" y2="506" class="hand-line" stroke-width="1.3" marker-end="url(#m-ink)"/>
+  <text x="894" y="496" class="note" text-anchor="middle">1/сут</text>
+
+  <!-- итог: вердикт «внимание» — точка + слово, не рамка и не заливка -->
+  <rect x="40" y="612" width="1120" height="92" rx="8" class="panel"/>
+  <circle cx="64" cy="634" r="3" class="warn"/>
+  <text x="76" y="638" class="engrave">НЕ ЗАЩИЩАЕТ ОТ</text>
+  <text x="60" y="660" class="body">сговора входа и выхода · наблюдателя, видящего оба конца · заражённого устройства · малой толпы: при одном плательщике всё его</text>
+  <text x="60" y="688" class="help">Порядок: 0 замер на 2 VPS → 1 цепочка в клиенте → 2 выходы → 3 токены → 4 провайдеры через заголовки подписки → 5 Maybenot</text>
+</svg>
+</body>
+</html>

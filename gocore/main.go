@@ -28,7 +28,6 @@ import (
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/trafficcontrol"
 	"github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
 )
@@ -75,7 +74,7 @@ func box_start(configJSON *C.char) *C.char {
 		return C.CString("box already started; call box_stop first")
 	}
 
-	ctx := include.Context(context.Background())
+	ctx := coreContext(context.Background())
 	var options option.Options
 	if err := singjson.UnmarshalContext(ctx, []byte(C.GoString(configJSON)), &options); err != nil {
 		return C.CString(fmt.Sprintf("parse config: %s", err))

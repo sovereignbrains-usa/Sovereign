@@ -263,6 +263,13 @@ int Snapshots(const std::wstring& dir) {
     checked.checks = SampleChecks();
     checked.checksRunning = true;
     sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Checks, logs, 400, 1300, 96, dir + L"\\checks.png");
+    // The narrowest window: values that do not fit beside their title go under it.
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Checks, logs, 360, 1300, 96,
+                                              dir + L"\\checks-360.png");
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Servers, logs, 360, 700, 96,
+                                              dir + L"\\servers-360.png");
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Settings, logs, 360, 1100, 96,
+                                              dir + L"\\settings-360.png");
   });
   // A configuration's page: the first one's.
   sovereign::tray::RenderMainWindowSnapshot(content, UiPage::Profile, logs, 400, 620, 96, dir + L"\\profile.png");

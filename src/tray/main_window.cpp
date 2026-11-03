@@ -72,6 +72,7 @@ constexpr float kHint = 18;        // a "?" that shows a tip when pointed at
 constexpr std::size_t kCheckSpeed = 2;
 constexpr std::size_t kCheckRoute = 3;
 constexpr float kRouteButton = 100;  // the route's "Проверить", a word, not an arrow
+constexpr float kStackLine = 18;     // what a row grows by when its value stands under its title (2026-11-03: words wrap, they aren't cut with "…")
 constexpr float kSpeedGraph = 150;  // the speed test's graph under the checks
 constexpr float kServerRow = 60;   // a server on a configuration's page: its name, protocol and switch
 constexpr float kButton = 34;
@@ -265,6 +266,7 @@ struct Item {
   bool glass = false;   // a Card on the main screen: see-through - the light and the streams behind it show
   bool scrolls = true;  // lives in the page (scrolls, clipped), not in the rail
   bool hinted = false;  // a ValueRow with a "?" after its title: the value starts after that
+  bool stacked = false;  // a ValueRow or CheckRow whose value didn't fit beside its title: it stands under it, the row taller (kStackLine)
   bool key = false;     // an IconButton drawn as a key with height (DrawKey), not flat
   bool chrome = false;  // an IconButton of the title bar (DrawChrome): its pill inset from the bar's edges
   bool engraved = false;  // a Muted label set as engraved capitals (engraved_)
@@ -1339,19 +1341,22 @@ class Painter {
           need = TextWidth(it.text, body_.get()) + (it.glyph.empty() ? 0.0f : 26.0f);
           break;
         case Kind::Switch: room = w - 16 - 76; need = TextWidth(it.text, body_.get()); break;
-        case Kind::Choice: room = w - 42 - 120; need = TextWidth(it.text, body_.get()); break;
+        case Kind::Choice: room = w - 42 - 100 - 8; need = TextWidth(it.text, body_.get()); break;
         case Kind::ProfileRow: room = w - 14 - 28; need = TextWidth(it.text, body_.get()); break;
         case Kind::ServerCard: room = w - 16 - 34; need = TextWidth(it.text, heading_.get()); break;
         case Kind::ValueRow:
           room = w - 16 - 30;
-          need = TextWidth(it.text, body_.get()) + 12 + TextWidth(it.detail, trailing_.get()) +
-                 (it.logo.empty() ? 0.0f : 22.0f) +
-                 (it.hinted ? kHint + 6 : 0.0f);
+          need = it.stacked  // the value under the title: each on a line of its own
+                     ? std::max(TextWidth(it.text, body_.get()) + (it.hinted ? kHint + 6 : 0.0f),
+                                TextWidth(it.detail, trailing_.get()))
+                     : TextWidth(it.text, body_.get()) + 12 + TextWidth(it.detail, trailing_.get()) +
+                           (it.logo.empty() ? 0.0f : 22.0f) + (it.hinted ? kHint + 6 : 0.0f);
           break;
         case Kind::Segment: room = w - 8; need = TextWidth(it.text, button_.get()); break;
         case Kind::CheckRow:
           room = w - 34 - CheckButtonRoom(it);
-          need = TextWidth(it.text, body_.get()) + 6 + kHint + 8 + TextWidth(it.detail, trailing_.get());
+          need = it.stacked ? std::max(TextWidth(it.text, body_.get()) + 6 + kHint, TextWidth(it.detail, trailing_.get()))
+                            : TextWidth(it.text, body_.get()) + 6 + kHint + 8 + TextWidth(it.detail, trailing_.get());
           break;
         case Kind::Muted:  // a line of its own; a taller one wraps
           if (it.rect.bottom - it.rect.top <= 24 && it.text.find(L'\n') == std::wstring::npos) {
@@ -1859,6 +1864,7 @@ class Painter {
       std::vector<std::pair<std::size_t, D2D1_RECT_F>> placed;
       float cx = left;
       float cy = 0;  // from the first row's top
+      float rowHeight = kTag;  // the tallest chip of the row: one that is wider than the card wraps
       for (std::size_t n = 0; n < r.board.size(); ++n) {
         const UiChip& chip = r.board[n];
         if (chip.bucket != b.id) {
@@ -1868,14 +1874,19 @@ class Painter {
         // last letters trimmed to "…" (brave.exe -> "brave.e…", 30.10.2026).
         float w = 24 + std::ceil(TextWidth(chip.text, body_.get())) + (chip.icon.empty() && chip.logo.empty() ? 0.0f : 24.0f) +
                   (chip.detail.empty() ? 0.0f : 8 + std::ceil(TextWidth(chip.detail, caption_.get())));
+        float height = kTag;
         if (w > right - left) {
+          // Wider than the card: the whole width, the text wrapped and the detail under it (never "…").
           w = right - left;
+          height = std::max(kTag, ChipWrappedHeight(chip, w));
         }
         if (cx > left && cx + w > right) {
           cx = left;
-          cy += kTag + kChipGap;
+          cy += rowHeight + kChipGap;
+          rowHeight = kTag;
         }
-        placed.emplace_back(n, D2D1_RECT_F{cx, cy, cx + w, cy + kTag});
+        rowHeight = std::max(rowHeight, height);
+        placed.emplace_back(n, D2D1_RECT_F{cx, cy, cx + w, cy + height});
         cx += w + kChipGap;
       }
       if (b.id == restBucket && placed.empty()) {
@@ -1930,7 +1941,7 @@ class Painter {
       const bool noteBelow = !b.note.empty() && std::ceil(TextWidth(b.note, caption_.get())) + 4 > noteRoom;
       const float noteHeight = noteBelow ? std::max(18.0f, TextHeight(b.note, captionWrap_.get(), right - left)) : 0.0f;
       const float head = kHead + noteHeight;
-      const float h = head + cy + kTag + 8;
+      const float h = head + cy + rowHeight + 8;
       Item card = Make(Kind::Card, {x0, y, x1, y + h});
       card.rail = b.id;
       l.items.push_back(std::move(card));
@@ -1953,6 +1964,7 @@ class Painter {
         Item tag = CommandItem(Kind::Tag, place, chip.text, nullptr, UiCommand::ChipMenu, static_cast<int>(n));
         tag.tip = L"Перенести в другой путь или убрать";
         tag.detail = chip.detail;
+        tag.stacked = at.bottom - at.top > kTag + 0.5f;
         tag.text2 = chip.icon;
         tag.logo = chip.logo;
         tag.quiet = chip.idle;
@@ -2430,7 +2442,9 @@ class Painter {
                              c.hasConfig ? L"В конфиге нет выбора сервера." : L"Ни одна конфигурация не включена."));
       return y + 56;
     }
-    const auto row = [&](std::size_t i, float top) {
+    // Returns how much taller than kLatencyRow the row is: its detail wraps (never cut to "…") when it
+    // does not fit under the name.
+    const auto row = [&](std::size_t i, float top) -> float {
       // Where the server is, once known: its country's flag in place of any
       // its name has, and the network it's in ahead of the measurement.
       const UiLocation* location = i < c.locations.size() ? &c.locations[i] : nullptr;
@@ -2463,15 +2477,27 @@ class Painter {
       if (!isp.empty() && static_cast<int>(i) != c.autoOption) {
         choice.detail = choice.detail.empty() ? isp : isp + L" · " + choice.detail;
       }
+      float grown = 0;
+      if (!choice.detail.empty()) {
+        const float room = (x1 - 4) - (x0 + 4) - 42 - 12;  // DrawItem's detail line
+        if (std::ceil(TextWidth(choice.detail, caption_.get())) + 2 > room) {
+          grown = std::max(0.0f, TextHeight(choice.detail, captionWrap_.get(), room) - 18.0f);
+          choice.stacked = grown > 0;
+          choice.rect.bottom += grown;
+        }
+      }
       l.items.push_back(std::move(choice));
+      return grown;
     };
     // Auto on its own card above the servers: it isn't one of them, it's a
     // way to pick one.
     const bool hasAuto = c.autoOption >= 0 && static_cast<std::size_t>(c.autoOption) < c.protocols.size();
     if (hasAuto) {
+      const std::size_t card = l.items.size();
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kLatencyRow}));
-      row(static_cast<std::size_t>(c.autoOption), y);
-      y += kLatencyRow + kGap;
+      const float grown = row(static_cast<std::size_t>(c.autoOption), y);
+      l.items[card].rect.bottom += grown;
+      y += kLatencyRow + grown + kGap;
     }
     const std::vector<std::size_t> order = c.serverOrder.empty() ? ServerOrder(c) : c.serverOrder;
     if (order.empty()) {
@@ -2490,20 +2516,22 @@ class Painter {
       l.items.push_back(std::move(listed));
       y += 32 + kGap;
     }
-    const float h = static_cast<float>(order.size()) * kLatencyRow;
-    l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
+    const std::size_t listCard = l.items.size();
+    l.items.push_back(Make(Kind::Card, {x0, y, x1, y + static_cast<float>(order.size()) * kLatencyRow}));
     std::size_t shown = 0;
+    float top = y;
     for (const std::size_t i : order) {
       if (i >= c.protocols.size()) {
         continue;
       }
-      const float top = y + static_cast<float>(shown) * kLatencyRow;
       if (shown > 0) {
         l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
       }
-      row(i, top);
+      top += kLatencyRow + row(i, top);
       ++shown;
     }
+    const float h = top - y;
+    l.items[listCard].rect.bottom = y + h;
     // The figures in full, or one rounded: noise to most, a tool to some.
     const std::vector<SwitchRow> details = {
         Row(L"Подробные замеры", L"Цифры за словом «стабильный»: ± разброс, сколько было запросов, время соединения; "
@@ -2890,9 +2918,11 @@ class Painter {
     // Set up, then seen going: an address typed, or a tile's "Проверить" -
     // held to its bucket; a way out under it when it went elsewhere.
     if (c.checks.size() > kCheckRoute) {
+      const std::size_t routeCard = l.items.size();
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kCheckRow}));
-      CheckLine(l, c, kCheckRoute, x0, x1, y);
-      y += kCheckRow;
+      const float routeGrown = CheckLine(l, c, kCheckRoute, x0, x1, y);
+      l.items[routeCard].rect.bottom += routeGrown;
+      y += kCheckRow + routeGrown;
       const UiCheck& route = c.checks[kCheckRoute];
       // An address was checked and seen (or not seen: the one that doesn't open): the ways it
       // can be sent instead, one tap each - a rule for it on the board (31.10.2026, his: the
@@ -2978,16 +3008,19 @@ class Painter {
         shown.push_back(i);
       }
     }
-    const float h = static_cast<float>(shown.size()) * kCheckRow;
-    l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
+    // A line whose result won't fit beside its title is taller (CheckLine's answer): the card's foot
+    // is known when the last is placed.
+    const std::size_t listCard = l.items.size();
+    l.items.push_back(Make(Kind::Card, {x0, y, x1, y}));
+    float top = y;
     for (std::size_t k = 0; k < shown.size(); ++k) {
-      const float top = y + static_cast<float>(k) * kCheckRow;
       if (k > 0) {
         l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
       }
-      CheckLine(l, c, shown[k], x0, x1, top);
+      top += kCheckRow + CheckLine(l, c, shown[k], x0, x1, top);
     }
-    y += h;
+    l.items[listCard].rect.bottom = top;
+    y = top;
 
     // The speed test's graph, growing while it runs and kept after.
     if (c.checks.size() > kCheckSpeed &&
@@ -3030,10 +3063,42 @@ class Painter {
     return y;
   }
 
+  // What a row grows by (0 or kStackLine) when its value doesn't fit beside its title in the room the
+  // row's rectangle gives: the value then stands under the title (Item::stacked), whole. The same
+  // measure as Describe's, so what the layout test calls cut is what grows.
+  // A board chip wider than its card: the room for its text (as DrawItem gives it) and the height it
+  // then takes - the text wrapped, the detail on a line under it, 5 above and below. Over kTag always.
+  static float ChipTextRoom(const UiChip& chip, float width) {
+    return width - 22 - (chip.icon.empty() && chip.logo.empty() ? 0.0f : 24.0f);
+  }
+  float ChipWrappedHeight(const UiChip& chip, float width) const {
+    const float room = ChipTextRoom(chip, width);
+    const float detail = chip.detail.empty() ? 0.0f : TextHeight(chip.detail, captionWrap_.get(), room);
+    return std::max(kTag + 2, TextHeight(chip.text, wrap_.get(), room) + detail + 10);
+  }
+
+  float StackExtra(const Item& it) const {
+    if (it.detail.empty()) {
+      return 0;
+    }
+    const float w = it.rect.right - it.rect.left;
+    if (it.kind == Kind::ValueRow) {
+      const float need = TextWidth(it.text, body_.get()) + 12 + TextWidth(it.detail, trailing_.get()) +
+                         (it.logo.empty() ? 0.0f : 22.0f) + (it.hinted ? kHint + 6 : 0.0f);
+      return need > w - 16 - 30 ? kStackLine : 0;
+    }
+    if (it.kind == Kind::CheckRow) {
+      const float need = TextWidth(it.text, body_.get()) + 6 + kHint + 8 + TextWidth(it.detail, trailing_.get());
+      return need > w - 34 - CheckButtonRoom(it) ? kStackLine : 0;
+    }
+    return 0;
+  }
+
   // A check's line (c.checks[i]) at `top`: its status dot, its title and
   // "?" (what it does, and the last result in full), the result on the
   // right; the speed test and an address with a button of their own.
-  void CheckLine(Layout& l, const UiContent& c, std::size_t i, float x0, float x1, float top) const {
+  // Returns what the line grew by (0, or kStackLine: the result under the title).
+  float CheckLine(Layout& l, const UiContent& c, std::size_t i, float x0, float x1, float top) const {
     const UiCheck& check = c.checks[i];
     const bool hasButton = i == kCheckSpeed || i == kCheckRoute;
     Item row = Make(Kind::CheckRow, {x0 + 4, top + 1, x1 - 4, top + kCheckRow - 1}, check.title);
@@ -3046,6 +3111,11 @@ class Painter {
     row.sub = static_cast<int>(i);
     row.text2 = check.detail;
     row.checked = hasButton;  // the result stops short of the button
+    const float grown = StackExtra(row);
+    if (grown > 0) {
+      row.rect.bottom += grown;
+      row.stacked = true;
+    }
     l.items.push_back(std::move(row));
 
     std::wstring hint = check.hint;
@@ -3076,6 +3146,7 @@ class Painter {
                                  : L"Ввести сайт и узнать, каким путём он пойдёт";
       l.items.push_back(std::move(run));
     }
+    return grown;
   }
 
   // A failed check's way out on the page: what the banner says, and what a
@@ -3331,6 +3402,17 @@ class Painter {
     };
     const auto line = [&](float top) { l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1})); };
     const auto row = [&](float top) { return D2D1_RECT_F{x0 + 4, top + 2, x1 - 4, top + kSettingsRow - 2}; };
+    // A row whose value is known: put in place; with no room beside its title it grows and the value
+    // stands under it. Returns what it grew by - the next row starts that much lower.
+    const auto put = [&](Item it) {
+      const float grown = StackExtra(it);
+      if (grown > 0) {
+        it.rect.bottom += grown;
+        it.stacked = true;
+      }
+      l.items.push_back(std::move(it));
+      return grown;
+    };
 
     {
       const std::size_t card = open(y);
@@ -3357,11 +3439,11 @@ class Painter {
       Item startup = CommandItem(Kind::ValueRow, row(top), L"Автозапуск", nullptr, UiCommand::ChooseStartup);
       startup.detail = !c.autostart ? L"выключен" : c.connectAtStartup ? L"с подключением" : L"без подключения";
       startup.hinted = true;
-      l.items.push_back(std::move(startup));
+      const float startupGrown = put(std::move(startup));
       HintAfter(l, L"Автозапуск", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
                 L"При входе в Windows клиент запускается в области уведомлений, без окна. «С подключением» — "
                 L"подключается сам, если был включён; «без подключения» — ждёт, пока включишь.");
-      top += kSettingsRow;
+      top += kSettingsRow + startupGrown;
       // The local network: open, or closed both ways but for what the user
       // lets in - the router, a device around, an address typed in. Closed, a
       // row per device let in (a click: shut again, LanChipMenu) and one to
@@ -3394,8 +3476,7 @@ class Painter {
                                   static_cast<int>(i));
           host.detail = !h.seen ? L"не в сети" : title != h.address ? h.address : L"";
           host.logo = "lan";
-          l.items.push_back(std::move(host));
-          top += kSettingsRow;
+          top += kSettingsRow + put(std::move(host));
         }
         line(top);
         l.items.push_back(CommandItem(Kind::ValueRow, row(top), L"Разрешить устройство", kGlyphAdd, UiCommand::LanAdd));
@@ -3437,8 +3518,7 @@ class Painter {
         line(top);
         Item recent = CommandItem(Kind::ValueRow, row(top), L"Недавно заблокировано", nullptr, UiCommand::BlockedMenu);
         recent.detail = L"пропустить нужное";
-        l.items.push_back(std::move(recent));
-        top += kSettingsRow;
+        top += kSettingsRow + put(std::move(recent));
       }
       y = close(card, top);
     }
@@ -3496,16 +3576,14 @@ class Painter {
       } else if (c.update == UiUpdate::Available || c.update == UiUpdate::Waiting) {
         self.detail += L" · вышла " + c.updateVersion;
       }
-      l.items.push_back(std::move(self));
-      top += kSettingsRow;
+      top += kSettingsRow + put(std::move(self));
       line(top);
 
       Item box = Make(Kind::ValueRow, row(top), L"sing-box");
       box.detail = c.boxVersion + (!c.boxIsLatest ? std::wstring()
                                    : *c.boxIsLatest ? std::wstring(L" · последняя")
                                                     : L" · вышла " + c.boxLatest);
-      l.items.push_back(std::move(box));
-      top += kSettingsRow;
+      top += kSettingsRow + put(std::move(box));
       line(top);
 
       Item updates = CommandItem(Kind::ValueRow, row(top), L"Обновления", nullptr, UiCommand::ChooseUpdates);
@@ -3513,14 +3591,14 @@ class Painter {
                        : c.updateMode == UpdateMode::Install ? L"ставить сами"
                                                              : L"только проверять";
       updates.hinted = true;
-      l.items.push_back(std::move(updates));
+      const float updatesGrown = put(std::move(updates));
       HintAfter(l, L"Обновления", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
                 L"«Только проверять» — раз в 12 часов; новая версия появится значком в заголовке окна, "
                 L"обновляешь нажатием на него. «Ставить сами» — новая версия скачивается сама и "
                 L"ставится без вопросов, когда компьютер свободен: никто не трогал мышь и клавиатуру столько минут, сколько выбрано строкой ниже, "
                 L"ничего не открыто на весь экран, ничего не качается. VPN пропадает примерно на полминуты. «Не "
                 L"проверять» — только строкой «Проверить сейчас» ниже.");
-      top += kSettingsRow;
+      top += kSettingsRow + updatesGrown;
       line(top);
 
       if (c.updateMode == UpdateMode::Install) {  // how long the computer must be left alone before it installs
@@ -3542,8 +3620,7 @@ class Painter {
                      : c.update == UiUpdate::Failed || (c.update == UiUpdate::Available && !c.updateError.empty())
                          ? L"не вышло"
                          : L"";
-      l.items.push_back(std::move(check));
-      top += kSettingsRow;
+      top += kSettingsRow + put(std::move(check));
       line(top);
 
       Item folder = CommandItem(Kind::ValueRow, row(top), L"Папка данных", kGlyphFolder, UiCommand::OpenFolder);
@@ -3660,9 +3737,15 @@ class Painter {
         const D2D1_COLOR_F ink = it.warn ? FromColorRef(ui::kDanger) : it.enabled ? primary : secondary;
         // A row that only tells (a version): its value runs to the edge, no arrow.
         const bool tells = it.action == ItemAction::None && it.glyph.empty();
-        k.Text(it.text, body_.get(), {textLeft, r.top, valueLeft, r.bottom}, ink);
-        k.Text(it.detail, trailing_.get(),
-               {valueLeft, r.top, r.right - (tells ? 16.0f : 30.0f), r.bottom}, secondary);
+        if (it.stacked) {  // no room beside the title: the value under it, from the title's left
+          const float line = r.bottom - kStackLine;  // the title's line is the row's own height, kStackLine above the foot
+          k.Text(it.text, body_.get(), {textLeft, r.top, valueLeft, line}, ink);
+          k.Text(it.detail, trailing_.get(), {textLeft, line - 6, r.right - (tells ? 16.0f : 30.0f), r.bottom}, secondary);
+        } else {
+          k.Text(it.text, body_.get(), {textLeft, r.top, valueLeft, r.bottom}, ink);
+          k.Text(it.detail, trailing_.get(),
+                 {valueLeft, r.top, r.right - (tells ? 16.0f : 30.0f), r.bottom}, secondary);
+        }
         // Its own glyph if it has one (a fold's), else "goes on to a choice".
         if (!tells) {
           DrawIcon(k, it.glyph.empty() ? std::wstring_view(kGlyphChevron) : std::wstring_view(it.glyph),
@@ -3727,7 +3810,7 @@ class Painter {
         if (hoverAlpha > 0) {
           k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
         }
-        const D2D1_POINT_2F dot{r.left + 22, (r.top + r.bottom) / 2};
+        const D2D1_POINT_2F dot{r.left + 22, it.stacked ? r.top + (kLatencyRow - 6) / 2 : (r.top + r.bottom) / 2};
         if (it.checked) {
           k.t->FillEllipse(D2D1::Ellipse(dot, 9, 9), k.Color(lit));
           k.t->FillEllipse(D2D1::Ellipse(dot, 4, 4), k.Color(FromColorRef(ui::kLitInk)));
@@ -3735,11 +3818,12 @@ class Painter {
           k.t->DrawEllipse(D2D1::Ellipse(dot, 8.5f, 8.5f), k.Color(secondary), kIconStroke);
         }
         // With a detail: the name and the latency on top, the detail under them.
-        const float mid = (r.top + r.bottom) / 2;
+        // A detail that wrapped (stacked) makes the row taller: the first line stays where it is.
+        const float mid = it.stacked ? r.top + (kLatencyRow - 6) / 2 : (r.top + r.bottom) / 2;
         const D2D1_RECT_F line = it.detail.empty() ? r : D2D1_RECT_F{r.left, r.top + 4, r.right, mid + 2};
         // Which sites open through the server, right to left before the latency:
         // green opens, red answers "not from here", dim doesn't answer.
-        float nameRight = line.right - 120;
+        float nameRight = line.right - 100;  // "48 ±3 мс" and "нет ответа" fit in the 88 from here to the edge
         if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.sites.size()) {
           const auto& sites = c.sites[static_cast<std::size_t>(it.index)];
           for (auto site = sites.rbegin(); site != sites.rend(); ++site) {
@@ -3753,11 +3837,12 @@ class Painter {
         }
         k.Text(it.text, body_.get(), {line.left + 42, line.top, nameRight - 8, line.bottom}, primary);
         if (!it.detail.empty()) {
-          k.Text(it.detail, caption_.get(), {r.left + 42, mid + 2, r.right - 12, r.bottom - 4}, secondary);
+          k.Text(it.detail, it.stacked ? captionWrap_.get() : caption_.get(),
+                 {r.left + 42, mid + 2, r.right - 12, r.bottom - 4}, secondary);
         }
         if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.delays.size()) {
           const UiDelay& delay = c.delays[static_cast<std::size_t>(it.index)];
-          k.Text(DelayLabel(delay, c.delaysDetailed), delay_.get(), {line.right - 120, line.top, line.right - 12, line.bottom},
+          k.Text(DelayLabel(delay, c.delaysDetailed), delay_.get(), {line.right - 100, line.top, line.right - 12, line.bottom},
                  FromColorRef(ui::DelayColor(delay)));
         }
         break;
@@ -3777,17 +3862,23 @@ class Painter {
         const std::array<D2D1_COLOR_F, 5> colors = {secondary, lit, FromColorRef(ui::kUpload),
                                                     FromColorRef(ui::kWarning), FromColorRef(ui::kDanger)};
         const D2D1_COLOR_F status = colors[static_cast<std::size_t>(std::clamp(it.index, 0, 4))];
-        const float cy = (r.top + r.bottom) / 2;
+        // The title's line: the whole row, or - the result stands under it - the row less kStackLine.
+        const float lineBottom = it.stacked ? r.bottom - kStackLine : r.bottom;
+        const float cy = (r.top + lineBottom) / 2;
         k.t->FillEllipse(D2D1::Ellipse({r.left + 20.5f, cy}, 4.5f, 4.5f), k.Color(status));  // its ink from the line 20
         // The title and its "?" (a Hint item after it), the result in what's
-        // left on the right - cut with "…": the "?" has it in full.
+        // left on the right, or under the title when that's too little.
         const float titleRight = r.left + 34 + TextWidth(it.text, body_.get());
-        k.Text(it.text, body_.get(), {r.left + 34, r.top, titleRight + 2, r.bottom}, primary);
-        const float resultLeft = titleRight + 6 + kHint + 8;
-        const float resultRight = r.right - CheckButtonRoom(it);
+        k.Text(it.text, body_.get(), {r.left + 34, r.top, titleRight + 2, lineBottom}, primary);
         const bool quiet = it.index <= 1;  // not run, running
-        k.Text(it.detail, trailing_.get(), {resultLeft, r.top, resultRight, r.bottom},
-               quiet ? secondary : (it.index >= 3 ? status : primary));
+        const D2D1_COLOR_F ink = quiet ? secondary : (it.index >= 3 ? status : primary);
+        if (it.stacked) {
+          k.Text(it.detail, trailing_.get(), {r.left + 34, lineBottom - 6, r.right - 16, r.bottom}, ink);
+        } else {
+          const float resultLeft = titleRight + 6 + kHint + 8;
+          const float resultRight = r.right - CheckButtonRoom(it);
+          k.Text(it.detail, trailing_.get(), {resultLeft, r.top, resultRight, r.bottom}, ink);
+        }
         break;
       }
       case Kind::Hint: {
@@ -3879,6 +3970,17 @@ class Painter {
         if (ID2D1Bitmap* icon = it.logo.empty() ? ProgramIcon(k.t, it.text2) : Logo(k.t, it.logo); icon != nullptr) {
           k.t->DrawBitmap(icon, {left, cy - 8, left + 16, cy + 8});
           left += 24;
+        }
+        if (it.stacked) {  // wider than the card: the text wraps, the detail stands under it (ChipWrappedHeight)
+          const float room = r.right - 10 - left;
+          const float detailHeight = it.detail.empty() ? 0.0f : TextHeight(it.detail, captionWrap_.get(), room);
+          k.Text(it.text, wrap_.get(), {left, r.top + 5, r.right - 10, r.bottom - 5 - detailHeight},
+                 it.quiet ? secondary : primary);
+          if (!it.detail.empty()) {
+            k.Text(it.detail, captionWrap_.get(), {left, r.bottom - 5 - detailHeight, r.right - 10, r.bottom - 5},
+                   secondary);
+          }
+          break;
         }
         // A thing that goes here anyway (the rest's way, UiChip::idle) is set quieter: named, no exception.
         k.Text(it.text, body_.get(), {left, r.top, r.right - 10, r.bottom}, it.quiet ? secondary : primary);  // 2 of slack: see Board

@@ -4006,6 +4006,14 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
     board.push_back({.kind = UiChip::Kind::Russia, .index = 0, .bucket = static_cast<int>(*r.russia),
                      .text = L"Российские сайты", .detail = {}, .icon = {}, .logo = "russia"});
   }
+  if (r.blockAds) {
+    board.push_back({.kind = UiChip::Kind::Ads, .index = 0, .bucket = sovereign::tray::kBucketBlock,
+                     .text = L"Реклама", .detail = {}, .icon = {}, .logo = "ads"});
+  }
+  if (r.cookieWindows) {
+    board.push_back({.kind = UiChip::Kind::Cookies, .index = 0, .bucket = sovereign::tray::kBucketBlock,
+                     .text = L"Баннеры cookie", .detail = {}, .icon = {}, .logo = "cookies"});
+  }
   for (std::size_t n = 0; n < r.services.size(); ++n) {
     const ServiceRoute& s = r.services[n];
     const auto* info = sovereign::tray::FindService(s.id);
@@ -5522,6 +5530,15 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
                                             sovereign::tray::kBucketWarp, sovereign::tray::kBucketBlock};
       static constexpr std::array<const wchar_t*, 4> kBuckets = {L"Через VPN", L"Напрямую", L"Через WARP", L"Блок"};
 
+      if (chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies) {
+        // Always the block's: there is only to stop blocking them (the settings' switch).
+        const bool ads = chip.kind == UiChip::Kind::Ads;
+        const std::vector<std::wstring> items = {ads ? L"Не убирать рекламу" : L"Не убирать баннеры cookie"};
+        if (PickFromMenu(owner, cursor, items, -1)) {
+          send(ads ? What::BlockAds : What::CookieWindows, false);
+        }
+        break;
+      }
       if (chip.kind == UiChip::Kind::Russia) {
         // Its way, as a rule's (WARP: turned on); or none of their own.
         std::vector<std::wstring> items(kBuckets.begin(), kBuckets.end());

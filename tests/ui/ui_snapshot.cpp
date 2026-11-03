@@ -57,7 +57,9 @@ std::vector<sovereign::tray::UiChip> SampleBoard() {
        .detail = {}, .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Rule, .index = 1, .bucket = 1, .text = L"10.9.0.0/16, steam.exe", .detail = {},
        .icon = {}, .logo = {}},
-      {.kind = UiChip::Kind::Rule, .index = 2, .bucket = 2, .text = L"~tracker", .detail = {}, .icon = {}, .logo = {}},
+      {.kind = UiChip::Kind::Ads, .index = 0, .bucket = 2, .text = L"Реклама", .detail = {}, .icon = {}, .logo = "ads"},
+    {.kind = UiChip::Kind::Cookies, .index = 0, .bucket = 2, .text = L"Баннеры cookie", .detail = {}, .icon = {}, .logo = "cookies"},
+    {.kind = UiChip::Kind::Rule, .index = 2, .bucket = 2, .text = L"~tracker", .detail = {}, .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Rule, .index = 3, .bucket = 3, .text = L"chatgpt.com", .detail = {}, .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Rule, .index = 4, .bucket = 0,
        .text = L"очень-длинный-поддомен.какой-то-банк-с-длинным-именем.example.ru", .detail = {}, .icon = {}, .logo = {}},
@@ -463,6 +465,9 @@ int Snapshots(const std::wstring& dir) {
     std::erase_if(routed.routing.board, [](const sovereign::tray::UiChip& chip) { return chip.bucket == 2; });
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96, dir + L"\\hover-block.png",
                                               L"+ отрезать");
+    // The same typed over: a rounded plate in the way's colour, the "+" gone under it.
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96, dir + L"\\edit-block.png",
+                                              L"edit:+ отрезать");
   });
 
   variant([&](UiContent& merged) {

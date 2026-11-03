@@ -596,6 +596,10 @@ struct Interaction {
   int focus = -1;
   bool focusVisible = false;
   int tip = -1;  // the item whose tip shows: a "?" pointed at, anything else with one (TipText) pointed at a while
+  // A way's line typed over (MainWindow::EditInPlace): the plate the native box sits on, rounded and
+  // ringed in the way's colour; what it covers (the "+", a chip) is not drawn. editWay -1: no colour of its own.
+  std::optional<D2D1_RECT_F> edit;
+  int editWay = -1;
   std::optional<CubePose> cube;  // the switch mid-motion (cube.h); none: at rest in its state's pose
 };
 
@@ -1235,20 +1239,13 @@ class Painter {
       }
     }
     const float shown = EaseOut(std::clamp(questionShown, 0.0f, 1.0f));
-    // The routing scheme's way pointed at (a thing on it, its heading, its "+"), or in focus: its
-    // line lit, the others faded.
-    int hot = -1;
-    for (const int at : {in.hover, in.focusVisible ? in.focus : -1}) {
-      if (hot < 0 && at >= 0 && static_cast<std::size_t>(at) < l.items.size()) {
-        const Item& h = l.items[static_cast<std::size_t>(at)];
-        if (h.kind == Kind::Tag || h.kind == Kind::GhostAdd || h.kind == Kind::Heading) {
-          hot = h.rail;
-        }
-      }
-    }
     const auto draw = [&](std::size_t i) {
       const Item& it = l.items[i];
       const auto n = static_cast<int>(i);
+      if (in.edit && (it.kind == Kind::GhostAdd || it.kind == Kind::Tag) && it.rect.left < in.edit->right &&
+          it.rect.right > in.edit->left && it.rect.top < in.edit->bottom && it.rect.bottom > in.edit->top) {
+        return;  // under the line being typed
+      }
       if (it.kind == Kind::Question) {
         k.Fill({0, 0, size.width, size.height}, Rgb(0, 0, 0, 0.58f * shown));  // the page dimmed under it
       }
@@ -1269,7 +1266,7 @@ class Painter {
       if (it.kind == Kind::LogBox && l.logBox) {
         DrawLog(k, *l.logBox, log);
       } else {
-        DrawItem(k, it, c, n == in.hover, n == in.pressed, hot);
+        DrawItem(k, it, c, n == in.hover, n == in.pressed);
       }
       if (it.clip >= 0) {
         t->PopAxisAlignedClip();
@@ -1299,6 +1296,11 @@ class Painter {
         continue;
       }
       draw(i);
+    }
+    if (in.edit) {
+      k.Round(*in.edit, kRadius, FromColorRef(ui::kCardColor));
+      k.Outline(*in.edit, kRadius,
+                in.editWay >= 0 ? FromColorRef(BucketColor(in.editWay), 0.7f) : Rgb(255, 255, 255, 0.3f));
     }
     if (clipped) {
       // The scroll position, when there is somewhere to scroll.
@@ -1926,8 +1928,8 @@ class Painter {
         {L"Через VPN", L"идёт через VPN", L"Через сервер VPN."},
         {L"Блок", L"заблокирован",
          L"Сайт или программа останутся без сети: не откроются ни через VPN, ни напрямую. Например, сайт, который не "
-         L"хочешь открывать, или назойливый апдейтер.\n\nРекламу и баннеры cookie включают в «+» тут же или в "
-         L"настройках.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
+         L"хочешь открывать, или назойливый апдейтер.\n\nРеклама и баннеры cookie тоже здесь: их включают в «+» "
+         L"или в настройках.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
         {L"Через WARP", L"идёт через WARP",
          L"Через Cloudflare WARP поверх VPN. Для сайтов, которые не пускают с адреса VPN: сайт видит адрес "
          L"Cloudflare.\n\nGoogle его адреса не любит: Gemini и поиск через WARP упрутся в капчу. Не проходит поверх "
@@ -2003,6 +2005,11 @@ class Painter {
         tag.tip = !chip.icon.empty() && id != kBucketBlock  // (icon: a program's exe)
                       ? std::format(L"{} {}, кроме сайтов и сервисов, у которых свой путь", chip.text, way.verb)
                       : std::format(L"{} {}", chip.text, way.verb);
+        if (chip.kind == UiChip::Kind::Ads) {
+          tag.tip = L"Реклама блокируется: списки рекламных адресов.";
+        } else if (chip.kind == UiChip::Kind::Cookies) {
+          tag.tip = L"Баннеры cookie блокируются: окна «принять cookie?» на сайтах.";
+        }
         tag.detail = chip.detail;
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
         tag.text2 = chip.icon;
@@ -2065,18 +2072,20 @@ class Painter {
       int bucket;
     };
     const std::array<Choice, 2> choices = {{
-        {L"Через VPN",
-         L"Заблокированное откроется само. Если банк или Госуслуги не открываются, добавь их в «Напрямую».",
-         kBucketProxy},
-        {L"Напрямую", L"Через VPN пойдёт только то, что добавишь в «Через VPN».", kBucketDirect},
+        {L"Через VPN", L"Всё, кроме списка «Напрямую»", kBucketProxy},
+        {L"Напрямую", L"Только список «Через VPN»", kBucketDirect},
     }};
+    // Not the page's width: as wide as its words need, under the sentence's own left edge.
+    constexpr float kMenuWidth = 292;
+    x0 += kSchemeIndent;
+    x1 = std::min(x1, x0 + kMenuWidth);
     const std::size_t panel = l.items.size();
     l.items.push_back(Make(Kind::Menu, {x0, top, x1, top}));
     float y = top + 4;
     const float textWidth = (x1 - 4) - (x0 + 4) - (12 + 8 + 12) - (12 + 16 + 12);
     for (std::size_t i = 0; i < choices.size(); ++i) {
       const Choice& choice = choices[i];
-      const float h = 12 + 20 + 4 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 12;
+      const float h = 8 + 20 + 4 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 8;
       Item item = CommandItem(Kind::MenuItem, {x0 + 4, y, x1 - 4, y + h}, choice.title, nullptr,
                               UiCommand::SetRouteMode, static_cast<int>(i));
       item.detail = choice.detail;
@@ -2087,10 +2096,10 @@ class Painter {
     }
     y += 4;
     l.items.push_back(Make(Kind::Divider, {x0 + 1, y, x1 - 1, y + 1}));
-    const std::wstring foot = L"У каждого режима свои списки. При смене они не теряются.";
+    const std::wstring foot = L"У каждого режима свои списки.";
     const float h = TextHeight(foot, captionWrap_.get(), x1 - x0 - 32);
-    l.items.push_back(Make(Kind::Caption, {x0 + 16, y + 12, x1 - 16, y + 12 + h}, foot));
-    y += 12 + h + 8;
+    l.items.push_back(Make(Kind::Caption, {x0 + 16, y + 8, x1 - 16, y + 8 + h}, foot));
+    y += 8 + h + 8;
     l.items[panel].rect.bottom = y;
     return y;
   }
@@ -3670,7 +3679,7 @@ class Painter {
 
   // `hot`: the way (rail) whose route the pointer is on - a chip, a heading or a "+" of it (Draw);
   // the routing scheme's lines lit for it, the others put back. -1: none.
-  void DrawItem(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed, int hot = -1) const {
+  void DrawItem(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed) const {
     const D2D1_RECT_F r = it.rect;
     const D2D1_COLOR_F primary = FromColorRef(ui::kPrimaryText);
     const D2D1_COLOR_F secondary = FromColorRef(ui::kSecondaryText);
@@ -3707,20 +3716,20 @@ class Painter {
         // A key in the sentence: the card's plate, a hairline brightened while open, the
         // chevron turned over then (the mockup's .pill).
         const float radius = (r.bottom - r.top) / 2;
-        k.Round(r, radius, hovered || it.checked ? Rgb(36, 37, 41) : FromColorRef(ui::kCardColor));
+        k.Round(r, radius, Rgb(255, 255, 255, hovered || it.checked ? 0.10f : 0.06f));
         if (pressed) {
           k.Round(r, radius, Rgb(0, 0, 0, 0.12f));
         }
-        k.Outline(r, radius, Rgb(255, 255, 255, it.checked ? 0.24f : 0.13f));
+        k.Outline(r, radius, Rgb(255, 255, 255, it.checked ? 0.38f : hovered ? 0.30f : 0.20f));
         k.Text(it.text, lead_.get(), {r.left + kPillSide, r.top, r.right - kPillSide - kChevron - 8, r.bottom}, primary);
         const float cx = r.right - kPillSide - kChevron / 2;
         const float cy = (r.top + r.bottom) / 2;
         const float turn = it.checked ? -1.0f : 1.0f;
-        Polyline(k, {{cx - 3.5f, cy - 1.75f * turn}, {cx, cy + 1.75f * turn}, {cx + 3.5f, cy - 1.75f * turn}}, secondary,
-                 1.5f);
+        Polyline(k, {{cx - 3.5f, cy - 1.75f * turn}, {cx, cy + 1.75f * turn}, {cx + 3.5f, cy - 1.75f * turn}}, primary,
+                 1.75f);
         break;
       }
-      case Kind::Route: DrawRoute(k, it, hot); break;
+      case Kind::Route: DrawRoute(k, it); break;
       case Kind::GhostAdd: {
         // A dashed place for one more: its way's colour round it under the pointer.
         const COLORREF tone = BucketColor(it.rail);
@@ -3759,12 +3768,12 @@ class Painter {
         }
         const float textLeft = r.left + 12 + 8 + 12;
         const float textRight = r.right - 12 - 16 - 12;
-        k.t->FillEllipse(D2D1::Ellipse({r.left + 12 + 4, r.top + 12 + 10}, 4, 4), k.Color(FromColorRef(BucketColor(it.rail))));
-        k.Text(it.text, strong_.get(), {textLeft, r.top + 12, textRight, r.top + 12 + 20}, primary);
-        k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 12 + 20 + 4, textRight, r.bottom - 12}, secondary);
+        k.t->FillEllipse(D2D1::Ellipse({r.left + 12 + 4, r.top + 8 + 10}, 4, 4), k.Color(FromColorRef(BucketColor(it.rail))));
+        k.Text(it.text, strong_.get(), {textLeft, r.top + 8, textRight, r.top + 8 + 20}, primary);
+        k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 8 + 20 + 4, textRight, r.bottom - 8}, secondary);
         if (it.checked) {
           const float x = r.right - 12 - 16;
-          const float y = r.top + 12 + 2;
+          const float y = r.top + 8 + 2;
           Polyline(k, {{x + 3, y + 8.5f}, {x + 6.2f, y + 11.5f}, {x + 13, y + 4.5f}}, lit, 1.75f);
         }
         break;
@@ -4634,17 +4643,15 @@ class Painter {
 
   // A line of the routing scheme (Kind::Route): the mode's spine from its node down to the way
   // everything else goes, or a way's branch off it to its station (the block's: a bar, the line
-  // ends). Lit at full tone and wider when it is `hot`'s, put back to .3 when another way is.
-  void DrawRoute(const Canvas& k, const Item& it, int hot) const {
+  // ends). Steady: the pointer does not light it.
+  void DrawRoute(const Canvas& k, const Item& it) const {
     const D2D1_RECT_F r = it.rect;
-    const bool lit = hot == it.rail;
-    const float alpha = hot < 0 || lit ? 1.0f : 0.3f;
-    const D2D1_COLOR_F ink = FromColorRef(BucketColor(it.rail), alpha);
+    const D2D1_COLOR_F ink = FromColorRef(BucketColor(it.rail));
     const D2D1_COLOR_F hole = FromColorRef(ui::kWindowColor);
     const float x = r.left + kLineX;
     const float end = r.left + kStationX;
     const bool spine = it.sub == kRouteSpine;
-    const float width = (spine ? 3.0f : 2.0f) + (lit ? (spine ? 0.5f : 1.5f) : 0.0f);
+    const float width = spine ? 3.0f : 2.0f;
     const float y = spine ? r.bottom : (r.top + r.bottom) / 2;  // where it turns into its way
     const float from = spine ? r.top : y - kLineTurn;
     wil::com_ptr<ID2D1PathGeometry> path;
@@ -4658,7 +4665,7 @@ class Painter {
       if (SUCCEEDED(sink->Close())) {
         k.t->DrawGeometry(path.get(), k.Color(ink), width, roundCaps_.get());
         if (spine) {  // the traffic on the main line: dots going down it (still, with the motion off)
-          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, 0.55f * alpha)), 1.5f, dots_.get());
+          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, 0.55f)), 1.5f, dots_.get());
         }
       }
     }
@@ -4671,8 +4678,8 @@ class Painter {
     }
     if (spine) {  // the mode's node at the top: a faint ring, a disc, a hole
       const D2D1_POINT_2F node{x, r.top};
-      k.t->DrawEllipse(D2D1::Ellipse(node, 10, 10), k.Color(FromColorRef(BucketColor(it.rail), 0.25f * alpha)), 1.5f);
-      k.t->FillEllipse(D2D1::Ellipse(node, 6, 6), k.Color(FromColorRef(BucketColor(it.rail), alpha)));
+      k.t->DrawEllipse(D2D1::Ellipse(node, 10, 10), k.Color(FromColorRef(BucketColor(it.rail), 0.25f)), 1.5f);
+      k.t->FillEllipse(D2D1::Ellipse(node, 6, 6), k.Color(FromColorRef(BucketColor(it.rail))));
       k.t->FillEllipse(D2D1::Ellipse(node, 2.5f, 2.5f), k.Color(hole));
     }
   }
@@ -5551,7 +5558,17 @@ struct MainWindow::Impl {
             }
           }
         }
-        BeginEdit(rect, onEnter, index, initial, digitsOnly);
+        const bool onScheme = anchor == UiCommand::BoardAdd || anchor == UiCommand::ChipMenu;
+        if (onScheme) {  // the box sits 4 inside a plate of its own (Interaction::edit)
+          BeginEdit({rect.left + 4, rect.top, rect.right - 4, rect.bottom}, onEnter, index, initial, digitsOnly);
+          if (edit.box) {
+            in.edit = rect;
+            in.editWay = anchor == UiCommand::BoardAdd ? index : it.rail;
+            InvalidateRect(hwnd, nullptr, FALSE);
+          }
+        } else {
+          BeginEdit(rect, onEnter, index, initial, digitsOnly);
+        }
         return;
       }
     }
@@ -6054,6 +6071,7 @@ struct MainWindow::Impl {
 
   void BeginEdit(D2D1_RECT_F rect, UiCommand onEnter, int index, const std::wstring& initial, bool digitsOnly) {
     EndEdit(false);
+    in.edit.reset();
     const UINT dpi = Dpi();
     const int fontHeight = Scale(17, dpi);
     editFont.reset(CreateFontW(-fontHeight, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
@@ -6094,6 +6112,8 @@ struct MainWindow::Impl {
     const UiCommand command = edit.onEnter;
     const int index = edit.index;
     edit.box.reset();  // its WM_KILLFOCUS finds no box: nothing twice
+    in.edit.reset();
+    InvalidateRect(hwnd, nullptr, FALSE);
     SetFocus(hwnd);
     const auto first = text.find_first_not_of(L" \t");
     if (!keep || first == std::wstring::npos) {
@@ -6724,7 +6744,18 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
     }
   }
   Interaction in;
-  if (!tipFor.empty()) {
+  constexpr std::wstring_view kEditPrefix = L"edit:";
+  if (tipFor.starts_with(kEditPrefix)) {
+    // A way's line typed over (the box itself is a window: only its plate shows here).
+    const std::wstring_view words = tipFor.substr(kEditPrefix.size());
+    const auto it = std::find_if(layout.items.begin(), layout.items.end(), [&](const Item& item) {
+      return item.kind == Kind::GhostAdd && item.text.starts_with(words);
+    });
+    THROW_HR_IF(E_INVALIDARG, it == layout.items.end());
+    in.edit = D2D1_RECT_F{layout.boardRight - it->rect.left >= 160 ? it->rect.left : layout.boardLeft, it->rect.top,
+                          layout.boardRight, it->rect.top + kTag};
+    in.editWay = it->rail;
+  } else if (!tipFor.empty()) {
     // Its tip, or its words where it has none: pointed at, without a tip then.
     const auto it = std::find_if(layout.items.begin(), layout.items.end(), [&](const Item& item) {
       return TipText(item).starts_with(tipFor) || (TipText(item).empty() && item.text.starts_with(tipFor));

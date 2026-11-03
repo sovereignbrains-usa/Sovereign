@@ -256,7 +256,7 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 1100, 96,
                                               dir + L"\\routing-direct-seen.png");
     // Nothing named on the way the rest goes to (what only goes there anyway is hidden): it is the
-    // line's end, a name and "и всё остальное", no list and no "+" (his: 'нижняя ветка не нужна').
+    // line's end, a name and "всё, что не попало выше", no list and no "+" (his: 'нижняя ветка не нужна').
     std::erase_if(routed.routing.board, [](const sovereign::tray::UiChip& chip) { return chip.bucket == 0; });
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-rest-bare.png");

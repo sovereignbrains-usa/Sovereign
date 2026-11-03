@@ -1957,9 +1957,9 @@ class Painter {
       head.tip = rest && idle > 0 ? way.hint + L"\n\n" + RestHint(idle) : way.hint;
       l.items.push_back(std::move(head));
       float top = y + 28;
-      // What's said by the name: the rest's "и всё остальное", how WARP goes. Beside it while
+      // What's said by the name: the rest's "всё, что не попало выше", how WARP goes. Beside it while
       // it fits whole, else a line of its own under it.
-      const std::wstring aside = rest ? std::wstring(L"и всё остальное") : id == kBucketWarp ? r.warpState : std::wstring();
+      const std::wstring aside = rest ? std::wstring(L"всё, что не попало выше") : id == kBucketWarp ? r.warpState : std::wstring();
       if (!aside.empty()) {
         const float asideLeft = left + nameWidth + 8;
         if (asideLeft + std::ceil(TextWidth(aside, caption_.get())) + 4 <= x1) {

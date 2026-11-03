@@ -1028,7 +1028,39 @@ std::optional<std::string> AdGuardRuleSet(std::string_view filter) {
   return Json{{"version", 3}, {"rules", Json::array({rule})}}.dump();
 }
 
-std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settings) {
+namespace {
+
+// What «в обход блокировок» knows without a race: services shut by address
+// (Telegram's app dials IPs over its own protocol - no hello to race, the
+// IPs dropped directly), shut to Russia by the service itself (TikTok, the
+// AIs, the streamings - a race sees them answer), or slowed down rather than
+// cut (YouTube). Through the VPN unless the user sent them a way of their
+// own (04.11.2026, his: «тг не работает тик ток тоже»).
+constexpr std::array<std::string_view, 17> kSmartViaVpn = {
+    "telegram", "whatsapp", "tiktok",  "youtube", "instagram", "facebook",   "x",       "discord", "linkedin",
+    "chatgpt",  "gemini",   "claude",  "grok",    "perplexity", "netflix",   "spotify", "disney"};
+
+// The settings the config is built from: the user's, and in the smart mode
+// the services above through the VPN where the user chose nothing.
+RoutingSettings Effective(const RoutingSettings& settings) {
+  if (!settings.finalDirect || !settings.smart) {
+    return settings;
+  }
+  RoutingSettings out = settings;
+  for (const std::string_view id : kSmartViaVpn) {
+    const bool chosen = std::any_of(settings.services.begin(), settings.services.end(),
+                                    [&](const ServiceRoute& r) { return r.id == id; });
+    if (!chosen && FindService(id) != nullptr) {
+      out.services.push_back(ServiceRoute{.id = std::string(id), .way = ServiceRoute::Way::Proxy});
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
+std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settingsIn) {
+  const RoutingSettings settings = Effective(settingsIn);
   std::vector<RuleSetSource> sets;
   if (settings.russia) {
     sets.push_back({std::string(kGeositeRu), std::string(kGeositeBase) + "geosite-category-ru.srs", false});
@@ -1104,8 +1136,9 @@ std::string OwnFrame(const RoutingSettings& settings) {
   return config.dump(2);
 }
 
-std::string ApplyRouting(std::string_view text, const RoutingSettings& settings,
+std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsIn,
                          const std::map<std::string, std::string>& files) {
+  const RoutingSettings settings = Effective(settingsIn);
   if (NestingDepth(text) > kMaxConfigDepth) {
     return std::string(text);
   }

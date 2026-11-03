@@ -446,6 +446,33 @@ void TestOwn() {
   CHECK(smart != nullptr && (*smart)["type"] == "sov-smart" && (*smart)["outbounds"].size() == 2 &&
         (*smart)["outbounds"][0] == "direct" && (*smart)["outbounds"][1] == "proxy");
   CHECK(RoutingFromJson(RoutingToJson(s)).smart);
+  // What a race can't see goes through the VPN by itself: Telegram's
+  // addresses, TikTok shut to Russia by itself - unless the user chose.
+  {
+    RoutingSettings m = s;
+    m.services.push_back(ServiceRoute{.id = "youtube", .way = ServiceRoute::Way::Direct});
+    const auto needed = NeededRuleSets(m);
+    const auto has = [&](std::string_view tag) {
+      return std::any_of(needed.begin(), needed.end(), [&](const RuleSetSource& r) { return r.tag == tag; });
+    };
+    CHECK(has("sov-svc-telegram") && has("sov-svc-telegram-ip") && has("sov-svc-tiktok"));
+    const json t = json::parse(ApplyRouting(direct.config.value_or("{}"), m,
+                                            {{"sov-svc-tiktok", "C:/lists/tt.srs"}, {"sov-svc-youtube", "C:/lists/yt.srs"}}));
+    std::string tiktok;
+    std::string youtube;
+    for (const json& r : t["route"]["rules"]) {
+      const std::string sets = r.value("rule_set", json()).dump();
+      tiktok = sets.find("sov-svc-tiktok") != std::string::npos ? r.value("outbound", "") : tiktok;
+      youtube = sets.find("sov-svc-youtube") != std::string::npos ? r.value("outbound", "") : youtube;
+    }
+    CHECK(tiktok == "proxy");
+    CHECK(youtube == "direct");
+    RoutingSettings plain = m;
+    plain.smart = false;
+    const auto plainNeeded = NeededRuleSets(plain);
+    CHECK(std::none_of(plainNeeded.begin(), plainNeeded.end(),
+                       [](const RuleSetSource& r) { return r.tag == "sov-svc-tiktok"; }));
+  }
   // Not without "напрямую": through the VPN everything goes there anyway.
   s.finalDirect = false;
   CHECK(json::parse(ApplyRouting(direct.config.value_or("{}"), s, Files()))["route"]["final"] != "sov-smart");

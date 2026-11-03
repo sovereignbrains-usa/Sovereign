@@ -87,6 +87,8 @@ constexpr float kSchemeIndent = 36;  // the words and things, from the page's le
 constexpr float kLineX = 10;         // the main line, from the page's left
 constexpr float kLineTurn = 10;      // a branch's turn off it: its radius
 constexpr float kStationX = 24;      // a station, from the page's left
+constexpr float kMenuDot = 28;       // the mode menu: a row's words from its left (the dot of the way's colour before them)
+constexpr float kMenuCheck = 32;     // and from its right (the check)
 constexpr float kPillSide = 12;      // the mode's pill: its words from its ends
 constexpr float kChevron = 14;       // and the chevron after them
 constexpr ULONGLONG kToggleGraceMs = 400;  // a tray click right after the window lost focus hides it
@@ -2076,16 +2078,19 @@ class Painter {
         {L"Напрямую", L"Только список «Через VPN»", kBucketDirect},
     }};
     // Not the page's width: as wide as its words need, under the sentence's own left edge.
-    constexpr float kMenuWidth = 292;
+    float need = 0;
+    for (const Choice& choice : choices) {
+      need = std::max({need, std::ceil(TextWidth(choice.title, strong_.get())), std::ceil(TextWidth(choice.detail, caption_.get()))});
+    }
     x0 += kSchemeIndent;
-    x1 = std::min(x1, x0 + kMenuWidth);
+    x1 = std::min(x1, x0 + 4 + kMenuDot + need + 2 + kMenuCheck + 4);
     const std::size_t panel = l.items.size();
     l.items.push_back(Make(Kind::Menu, {x0, top, x1, top}));
     float y = top + 4;
-    const float textWidth = (x1 - 4) - (x0 + 4) - (12 + 8 + 12) - (12 + 16 + 12);
+    const float textWidth = (x1 - 4) - (x0 + 4) - kMenuDot - kMenuCheck;
     for (std::size_t i = 0; i < choices.size(); ++i) {
       const Choice& choice = choices[i];
-      const float h = 8 + 20 + 4 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 8;
+      const float h = 6 + 20 + 2 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 6;
       Item item = CommandItem(Kind::MenuItem, {x0 + 4, y, x1 - 4, y + h}, choice.title, nullptr,
                               UiCommand::SetRouteMode, static_cast<int>(i));
       item.detail = choice.detail;
@@ -2095,11 +2100,6 @@ class Painter {
       y += h;
     }
     y += 4;
-    l.items.push_back(Make(Kind::Divider, {x0 + 1, y, x1 - 1, y + 1}));
-    const std::wstring foot = L"У каждого режима свои списки.";
-    const float h = TextHeight(foot, captionWrap_.get(), x1 - x0 - 32);
-    l.items.push_back(Make(Kind::Caption, {x0 + 16, y + 8, x1 - 16, y + 8 + h}, foot));
-    y += 8 + h + 8;
     l.items[panel].rect.bottom = y;
     return y;
   }
@@ -3766,14 +3766,14 @@ class Painter {
         if (hoverAlpha > 0) {
           k.Round(r, 6, Rgb(255, 255, 255, pressed ? 0.04f : 0.06f));
         }
-        const float textLeft = r.left + 12 + 8 + 12;
-        const float textRight = r.right - 12 - 16 - 12;
-        k.t->FillEllipse(D2D1::Ellipse({r.left + 12 + 4, r.top + 8 + 10}, 4, 4), k.Color(FromColorRef(BucketColor(it.rail))));
-        k.Text(it.text, strong_.get(), {textLeft, r.top + 8, textRight, r.top + 8 + 20}, primary);
-        k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 8 + 20 + 4, textRight, r.bottom - 8}, secondary);
+        const float textLeft = r.left + kMenuDot;
+        const float textRight = r.right - kMenuCheck;
+        k.t->FillEllipse(D2D1::Ellipse({r.left + 8 + 4, r.top + 6 + 10}, 4, 4), k.Color(FromColorRef(BucketColor(it.rail))));
+        k.Text(it.text, strong_.get(), {textLeft, r.top + 6, textRight, r.top + 6 + 20}, primary);
+        k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 6 + 20 + 2, textRight, r.bottom - 6}, secondary);
         if (it.checked) {
-          const float x = r.right - 12 - 16;
-          const float y = r.top + 8 + 2;
+          const float x = r.right - 8 - 16;
+          const float y = r.top + 6 + 2;
           Polyline(k, {{x + 3, y + 8.5f}, {x + 6.2f, y + 11.5f}, {x + 13, y + 4.5f}}, lit, 1.75f);
         }
         break;

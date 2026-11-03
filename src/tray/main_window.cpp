@@ -1986,7 +1986,7 @@ class Painter {
       };
       for (std::size_t n = 0; n < r.board.size(); ++n) {
         const UiChip& chip = r.board[n];
-        if (chip.bucket != id) {
+        if (chip.bucket != id || (rest && chip.idle)) {  // (what only goes here anyway: no word of it, the line ends here)
           continue;
         }
         // Whole pixels up: a chip as wide as its text to the last float got its
@@ -2029,8 +2029,11 @@ class Painter {
         top += 4 + h;
         rowTop = top + 8;
       }
+      // The way everything else goes to has no list of its own to fill: only what's an exception
+      // still (a service through a country) stands there, with its "+"; else it is the line's end.
+      const bool bare = rest && placed.empty();
       // The "+": a square after the things, a word where there are none.
-      {
+      if (!bare) {
         const std::wstring label = !placed.empty()        ? std::wstring()
                                    : id == kBucketBlock   ? std::wstring(L"+ отрезать сайт или программу")
                                                           : std::wstring(L"+ сайт, сервис или программа");
@@ -2053,7 +2056,7 @@ class Painter {
       } else {
         routes.push_back(std::move(route));
       }
-      y = rowTop + rowHeight + 20;
+      y = bare ? top + 20 : rowTop + rowHeight + 20;
     }
     Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY});
     spine.rail = mode;
@@ -2107,9 +2110,9 @@ class Painter {
   // What the hidden things on the way everything else goes to say of
   // themselves (UiChip::idle); empty with none.
   static std::wstring RestHint(std::ptrdiff_t idle) {
-    return idle > 0 ? std::wstring(L"Сюда идёт всё, что не названо выше. Названное здесь приглушено: оно шло бы сюда "
-                                   L"и без записи, поэтому ничего не меняет. Это не исключения; если переключить режим "
-                                   L"наверху, они ими станут.")
+    return idle > 0 ? std::wstring(L"Сюда идёт всё, что не названо выше. Названное здесь скрыто: оно шло бы сюда "
+                                   L"и без записи, поэтому ничего не меняет. Если переключить режим наверху, "
+                                   L"оно появится в своём списке.")
                     : std::wstring();
   }
   float Paragraph(Layout& l, Kind kind, const std::wstring& text, float x0, float x1, float y) const {

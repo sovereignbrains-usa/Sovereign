@@ -468,6 +468,7 @@ nlohmann::json RoutingToJson(const RoutingSettings& s) {
                                                             : "auto"},
           {"hysteriaMbps", s.hysteriaMbps},
           {"finalDirect", s.finalDirect},
+          {"smart", s.smart},
           {"remoteDns", s.remoteDns == RoutingSettings::RemoteDns::Google     ? "google"
                         : s.remoteDns == RoutingSettings::RemoteDns::Quad9    ? "quad9"
                         : s.remoteDns == RoutingSettings::RemoteDns::Auto     ? "auto"
@@ -527,6 +528,7 @@ RoutingSettings RoutingFromJson(const nlohmann::json& json) {
     s.hysteriaMbps = static_cast<int>(std::clamp<std::int64_t>(it->get<std::int64_t>(), 0, 10000));
   }
   flag("finalDirect", s.finalDirect);
+  flag("smart", s.smart);
   flag("ipv4Only", s.ipv4Only);
   if (const auto it = json.find("services"); it != json.end() && it->is_array()) {
     for (const nlohmann::json& item : *it) {
@@ -1453,6 +1455,23 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settings,
   }
   Prepend(route["rules"], std::move(rules), at);
   route["final"] = settings.finalDirect || proxy.empty() ? direct : proxy;
+  // "В обход блокировок": directly, and through the proxy what's cut there -
+  // sov-smart races a site's TLS hello both ways (gocore/smart.go). It reads
+  // the name and the protocol off the sniff: one is made sure of first.
+  if (settings.finalDirect && settings.smart && !proxy.empty()) {
+    const std::set<std::string> taken = Tags(outbounds);
+    std::string smart(kSmartTag);
+    for (int n = 2; taken.contains(smart); ++n) {
+      smart = std::format("{} {}", kSmartTag, n);
+    }
+    outbounds.push_back(Json{{"type", "sov-smart"}, {"tag", smart}, {"outbounds", Json::array({direct, proxy})}});
+    route["final"] = smart;
+    const bool sniffed = std::any_of(route["rules"].begin(), route["rules"].end(),
+                                     [](const Json& r) { return Str(r, "action") == "sniff" && r.size() == 1; });
+    if (!sniffed) {
+      route["rules"].insert(route["rules"].begin(), Json{{"action", "sniff"}});
+    }
+  }
 
   // DNS: Russian and direct names resolved locally, blocked ones not at all.
   std::vector<Json> dnsRules;

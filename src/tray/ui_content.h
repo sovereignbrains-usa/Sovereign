@@ -165,6 +165,7 @@ struct UiRouting {
   bool quicBlocked = true;  // what it comes to - auto: by the servers
   int hysteriaMbps = 0;     // RoutingSettings::hysteriaMbps
   bool finalDirect = false;
+  bool smart = false;  // with finalDirect: "в обход блокировок" (RoutingSettings::smart)
   bool ipv4Only = true;
   std::wstring remoteDns;  // "Cloudflare"
   std::wstring localDns;   // "Cloudflare (DoH)"

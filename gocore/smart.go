@@ -77,6 +77,9 @@ func registerSmart(registry *outbound.Registry) {
 // coreContext is include.Context with one outbound type more, "sov-smart":
 // a config without it parses and runs exactly as `sing-box run` would.
 func coreContext(ctx context.Context) context.Context {
+	smartLiveMu.Lock()
+	smartLive = map[string]*smartOutbound{} // a new box: the old one's are gone
+	smartLiveMu.Unlock()
 	outbounds := include.OutboundRegistry()
 	registerSmart(outbounds)
 	return box.Context(ctx, include.InboundRegistry(), outbounds, include.EndpointRegistry(),
@@ -129,19 +132,44 @@ func (s *smartOutbound) Start(stage adapter.StartStage, _ *adapter.Scope) error 
 		}
 		s.ways = append(s.ways, way)
 	}
+	smartLiveMu.Lock()
+	smartLive[s.Tag()] = s
+	smartLiveMu.Unlock()
 	return nil
 }
 
-// way: the remembered way for the connection in ctx, else the preferred.
+// The running box's smart outbounds by tag: box_flows and box_route tell a
+// connection's real way by them, not "sov-smart".
+var (
+	smartLiveMu sync.Mutex
+	smartLive   = map[string]*smartOutbound{}
+)
+
+// smartWay: for a connection a rule sent to the smart outbound `tag`, the
+// way it goes - the one remembered for its name, else the preferred.
+// False: `tag` is no smart outbound.
+func smartWay(tag string, metadata *adapter.InboundContext) (adapter.Outbound, bool) {
+	smartLiveMu.Lock()
+	s := smartLive[tag]
+	smartLiveMu.Unlock()
+	if s == nil || len(s.ways) == 0 {
+		return nil, false
+	}
+	return s.wayFor(smartKey(metadata)), true
+}
+
+// wayFor: the remembered way for the name `key`, else the preferred.
+func (s *smartOutbound) wayFor(key string) adapter.Outbound {
+	if tag, ok := smartMemo.verdict(key, time.Now()); ok {
+		return s.byTag(tag)
+	}
+	return s.ways[0]
+}
+
+// way: wayFor the connection in ctx.
 func (s *smartOutbound) way(ctx context.Context) adapter.Outbound {
 	if metadata := adapter.ContextFrom(ctx); metadata != nil {
-		if tag, ok := smartMemo.verdict(smartKey(metadata), time.Now()); ok {
-			for _, way := range s.ways {
-				if way.Tag() == tag {
-					return way
-				}
-			}
-		}
+		return s.wayFor(smartKey(metadata))
 	}
 	return s.ways[0]
 }

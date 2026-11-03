@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/trafficcontrol"
+	N "github.com/sagernet/sing/common/network"
 )
 
 // RouteSeen is one connection's way: the server (or "direct") it went out
@@ -59,6 +61,25 @@ func RouteOf(targets []string, connections ...[]*trafficcontrol.TrackerMetadata)
 		return nil
 	}
 	seen := &RouteSeen{Outbound: newest.Outbound, Type: newest.OutboundType, Chain: newest.Chain}
+	if n := len(newest.Chain); n > 0 {
+		if way, ok := smartWay(newest.Chain[n-1], &newest.Metadata); ok {
+			// The smart outbound's: the way it took, down its groups to the server.
+			path := []adapter.Outbound{way}
+			for group, isGroup := way.(adapter.OutboundGroup); isGroup; group, isGroup = way.(adapter.OutboundGroup) {
+				if way = group.Selected(N.NetworkTCP); way == nil {
+					break
+				}
+				path = append(path, way)
+			}
+			last := path[len(path)-1]
+			seen.Outbound, seen.Type = last.Tag(), last.Type()
+			seen.Chain = nil
+			for i := len(path) - 1; i >= 0; i-- {
+				seen.Chain = append(seen.Chain, path[i].Tag())
+			}
+			seen.Chain = append(seen.Chain, newest.Chain[n-1])
+		}
+	}
 	if len(seen.Chain) > maxRouteChain {
 		seen.Chain = seen.Chain[:maxRouteChain]
 	}

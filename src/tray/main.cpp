@@ -406,7 +406,7 @@ struct RoutingChange {
     CookieWindows,  // on
     Quic,           // value: RoutingSettings::Quic's number
     HysteriaMbps,   // value: Mbit/s, 0: BBR
-    FinalDirect,    // on
+    FinalDirect,    // on; value: 1 - "в обход блокировок" (RoutingSettings::smart)
     Ipv4Only,       // on
     RemoteDns,      // value: RoutingSettings::RemoteDns
     LocalDns,       // value: RoutingSettings::LocalDns
@@ -1152,7 +1152,10 @@ class Worker {
         r.quic = static_cast<sovereign::tray::RoutingSettings::Quic>(std::clamp(change.value, 0, 2));
         break;
       case RoutingChange::What::HysteriaMbps: r.hysteriaMbps = std::clamp(change.value, 0, 10000); break;
-      case RoutingChange::What::FinalDirect: r.finalDirect = change.on; break;
+      case RoutingChange::What::FinalDirect:
+        r.finalDirect = change.on;
+        r.smart = change.on && change.value == 1;
+        break;
       case RoutingChange::What::Ipv4Only: r.ipv4Only = change.on; break;
       case RoutingChange::What::Warp:
         if (change.on && !r.warpAccount) {
@@ -4702,6 +4705,7 @@ UiContent ContentFrom(const View& v) {
   c.routing.quicBlocked = v.quicBlocked;
   c.routing.hysteriaMbps = r.hysteriaMbps;
   c.routing.finalDirect = r.finalDirect;
+  c.routing.smart = r.finalDirect && r.smart;
   c.routing.ipv4Only = r.ipv4Only;
   c.routing.warp = r.warp;
   c.routing.warpRegistered = r.warpAccount.has_value();
@@ -5237,7 +5241,7 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       s.view.checks[static_cast<std::size_t>(CheckId::Route)] = std::move(now);
       break;
     }
-    case UiCommand::SetRouteMode: send(What::FinalDirect, args.index == 1); break;
+    case UiCommand::SetRouteMode: send(What::FinalDirect, args.index != 0, args.index == 2 ? 1 : 0); break;
     case UiCommand::SetHysteriaMbps: send(What::HysteriaMbps, false, args.index); break;
     case UiCommand::ToggleIpv4Only: send(What::Ipv4Only, !r.ipv4Only); break;
     case UiCommand::ToggleWarp: send(What::Warp, !r.warp); break;

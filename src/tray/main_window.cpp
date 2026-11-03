@@ -1903,7 +1903,7 @@ class Painter {
     const std::wstring lead = L"Всё идёт";
     const float leadWidth = std::ceil(TextWidth(lead, lead_.get()));
     l.items.push_back(Make(Kind::Lead, {left, y, left + leadWidth + 4, y + kTag}, lead));
-    const std::wstring word = r.finalDirect ? L"напрямую" : L"через VPN";
+    const std::wstring word = r.smart ? L"в обход блокировок" : r.finalDirect ? L"напрямую" : L"через VPN";
     const float pillWidth = kPillSide + std::ceil(TextWidth(word, lead_.get())) + 8 + kChevron + kPillSide;
     float pillX = left + leadWidth + 8;
     float pillY = y;
@@ -1959,7 +1959,10 @@ class Painter {
       float top = y + 28;
       // What's said by the name: the rest's "всё, что не попало выше", how WARP goes. Beside it while
       // it fits whole, else a line of its own under it.
-      const std::wstring aside = rest ? std::wstring(L"всё, что не попало выше") : id == kBucketWarp ? r.warpState : std::wstring();
+      const std::wstring aside = rest && r.smart ? std::wstring(L"всё, что не попало выше; заблокированное — через VPN")
+                                 : rest           ? std::wstring(L"всё, что не попало выше")
+                                 : id == kBucketWarp ? r.warpState
+                                                     : std::wstring();
       if (!aside.empty()) {
         const float asideLeft = left + nameWidth + 8;
         if (asideLeft + std::ceil(TextWidth(aside, caption_.get())) + 4 <= x1) {
@@ -2023,7 +2026,7 @@ class Painter {
         l.items.push_back(std::move(tag));
       }
       // Nothing yet through the VPN while only what's chosen goes there: said in amber.
-      if (r.finalDirect && id == kBucketProxy && placed.empty()) {
+      if (r.finalDirect && !r.smart && id == kBucketProxy && placed.empty()) {
         const std::wstring none = L"Пока через VPN не идёт ничего.";
         const float h = TextHeight(none, captionWrap_.get(), x1 - left);
         l.items.push_back(Make(Kind::Caption, {left, top + 4, x1, top + 4 + h}, none));
@@ -2078,9 +2081,12 @@ class Painter {
       const wchar_t* detail;
       int bucket;
     };
-    const std::array<Choice, 2> choices = {{
+    const std::array<Choice, 3> choices = {{
         {L"Через VPN", L"Всё, кроме списка «Напрямую»", kBucketProxy},
         {L"Напрямую", L"Только список «Через VPN»", kBucketDirect},
+        // Sovereign tries each site directly and through the VPN at once, keeps directly what
+        // opens (gocore/smart.go, 04.11.2026).
+        {L"В обход блокировок", L"Напрямую, а что не открывается — через VPN", kBucketProxy},
     }};
     // Not the page's width: as wide as its words need, under the sentence's own left edge.
     float need = 0;
@@ -2100,7 +2106,7 @@ class Painter {
                               UiCommand::SetRouteMode, static_cast<int>(i));
       item.detail = choice.detail;
       item.rail = choice.bucket;
-      item.checked = r.finalDirect == (i == 1);
+      item.checked = i == 0 ? !r.finalDirect : i == 1 ? r.finalDirect && !r.smart : r.smart;
       l.items.push_back(std::move(item));
       y += h;
     }

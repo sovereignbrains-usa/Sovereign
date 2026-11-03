@@ -260,6 +260,15 @@ int Snapshots(const std::wstring& dir) {
     std::erase_if(routed.routing.board, [](const sovereign::tray::UiChip& chip) { return chip.bucket == 0; });
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-rest-bare.png");
+    // "В обход блокировок": the pill's words on a line of their own, the line's end says the blocked
+    // go through the VPN; the menu with the third mode checked.
+    routed.routing.smart = true;
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
+                                              dir + L"\\routing-smart.png");
+    routed.routeMenu = true;
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
+                                              dir + L"\\routing-smart-menu.png");
+    routed.routeMenu = false;
   });
   // The checks: run, one warning, one failing, one running, speed and an address.
   variant([&](UiContent& checked) {

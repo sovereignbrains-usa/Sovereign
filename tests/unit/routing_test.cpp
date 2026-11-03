@@ -430,6 +430,28 @@ void TestOwn() {
   CHECK(!d["dns"].contains("strategy"));
   CHECK(d["dns"]["servers"][1]["server"] == "8.8.8.8" && d["dns"]["servers"][1]["type"] == "https");
 
+  // "В обход блокировок": everything else to the core's sov-smart, directly
+  // first, then the proxy; sniffed before it. (Not for `sing-box check`: the
+  // type is the core's own.)
+  s.smart = true;
+  const json a = json::parse(ApplyRouting(direct.config.value_or("{}"), s, Files()));
+  CHECK(a["route"]["final"] == "sov-smart");
+  CHECK(a["route"]["rules"][0] == json({{"action", "sniff"}}));
+  const json* smart = nullptr;
+  for (const json& o : a["outbounds"]) {
+    if (o.value("tag", "") == "sov-smart") {
+      smart = &o;
+    }
+  }
+  CHECK(smart != nullptr && (*smart)["type"] == "sov-smart" && (*smart)["outbounds"].size() == 2 &&
+        (*smart)["outbounds"][0] == "direct" && (*smart)["outbounds"][1] == "proxy");
+  CHECK(RoutingFromJson(RoutingToJson(s)).smart);
+  // Not without "напрямую": through the VPN everything goes there anyway.
+  s.finalDirect = false;
+  CHECK(json::parse(ApplyRouting(direct.config.value_or("{}"), s, Files()))["route"]["final"] != "sov-smart");
+  s.finalDirect = true;
+  s.smart = false;
+
   // The lists not downloaded yet: the zones still go directly, nothing refers to a missing list.
   RoutingSettings bare;
   const json b = json::parse(ApplyRouting(CombineConfigs({{"Ключи", Keys(), {}}}, OwnFrame(bare)).config.value_or("{}"),

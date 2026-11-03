@@ -142,6 +142,12 @@ struct RoutingSettings {
   // server picks its rate (BBR). A config's own speeds stay.
   int hysteriaMbps = 0;
   bool finalDirect = false;  // what no rule matches: directly (else through the proxy)
+  // With finalDirect: "в обход блокировок" - what no rule matches goes
+  // directly unless it's cut there, then through the proxy. The core's
+  // sov-smart (gocore/smart.go) sends a site's TLS hello both ways and keeps
+  // the direct one if its server answers, remembering the verdict per name
+  // (04.11.2026, his: "клиент сам понимает че заблокировано").
+  bool smart = false;
   RemoteDns remoteDns = RemoteDns::Auto;  // through the proxy
   LocalDns localDns = LocalDns::Auto;     // directly: Russian and direct names, the servers' own
   std::string remoteDnsCustom;            // RemoteDns::Custom's address, as typed
@@ -163,6 +169,8 @@ struct RoutingSettings {
 
 // The WARP endpoint's tag in the config.
 inline constexpr std::string_view kWarpTag = "warp";
+// "В обход блокировок": the core's sov-smart outbound everything else goes to.
+inline constexpr std::string_view kSmartTag = "sov-smart";
 // Over the proxy, WARP goes out through this selector of the proxy's servers;
 // which one is the tray's to pick (main.cpp WatchWarp).
 inline constexpr std::string_view kWarpViaTag = "warp-via";

@@ -27,6 +27,9 @@ func FlowTotals(connections ...[]*trafficcontrol.TrackerMetadata) map[string][2]
 			if n := len(m.Chain); n > 0 {
 				tag = m.Chain[n-1]
 			}
+			if way, ok := smartWay(tag, &m.Metadata); ok {
+				tag = way.Tag() // "direct" or the proxy, not "sov-smart"
+			}
 			f := flows[tag]
 			if m.Upload != nil {
 				f[0] += m.Upload.Load()

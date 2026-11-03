@@ -10,10 +10,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/trafficcontrol"
 	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
 	M "github.com/sagernet/sing/common/metadata"
@@ -245,6 +248,13 @@ func TestSmartInRealBox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	traffic := trafficcontrol.NewManager()
+	instance.Router().AppendTracker(traffic)
+	trafficScope := adapter.NewScope(ctx, instance.LogFactory().Logger())
+	if err := traffic.Start(adapter.StartStateInitialize, trafficScope); err != nil {
+		t.Fatal(err)
+	}
+	defer trafficScope.Close()
 	if err := instance.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -273,5 +283,14 @@ func TestSmartInRealBox(t *testing.T) {
 	v, ok := smartMemo.learned(time.Now())[name]
 	if !ok || v.Way != "direct" || v.Why != "reset" {
 		t.Fatalf("learned: %+v %v", v, ok)
+	}
+	// The tray sees the way taken, not "smart": the flows by it, the route to the server.
+	flows := FlowTotals(traffic.Connections(), traffic.ClosedConnections())
+	if _, bySmart := flows["smart"]; bySmart || flows["direct"][1] == 0 {
+		t.Fatalf("flows: %v", flows)
+	}
+	seen := RouteOf([]string{name}, traffic.Connections(), traffic.ClosedConnections())
+	if seen == nil || seen.Outbound != "direct" || seen.Type != "direct" || strings.Join(seen.Chain, ",") != "direct,smart" {
+		t.Fatalf("route: %+v", seen)
 	}
 }

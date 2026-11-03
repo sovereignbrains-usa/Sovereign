@@ -3946,6 +3946,13 @@ std::optional<std::size_t> PickFromMenu(HWND window, POINT at, const std::vector
       SetMenuItemInfoW(menu.get(), static_cast<UINT>(i + 1), FALSE, &item);
     }
   }
+  if (checked < 0 && icons.empty()) {  // nothing to put in the gutter: the words come to the edge, not 24 px in
+    MENUINFO style{};
+    style.cbSize = sizeof style;
+    style.fMask = MIM_STYLE;
+    style.dwStyle = MNS_NOCHECK;
+    SetMenuInfo(menu.get(), &style);
+  }
   SetForegroundWindow(window);
   const auto command = static_cast<UINT>(
       TrackPopupMenu(menu.get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, at.x, at.y, 0, window,

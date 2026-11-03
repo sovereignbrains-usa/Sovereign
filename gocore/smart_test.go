@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -149,9 +150,97 @@ func TestSmartMemory(t *testing.T) {
 	}
 }
 
+// readCut reads `conn` (watched with `stall`) until it ends; the server
+// side writes `send`, then stays silent until the test ends.
+func readCut(t *testing.T, stall time.Duration, send []byte) (cut bool, took time.Duration) {
+	t.Helper()
+	client, server := net.Pipe()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		defer server.Close()
+		_, _ = server.Write(send)
+		<-stop
+	}()
+	var cuts atomic.Int32
+	conn := watchCut(client, stall, func() { cuts.Add(1) })
+	defer conn.Close()
+	started := time.Now()
+	_ = client.SetReadDeadline(time.Now().Add(4 * stall))
+	buffer := make([]byte, 64)
+	for {
+		if _, err := conn.Read(buffer); err != nil {
+			break
+		}
+	}
+	return cuts.Load() == 1, time.Since(started)
+}
+
+func record(size int) []byte {
+	return append([]byte{0x17, 3, 3, byte(size >> 8), byte(size)}, make([]byte, size)...)
+}
+
+func TestCutMidRecord(t *testing.T) {
+	cut, took := readCut(t, 200*time.Millisecond, append(record(300), record(1000)[:600]...))
+	if !cut || took > 600*time.Millisecond {
+		t.Fatalf("a record stopped half-way: cut %v after %v", cut, took)
+	}
+}
+
+func TestNoCutBetweenRecords(t *testing.T) {
+	if cut, _ := readCut(t, 200*time.Millisecond, append(record(300), record(1000)...)); cut {
+		t.Fatal("a server idle between records is no cut")
+	}
+}
+
+func TestNoCutNotTLS(t *testing.T) {
+	if cut, _ := readCut(t, 200*time.Millisecond, []byte("HTTP/1.1 200 OK\r\nContent-Length: 9000\r\n\r\npart")); cut {
+		t.Fatal("not TLS: nothing to tell a cut by")
+	}
+}
+
+func TestNoCutPastWatch(t *testing.T) {
+	var send []byte
+	for len(send) <= smartWatchMax {
+		send = append(send, record(16000)...)
+	}
+	if cut, _ := readCut(t, 200*time.Millisecond, append(send, record(1000)[:10]...)); cut {
+		t.Fatal("past smartWatchMax a stall is not looked at")
+	}
+}
+
+// cutSocks is a SOCKS5 server that connects where asked and passes the
+// server's data only for its first `limit` bytes, then holds the rest - the
+// "16 KB" cut.
+func cutSocks(t *testing.T, limit int64) string {
+	t.Helper()
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	return socksServer(t, func(conn net.Conn, target string) {
+		remote, err := net.DialTimeout("tcp", target, 5*time.Second)
+		if err != nil {
+			return
+		}
+		defer remote.Close()
+		go func() { _, _ = io.Copy(remote, conn) }()
+		_, _ = io.CopyN(conn, remote, limit)
+		go func() { _, _ = io.Copy(io.Discard, remote) }()
+		<-hold // the rest held, the connection open: DPI doesn't close it
+	})
+}
+
 // dpiSocks is a SOCKS5 server that accepts a CONNECT and closes the
 // connection on the first bytes after it - DPI cutting on the hello.
 func dpiSocks(t *testing.T) string {
+	t.Helper()
+	return socksServer(t, func(conn net.Conn, _ string) {
+		_, _ = conn.Read(make([]byte, 1)) // the hello: cut
+	})
+}
+
+// socksServer accepts SOCKS5 CONNECTs and hands each, answered, to `serve`
+// with the address asked for.
+func socksServer(t *testing.T, serve func(conn net.Conn, target string)) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -178,24 +267,30 @@ func dpiSocks(t *testing.T) string {
 				if _, err := io.ReadFull(conn, request); err != nil {
 					return
 				}
-				skip := 0
+				size := 0
 				switch request[3] {
 				case 1:
-					skip = 4
+					size = 4
 				case 4:
-					skip = 16
+					size = 16
 				case 3:
-					size := make([]byte, 1)
-					if _, err := io.ReadFull(conn, size); err != nil {
+					length := make([]byte, 1)
+					if _, err := io.ReadFull(conn, length); err != nil {
 						return
 					}
-					skip = int(size[0])
+					size = int(length[0])
 				}
-				if _, err := io.ReadFull(conn, make([]byte, skip+2)); err != nil {
+				address := make([]byte, size+2)
+				if _, err := io.ReadFull(conn, address); err != nil {
 					return
 				}
+				host := string(address[:size])
+				if request[3] != 3 {
+					host = net.IP(address[:size]).String()
+				}
+				port := int(binary.BigEndian.Uint16(address[size:]))
 				_, _ = conn.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-				_, _ = conn.Read(make([]byte, 1)) // the hello: cut
+				serve(conn, net.JoinHostPort(host, strconv.Itoa(port)))
 			}()
 		}
 	}()
@@ -283,9 +378,7 @@ func TestSmartInRealBox(t *testing.T) {
 	defer instance.Close()
 
 	const name = "smart-dpi.test"
-	smartMemo.mu.Lock()
-	delete(smartMemo.items, name)
-	smartMemo.mu.Unlock()
+	forget(name, "ip:127.0.0.1")
 
 	for round := 1; round <= 2; round++ { // the second goes by the memory
 		conn := socksConnect(t, "127.0.0.1:"+strconv.Itoa(inbound), site.Listener.Addr().String())
@@ -314,5 +407,76 @@ func TestSmartInRealBox(t *testing.T) {
 	seen := RouteOf([]string{name}, traffic.Connections(), traffic.ClosedConnections())
 	if seen == nil || seen.Outbound != "direct" || seen.Type != "direct" || strings.Join(seen.Chain, ",") != "direct,smart" {
 		t.Fatalf("route: %+v", seen)
+	}
+}
+
+func forget(keys ...string) {
+	smartMemo.mu.Lock()
+	defer smartMemo.mu.Unlock()
+	for _, key := range keys {
+		delete(smartMemo.items, key)
+	}
+}
+
+// A real sing-box, the preferred way passing the server's first 16 KB and
+// holding the rest: the first page is lost, cut; the name and the address
+// learned for direct; the second page comes whole.
+func TestSmartCutInRealBox(t *testing.T) {
+	page := strings.Repeat("x", 64*1024)
+	site := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, page)
+	}))
+	defer site.Close()
+	cutHost, cutPortText, _ := net.SplitHostPort(cutSocks(t, 16*1024))
+	cutPort, _ := strconv.Atoi(cutPortText)
+	inbound := freePort(t)
+	config := fmt.Sprintf(`{
+	  "log": {"level": "info"},
+	  "inbounds": [{"type": "mixed", "tag": "in", "listen": "127.0.0.1", "listen_port": %d}],
+	  "outbounds": [
+	    {"type": "socks", "tag": "cut", "server": %q, "server_port": %d},
+	    {"type": "direct", "tag": "direct"},
+	    {"type": "sov-smart", "tag": "smart", "outbounds": ["cut", "direct"], "race_ms": 1000}
+	  ],
+	  "route": {"rules": [{"action": "sniff"}], "final": "smart"}
+	}`, inbound, cutHost, cutPort)
+	ctx := coreContext(context.Background())
+	var options option.Options
+	if err := singjson.UnmarshalContext(ctx, []byte(config), &options); err != nil {
+		t.Fatal(err)
+	}
+	instance, err := box.New(box.Options{Context: ctx, Options: options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := instance.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer instance.Close()
+
+	const name = "smart-cut.test"
+	forget(name, "ip:127.0.0.1")
+	defer forget(name, "ip:127.0.0.1")
+	fetch := func() (int, time.Duration) {
+		started := time.Now()
+		conn := socksConnect(t, "127.0.0.1:"+strconv.Itoa(inbound), site.Listener.Addr().String())
+		client := tls.Client(conn, &tls.Config{ServerName: name, InsecureSkipVerify: true}) //nolint:gosec // a local test server
+		defer client.Close()
+		if err := client.Handshake(); err != nil {
+			t.Fatalf("TLS through sov-smart: %v", err)
+		}
+		_, _ = io.WriteString(client, "GET / HTTP/1.1\r\nHost: "+name+"\r\nConnection: close\r\n\r\n")
+		body, _ := io.ReadAll(client)
+		return len(body), time.Since(started)
+	}
+	if got, took := fetch(); got >= len(page) || took > 5*time.Second {
+		t.Fatalf("the first page through the cut: %d bytes in %v", got, took)
+	}
+	learned := smartMemo.learned(time.Now())
+	if learned[name].Way != "direct" || learned[name].Why != "cut" || learned["ip:127.0.0.1"].Way != "direct" {
+		t.Fatalf("learned: %+v", learned)
+	}
+	if got, _ := fetch(); got < len(page) {
+		t.Fatalf("the second page, direct: %d bytes", got)
 	}
 }

@@ -16,9 +16,15 @@ package main
 // hello still cached in it - that is what lets the race live in an outbound
 // and not in a fork of sing-box.
 //
-// Not yet: the "16 KB" cut (a handshake let through, the flow cut after it),
-// a slowdown, a site refusing the server's country - a race of hellos can't
-// see them; and the memory is one for every network.
+// The "16 KB" cut (a handshake let through, the server's data dropped after
+// the first ~16 KB - by the server's address, its hosting) a race can't see:
+// a way with a way after it is watched (cutConn) - the server's data stopped
+// in the middle of a TLS record while the client waits for it - and the name
+// and the address go to the next way; that connection is lost, the next goes
+// there (04.11.2026).
+//
+// Not yet: a slowdown, a site refusing the server's country; and the memory
+// is one for every network.
 
 /*
 #include <stdlib.h>
@@ -59,6 +65,8 @@ const (
 	smartHelloMax  = 16 * 1024       // a ClientHello with a post-quantum share is ~1.8 KB
 	smartRemember  = 6 * time.Hour   // a verdict asked again after this
 	smartKeep      = 4096            // names remembered
+	smartWatchMax  = 64 * 1024       // the cut is looked for in the server's first bytes, this many
+	tlsRecordMax   = 18432           // 2^14 and the most a cipher adds
 	tlsHandshake   = 0x16            // TLS record type of a ServerHello
 	tlsAlert       = 0x15
 )
@@ -156,23 +164,71 @@ func smartWay(tag string, metadata *adapter.InboundContext) (adapter.Outbound, b
 	if s == nil || len(s.ways) == 0 {
 		return nil, false
 	}
-	return s.wayFor(smartKey(metadata)), true
+	return s.wayOf(metadata), true
 }
 
-// wayFor: the remembered way for the name `key`, else the preferred.
-func (s *smartOutbound) wayFor(key string) adapter.Outbound {
-	if tag, ok := smartMemo.verdict(key, time.Now()); ok {
+// verdictOf: the way remembered for the connection's address (a cut: every
+// name there is cut), else for its name.
+func verdictOf(metadata *adapter.InboundContext, now time.Time) (string, bool) {
+	if tag, ok := smartMemo.verdict(smartIPKey(metadata), now); ok {
+		return tag, true
+	}
+	return smartMemo.verdict(smartKey(metadata), now)
+}
+
+// wayOf: the remembered way for the connection, else the preferred.
+func (s *smartOutbound) wayOf(metadata *adapter.InboundContext) adapter.Outbound {
+	if tag, ok := verdictOf(metadata, time.Now()); ok {
 		return s.byTag(tag)
 	}
 	return s.ways[0]
 }
 
-// way: wayFor the connection in ctx.
+// way: wayOf the connection in ctx.
 func (s *smartOutbound) way(ctx context.Context) adapter.Outbound {
 	if metadata := adapter.ContextFrom(ctx); metadata != nil {
-		return s.wayFor(smartKey(metadata))
+		return s.wayOf(metadata)
 	}
 	return s.ways[0]
+}
+
+// smartIPKey: the connection's address as a memory key, "ip:1.2.3.4", or "".
+func smartIPKey(metadata *adapter.InboundContext) string {
+	if !metadata.Destination.IsIP() {
+		return ""
+	}
+	return "ip:" + metadata.Destination.Addr.Unmap().String()
+}
+
+// watched: `way` (the index-th) with its connections watched for the cut,
+// when a way after it is left to fall to; else `way` itself.
+func (s *smartOutbound) watched(index int, key string, metadata *adapter.InboundContext) N.Dialer {
+	if index < 0 || index+1 >= len(s.ways) {
+		return s.ways[max(index, 0)]
+	}
+	return &cutWatchDialer{Dialer: s.ways[index], stall: s.wait, onCut: s.onCut(index, key, metadata)}
+}
+
+// onCut: what a cut on the index-th way does - the name and the address
+// remembered for the next way.
+func (s *smartOutbound) onCut(index int, key string, metadata *adapter.InboundContext) func() {
+	from, next := s.ways[index].Tag(), s.ways[index+1].Tag()
+	ip := smartIPKey(metadata)
+	return func() {
+		now := time.Now()
+		smartMemo.remember(key, next, "cut", now)
+		smartMemo.remember(ip, next, "cut", now)
+		s.logger.Info("smart: ", key, " ", ip, " cut after the handshake on ", from, ", now via ", next)
+	}
+}
+
+func (s *smartOutbound) indexOf(tag string) int {
+	for i, way := range s.ways {
+		if way.Tag() == tag {
+			return i
+		}
+	}
+	return -1
 }
 
 func (s *smartOutbound) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
@@ -195,8 +251,12 @@ func smartKey(metadata *adapter.InboundContext) string {
 func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	key := smartKey(&metadata)
 	now := time.Now()
-	if tag, ok := smartMemo.verdict(key, now); ok {
-		s.connections.NewConnection(ctx, s.byTag(tag), conn, metadata, onClose)
+	if tag, ok := verdictOf(&metadata, now); ok {
+		var dialer N.Dialer = s.byTag(tag)
+		if metadata.Protocol == constant.ProtocolTLS {
+			dialer = s.watched(s.indexOf(tag), key, &metadata)
+		}
+		s.connections.NewConnection(ctx, dialer, conn, metadata, onClose)
 		return
 	}
 	// Only what the sniffer saw as TLS races: a protocol whose server speaks
@@ -237,7 +297,127 @@ func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metada
 	if why != "" {
 		s.logger.InfoContext(ctx, "smart: ", key, " via ", tag, ": ", why)
 	}
-	s.connections.NewConnection(ctx, &preDialed{conn: result.conn}, conn, metadata, onClose)
+	won := result.conn
+	if result.index+1 < len(s.ways) {
+		won = watchCut(won, s.wait, s.onCut(result.index, key, &metadata))
+	}
+	s.connections.NewConnection(ctx, &preDialed{conn: won}, conn, metadata, onClose)
+}
+
+// cutWatchDialer: a way whose connections are watched for the cut.
+type cutWatchDialer struct {
+	N.Dialer
+	stall time.Duration
+	onCut func()
+}
+
+func (d *cutWatchDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	conn, err := d.Dialer.DialContext(ctx, network, destination)
+	if err != nil || N.NetworkName(network) != N.NetworkTCP {
+		return conn, err
+	}
+	return watchCut(conn, d.stall, d.onCut), nil
+}
+
+// cutConn: a server's connection whose first smartWatchMax bytes are read as
+// TLS records. A Read waiting `stall` with a record begun and not finished
+// is the cut: an idle server stops between records, a client not reading
+// (its own Read not called) is no stall. onCut is called once and the
+// connection closed - the client sees it end, and its next one goes the
+// next way.
+type cutConn struct {
+	net.Conn
+	stall time.Duration
+	onCut func()
+
+	mu      sync.Mutex
+	timer   *time.Timer
+	done    bool // not watched any more: past smartWatchMax, not TLS, closed or cut
+	total   int
+	head    [5]byte // the record header being read
+	headN   int
+	left    int // the current record's bytes still to come
+	reading bool
+	since   time.Time // the Read waiting began
+}
+
+func watchCut(conn net.Conn, stall time.Duration, onCut func()) net.Conn {
+	c := &cutConn{Conn: conn, stall: stall, onCut: onCut}
+	c.timer = time.AfterFunc(time.Hour, c.check)
+	c.timer.Stop()
+	return c
+}
+
+func (c *cutConn) Read(p []byte) (int, error) {
+	c.mu.Lock()
+	watching := !c.done
+	if watching {
+		c.reading = true
+		c.since = time.Now()
+		c.timer.Reset(c.stall)
+	}
+	c.mu.Unlock()
+	n, err := c.Conn.Read(p)
+	if !watching {
+		return n, err
+	}
+	c.mu.Lock()
+	c.reading = false
+	c.timer.Stop()
+	if !c.done {
+		c.feed(p[:n])
+		if err != nil || c.total > smartWatchMax {
+			c.done = true
+		}
+	}
+	c.mu.Unlock()
+	return n, err
+}
+
+// feed: the record state after `b` from the server.
+func (c *cutConn) feed(b []byte) {
+	c.total += len(b)
+	for len(b) > 0 {
+		if c.left > 0 {
+			k := min(c.left, len(b))
+			c.left -= k
+			b = b[k:]
+			continue
+		}
+		k := copy(c.head[c.headN:], b)
+		c.headN += k
+		b = b[k:]
+		if c.headN < len(c.head) {
+			return
+		}
+		c.headN = 0
+		c.left = int(c.head[3])<<8 | int(c.head[4])
+		if c.head[0] < 20 || c.head[0] > 23 || c.left > tlsRecordMax {
+			c.done = true // not TLS: nothing to tell a cut by
+			return
+		}
+	}
+}
+
+func (c *cutConn) check() {
+	c.mu.Lock()
+	cut := !c.done && c.reading && (c.left > 0 || c.headN > 0) && time.Since(c.since) >= c.stall-50*time.Millisecond
+	if cut {
+		c.done = true
+	}
+	c.mu.Unlock()
+	if cut {
+		c.onCut()
+		_ = c.Conn.Close()
+	}
+}
+
+func (c *cutConn) Close() error {
+	c.mu.Lock()
+	c.done = true
+	c.timer.Stop()
+	c.mu.Unlock()
+	return c.Conn.Close()
 }
 
 func (s *smartOutbound) byTag(tag string) adapter.Outbound {
@@ -435,6 +615,9 @@ func (m *smartMemory) verdict(key string, now time.Time) (string, bool) {
 }
 
 func (m *smartMemory) remember(key, way, why string, now time.Time) {
+	if key == "" {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.items[key] = smartVerdict{Way: way, Why: why, At: now}

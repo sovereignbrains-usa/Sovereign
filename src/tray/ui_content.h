@@ -174,7 +174,7 @@ struct UiRouting {
   // Cloudflare WARP (warp.h).
   bool warp = false;          // on (registered, or being registered)
   bool warpRegistered = false;
-  // How its tunnel is (main.cpp WatchWarp): "через «NL»", "поверх VPN · не отвечает",
+  // How its tunnel is (main.cpp WatchWarp): "поверх «NL»", "поверх VPN · не отвечает",
   // "напрямую: через VPN не прошёл"; empty: not checked yet.
   std::wstring warpState;
   std::vector<UiService> services;  // sent their own way, in order

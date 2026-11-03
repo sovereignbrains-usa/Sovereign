@@ -1917,7 +1917,9 @@ class Painter {
     l.items.push_back(std::move(pill));
     const float nodeY = y + kTag / 2;
     leadBottom = pillY + kTag;
-    y = Paragraph(l, Kind::Wrap, L"кроме того, что в списках ниже.", left, x1, leadBottom + 4) + 20;
+    // No "кроме того, что в списках ниже" under it: the line's end says "и всё
+    // остальное", an empty way its "+ сайт, сервис или программа" (03.11.2026).
+    y = leadBottom + 20;
 
     struct Way {
       const wchar_t* name;

@@ -223,7 +223,7 @@ int Snapshots(const std::wstring& dir) {
                             {L"chatgpt.com", L"через WARP", true}};
     routed.routing.warp = true;
     routed.routing.warpRegistered = true;
-      routed.routing.warpState = L"через «4G | Whitelist №1»";
+      routed.routing.warpState = L"поверх «4G | Whitelist №1»";
     routed.routing.services = {{.name = L"Netflix", .way = L"через WARP"}, {.name = L"ChatGPT", .way = L"через WARP"}};
     routed.routing.board = SampleBoard();
     routed.routing.lists = L"Списки правил на месте, обновлены 01.10 14:00; обновляются раз в сутки.";
@@ -240,7 +240,7 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\routing-block-empty.png");
     // His narrow window (350, 31.10.2026): WARP's note - a long server's name - on a line under the
     // name, not cut to "…".
-    routed.routing.warpState = L"через «AnyTLS-Reality | Frankfurt №1»";
+    routed.routing.warpState = L"поверх «AnyTLS-Reality | Frankfurt №1»";
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-narrow.png");
     // The mode's menu dropped from the sentence's pill, over the scheme.
@@ -458,7 +458,7 @@ int Snapshots(const std::wstring& dir) {
   variant([&](UiContent& routed) {
     routed.routing.warp = true;
     routed.routing.warpRegistered = true;
-    routed.routing.warpState = L"через «4G | Whitelist №1»";
+    routed.routing.warpState = L"поверх «4G | Whitelist №1»";
     routed.routing.board = SampleBoard();
     // A way's name pointed at: its paragraphs, its route lit and the others back; a chip: what it
     // does, its way lit.

@@ -4711,7 +4711,7 @@ UiContent ContentFrom(const View& v) {
   if (r.warp) {
     c.routing.warpState = v.warpDirect                         ? L"напрямую: через VPN не прошёл"
                           : v.warpAnswers && !*v.warpAnswers   ? L"поверх VPN · не отвечает"
-                          : !v.warpServer.empty()              ? L"через «" + Widen(v.serverTitles.contains(v.warpServer) ? v.serverTitles.at(v.warpServer).title : v.warpServer) + L"»"
+                          : !v.warpServer.empty()              ? L"поверх «" + Widen(v.serverTitles.contains(v.warpServer) ? v.serverTitles.at(v.warpServer).title : v.warpServer) + L"»"
                                                                : L"поверх VPN";
   }
   // The DNS rows: auto says what it is on now; a typed one its server's name

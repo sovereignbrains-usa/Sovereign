@@ -2063,6 +2063,26 @@ class Painter {
       }
       y = bare ? top + 20 : rowTop + rowHeight + 20;
     }
+    // What the client worked out itself in «в обход блокировок»: the sites its first way
+    // couldn't open and where they go now - a line each, under the board.
+    if (r.smart && !r.learned.empty()) {
+      const float nameWidth = std::ceil(TextWidth(L"Клиент решил сам", heading_.get()));
+      Item head = Make(Kind::Heading, {left, y, left + nameWidth + 4, y + 28}, L"Клиент решил сам");
+      head.action = ItemAction::Hint;
+      head.tip = L"Сайты, которые напрямую не открылись: клиент проверил сам и пускает их через VPN. "
+                 L"Запоминает на 6 часов; потом проверит снова.";
+      l.items.push_back(std::move(head));
+      std::wstring text;
+      for (const std::wstring& line : r.learned) {
+        text += (text.empty() ? L"" : L"\n") + line;
+      }
+      if (r.learnedMore > 0) {
+        text += std::format(L"\nи ещё {}", r.learnedMore);
+      }
+      const float h = TextHeight(text, captionWrap_.get(), x1 - left);
+      l.items.push_back(Make(Kind::Caption, {left, y + 32, x1, y + 32 + h}, text));
+      y += 32 + h + 20;
+    }
     Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY});
     spine.rail = mode;
     spine.sub = kRouteSpine;

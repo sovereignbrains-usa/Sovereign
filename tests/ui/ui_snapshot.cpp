@@ -269,6 +269,14 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-smart-menu.png");
     routed.routeMenu = false;
+    // What the client worked out itself: a line each under the board.
+    routed.routing.learned = {L"linkedin.com — через VPN (молчание)", L"rutracker.org — через VPN (сброс соединения)",
+                              L"адрес 5.9.10.11 — через VPN (обрыв после рукопожатия)"};
+    routed.routing.learnedMore = 2;
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 1100, 96,
+                                              dir + L"\\routing-smart-learned.png");
+    routed.routing.learned.clear();
+    routed.routing.learnedMore = 0;
   });
   // The checks: run, one warning, one failing, one running, speed and an address.
   variant([&](UiContent& checked) {

@@ -1209,6 +1209,24 @@ void TestWarpWatch() {
         std::vector<std::string>({"a", "b"}));
 }
 
+// What the core says it learned: read in order, a wrong-shaped entry skipped.
+void TestSmartAnswer() {
+  CHECK(ParseSmartAnswer("not json").empty());
+  CHECK(ParseSmartAnswer(R"({"cmd":"box_smart"})").empty());
+  CHECK(ParseSmartAnswer(R"({"cmd":"box_smart","learned":[]})").empty());
+  const auto seen = ParseSmartAnswer(
+      R"({"cmd":"box_smart","learned":[{"name":"a.org","way":"direct","why":"","at":5},)"
+      R"(7,{"way":"proxy"},{"name":"ip:1.2.3.4","way":"proxy","why":"cut","at":9}]})");
+  CHECK(seen.size() == 2);
+  if (seen.size() == 2) {
+    CHECK(seen[0].name == "a.org");
+    CHECK(seen[0].way == "direct");
+    CHECK(seen[0].at == 5);
+    CHECK(seen[1].name == "ip:1.2.3.4");
+    CHECK(seen[1].why == "cut");
+  }
+}
+
 // The lists' check: one a poll, each once a round - a failing one neither
 // fetched again at once nor in the way of the next - over when all are tried.
 void TestRuleSetRound() {
@@ -1264,6 +1282,7 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestWarp();
     TestRussiaWays();
     TestNaiveInsecure();
+    TestSmartAnswer();
     TestLocalDnsFallback();
     TestCustomDns();
     TestWarpWatch();

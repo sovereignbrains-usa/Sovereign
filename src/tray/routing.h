@@ -235,6 +235,19 @@ struct RuleSetSource {
   bool adguard = false;  // an AdGuard filter, text: AdGuardRuleSet makes it a source rule-set
 };
 std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settings);
+
+// What the core's smart outbound decided itself (the service's box_smart): a
+// site, or "ip:<address>" (a whole address), the outbound it goes by now, why
+// its first way failed ("reset", "silent", "cut"), when (unix seconds).
+struct SmartSeen {
+  std::string name;
+  std::string way;
+  std::string why;
+  std::int64_t at = 0;
+};
+// The box_smart answer's list, newest first as sent; an entry of the wrong
+// shape is skipped.
+std::vector<SmartSeen> ParseSmartAnswer(std::string_view response);
 // A check of the lists as it goes (the tray's UpdateRuleSets): one download
 // a poll, each list tried once a round - one that fails isn't fetched again
 // every second, nor does it hold back the ones after it - and the box gets

@@ -59,6 +59,16 @@ struct RouteSeen {
   std::string rule;
 };
 
+// What the engine's smart outbound decided itself (gocore/smart.go): a site
+// (or "ip:<address>", a whole address) whose preferred way failed, the way
+// it goes by now, why ("reset", "silent", "cut"), when (unix seconds).
+struct SmartVerdict {
+  std::string name;
+  std::string way;
+  std::string why;
+  std::int64_t at = 0;
+};
+
 // A latency test of outbounds through each of `tags` (the config's outbound
 // tags): a connection, then requests to `url` over it until the round trips
 // settle; each request abandoned after `timeout`.
@@ -147,6 +157,10 @@ class ICore {
   // name and its addresses): the checks page's "where an address goes".
   // nullopt - none kept, nothing runs, or an engine that can't tell.
   virtual std::optional<RouteSeen> RouteOf(const std::vector<std::string>& /*targets*/) { return std::nullopt; }
+
+  // What the smart outbound decided itself, newest first; empty from an
+  // engine without one (or an older DLL).
+  virtual std::vector<SmartVerdict> SmartLearned() { return {}; }
 
   // Starts a latency test in the background and returns at once: empty
   // string once it runs, otherwise why not (e.g. the engine isn't running).

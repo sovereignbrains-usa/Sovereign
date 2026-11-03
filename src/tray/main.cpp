@@ -283,6 +283,7 @@ struct View {
   std::optional<bool> warpAnswers;
   std::string warpServer;
   bool warpDirect = false;
+  std::vector<sovereign::tray::SmartSeen> smartLearned;  // what the smart mode decided itself, newest first
   bool quicBlocked = true;  // RoutingSettings::quic as it came to with the servers (QuicBlocked)
   std::vector<std::string> rulesFrom;  // the configurations with rules the user hasn't taken yet (ids)
   std::vector<std::string> blockedAds;  // what the ads lists blocked lately, newest first
@@ -845,6 +846,7 @@ class Worker {
       ApplySelection(stats);
       ApplyServiceSelections(stats);
       WatchWarp(stats);
+      WatchSmart(stats);
       UpdateExitIp(stats);
       UpdateServerExits(stats);
       UpdateServerSites(stats);
@@ -2476,6 +2478,25 @@ class Worker {
   // answered itself while WARP didn't; none answering is no internet, not
   // WARP, and the round starts over. A box of its own starts on the first of
   // its servers.
+  // What the core's smart outbound decided itself ("в обход блокировок"), asked of
+  // the service every few seconds while the mode runs: the Routing page lists it.
+  void WatchSmart(const std::optional<sovereign::tray::Stats>& stats) {
+    constexpr auto kEvery = std::chrono::seconds(5);
+    const auto now = TrayModel::Clock::now();
+    if (!stats || !stats->running || !settings_.routing.finalDirect || !settings_.routing.smart) {
+      smartLearned_.clear();
+      smartAsked_.reset();
+      return;
+    }
+    if (smartAsked_ && now - *smartAsked_ < kEvery) {
+      return;
+    }
+    smartAsked_ = now;
+    if (const auto response = sovereign::tray::RequestService(R"({"cmd":"box_smart"})")) {
+      smartLearned_ = sovereign::tray::ParseSmartAnswer(*response);
+    }
+  }
+
   void WatchWarp(const std::optional<sovereign::tray::Stats>& stats) {
     const auto now = TrayModel::Clock::now();
     if (!stats || !stats->running || !combined_ || !sovereign::tray::WarpReady(settings_.routing)) {
@@ -2805,6 +2826,7 @@ class Worker {
       v.warpAnswers = warpAnswers_;
       v.warpServer = warpServer_;
       v.warpDirect = warpDirect_;
+      v.smartLearned = smartLearned_;
       v.quicBlocked = quicBlocked_;
       v.rulesFrom = rulesFrom_;
       v.blockedAds = {blocked_.begin(), blocked_.end()};
@@ -2974,6 +2996,8 @@ class Worker {
   std::optional<TrayModel::Clock::time_point> warpLastCheck_;
   std::optional<bool> warpAnswers_;
   bool warpDirect_ = false;
+  std::vector<sovereign::tray::SmartSeen> smartLearned_;  // View::smartLearned
+  std::optional<TrayModel::Clock::time_point> smartAsked_;
   std::deque<std::string> blocked_;  // WatchBlocked's: what the ads lists blocked, newest first
   bool quicBlocked_ = true;  // View::quicBlocked
   std::vector<std::string> rulesFrom_;  // View::rulesFrom
@@ -4706,6 +4730,24 @@ UiContent ContentFrom(const View& v) {
   c.routing.hysteriaMbps = r.hysteriaMbps;
   c.routing.finalDirect = r.finalDirect;
   c.routing.smart = r.finalDirect && r.smart;
+  // What the client decided itself: the site, the way, and what its first way did - up to
+  // kLearnedShown lines. A whole address (a cut hosting) reads "адрес 1.2.3.4".
+  if (c.routing.smart) {
+    constexpr std::size_t kLearnedShown = 8;
+    for (const auto& seen : v.smartLearned) {
+      if (c.routing.learned.size() == kLearnedShown) {
+        c.routing.learnedMore = v.smartLearned.size() - kLearnedShown;
+        break;
+      }
+      const std::wstring name = seen.name.starts_with("ip:") ? L"адрес " + Widen(seen.name.substr(3)) : Widen(seen.name);
+      const std::wstring way = seen.way == "direct" ? L"напрямую" : L"через VPN";
+      const std::wstring why = seen.why == "reset"    ? L"сброс соединения"
+                               : seen.why == "silent" ? L"молчание"
+                               : seen.why == "cut"    ? L"обрыв после рукопожатия"
+                                                      : L"не открылся";
+      c.routing.learned.push_back(std::format(L"{} — {} ({})", name, way, why));
+    }
+  }
   c.routing.ipv4Only = r.ipv4Only;
   c.routing.warp = r.warp;
   c.routing.warpRegistered = r.warpAccount.has_value();

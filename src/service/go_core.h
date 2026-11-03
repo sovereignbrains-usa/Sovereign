@@ -40,6 +40,7 @@ class GoCore final : public ICore {
   CoreStats Stats() override;
   std::vector<FlowTotal> Flows() override;
   std::optional<RouteSeen> RouteOf(const std::vector<std::string>& targets) override;
+  std::vector<SmartVerdict> SmartLearned() override;
   std::string StartUrlTest(const UrlTestRequest& request) override;
   std::vector<DelayResult> Delays() override;
   ExitIp LookupExitIp(const std::string& tag, bool refresh) override;
@@ -54,6 +55,7 @@ class GoCore final : public ICore {
   using BoxStatsFn = int(__cdecl*)(std::int64_t*, std::int64_t*, std::int64_t*, std::int64_t*);
   using BoxFlowsFn = char*(__cdecl*)();
   using BoxRouteFn = char*(__cdecl*)(const char*);
+  using BoxSmartFn = char*(__cdecl*)();
   using BoxUrlTestFn = char*(__cdecl*)(const char*);
   using BoxDelaysFn = char*(__cdecl*)();
   using BoxExitIpFn = char*(__cdecl*)(const char*);
@@ -80,6 +82,7 @@ class GoCore final : public ICore {
   BoxStatsFn boxStats_ = nullptr;
   BoxFlowsFn boxFlows_ = nullptr;
   BoxRouteFn boxRoute_ = nullptr;
+  BoxSmartFn boxSmart_ = nullptr;  // optional: a DLL without box_smart (older) leaves it empty
   BoxUrlTestFn boxUrlTest_ = nullptr;
   BoxDelaysFn boxDelays_ = nullptr;
   BoxExitIpFn boxExitIp_ = nullptr;

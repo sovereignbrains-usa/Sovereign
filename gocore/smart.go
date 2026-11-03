@@ -649,14 +649,38 @@ func (m *smartMemory) learned(now time.Time) map[string]smartVerdict {
 	return out
 }
 
-// box_smart: what the smart outbound learned, {"learned":{"<name>":{"way",
-// "why","at"}}}. Freed with box_free.
+// smartLine: one thing the client decided for itself.
+type smartLine struct {
+	Name string `json:"name"` // a site, or "ip:1.2.3.4" (a whole address cut)
+	Way  string `json:"way"`  // the outbound tag it goes by
+	Why  string `json:"why"`  // reset, silent, cut, ...
+	At   int64  `json:"at"`   // unix seconds
+}
+
+// smartReport: what the preferred way failed, newest first.
+func smartReport(now time.Time) []smartLine {
+	learned := smartMemo.learned(now)
+	lines := make([]smartLine, 0, len(learned))
+	for name, v := range learned {
+		lines = append(lines, smartLine{Name: name, Way: v.Way, Why: v.Why, At: v.At.Unix()})
+	}
+	sort.Slice(lines, func(a, b int) bool {
+		if lines[a].At != lines[b].At {
+			return lines[a].At > lines[b].At
+		}
+		return lines[a].Name < lines[b].Name
+	})
+	return lines
+}
+
+// box_smart: what the smart outbound decided itself, {"learned":[{"name",
+// "way","why","at"}]}, newest first. Freed with box_free.
 //
 //export box_smart
 func box_smart() *C.char {
-	out, err := json.Marshal(map[string]any{"learned": smartMemo.learned(time.Now())})
+	out, err := json.Marshal(map[string]any{"learned": smartReport(time.Now())})
 	if err != nil {
-		return C.CString(`{"learned":{}}`)
+		return C.CString(`{"learned":[]}`)
 	}
 	return C.CString(string(out))
 }

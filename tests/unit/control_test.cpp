@@ -92,6 +92,9 @@ class FakeCore final : public ICore {
     return route;
   }
 
+  std::vector<sovereign::service::SmartVerdict> SmartLearned() override { return learned; }
+
+  std::vector<sovereign::service::SmartVerdict> learned;
   bool running = false;
   std::optional<std::vector<std::string>> routeAsked;
   std::optional<sovereign::service::RouteSeen> route;
@@ -427,6 +430,23 @@ void TestRoute() {
   core.route->rule = "rule_set=geosite-ru => route(direct)";
   CHECK(Send(handler, R"({"cmd":"box_route","targets":["ya.ru"]})").value("rule", "") ==
         "rule_set=geosite-ru => route(direct)");
+}
+
+void TestSmart() {
+  LogRing log(10);
+  std::optional<std::string> lastConfig;
+  FakeCore core;
+  ControlHandler handler(&core, log, lastConfig);
+  // Nothing learned yet: an empty list, not an error.
+  CHECK(Send(handler, R"({"cmd":"box_smart"})") == json::parse(R"({"cmd":"box_smart","learned":[]})"));
+  core.learned.push_back({"rutracker.org", "direct", "", 1700000000});
+  core.learned.push_back({"ip:1.2.3.4", "proxy", "cut", 1700000100});
+  json answer = Send(handler, R"({"cmd":"box_smart"})");
+  CHECK(answer.value("cmd", "") == "box_smart");
+  CHECK(answer["learned"].size() == 2);
+  CHECK(answer["learned"][1].value("name", "") == "ip:1.2.3.4");
+  CHECK(answer["learned"][1].value("why", "") == "cut");
+  CHECK(answer["learned"][1].value("at", 0) == 1700000100);
 }
 
 class FakeKillSwitch final : public sovereign::service::IKillSwitch {
@@ -845,6 +865,7 @@ int main() {  // NOLINT(bugprone-exception-escape) — see the catch below
     TestSelect();
     TestExitIp();
     TestRoute();
+    TestSmart();
     TestBoot();
     TestKillSwitch();
     TestResumeAfterSleep();

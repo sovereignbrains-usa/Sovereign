@@ -166,6 +166,10 @@ struct UiRouting {
   int hysteriaMbps = 0;     // RoutingSettings::hysteriaMbps
   bool finalDirect = false;
   bool smart = false;  // with finalDirect: "в обход блокировок" (RoutingSettings::smart)
+  // What the client decided itself in that mode, newest first, a line each:
+  // "linkedin.com — через VPN (сброс)". Empty: nothing yet.
+  std::vector<std::wstring> learned;
+  std::size_t learnedMore = 0;  // more than these lines
   bool ipv4Only = true;
   std::wstring remoteDns;  // "Cloudflare"
   std::wstring localDns;   // "Cloudflare (DoH)"

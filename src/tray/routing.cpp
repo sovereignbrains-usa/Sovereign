@@ -1059,6 +1059,28 @@ RoutingSettings Effective(const RoutingSettings& settings) {
 
 }  // namespace
 
+std::vector<SmartSeen> ParseSmartAnswer(std::string_view response) {
+  std::vector<SmartSeen> out;
+  const Json json = Json::parse(response, nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object() || json.value("cmd", Json()) != "box_smart" || !json.contains("learned") ||
+      !json["learned"].is_array()) {
+    return out;
+  }
+  for (const Json& line : json["learned"]) {
+    if (!line.is_object()) {
+      continue;
+    }
+    SmartSeen seen{.name = Str(line, "name"), .way = Str(line, "way"), .why = Str(line, "why")};
+    if (const auto at = line.find("at"); at != line.end() && at->is_number_integer()) {
+      seen.at = at->get<std::int64_t>();
+    }
+    if (!seen.name.empty() && !seen.way.empty()) {
+      out.push_back(std::move(seen));
+    }
+  }
+  return out;
+}
+
 std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settingsIn) {
   const RoutingSettings settings = Effective(settingsIn);
   std::vector<RuleSetSource> sets;

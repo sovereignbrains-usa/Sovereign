@@ -211,7 +211,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
   const std::string cmd = parsed.value("cmd", "");
   for (const std::string_view known :
        {"box_ping", "box_start", "box_stop", "box_stats", "box_logs", "box_urltest", "box_delays", "box_exitip",
-        "box_sites", "box_select", "box_route", "box_boot", "kill_switch", "update_install"}) {
+        "box_sites", "box_select", "box_route", "box_smart", "box_boot", "kill_switch", "update_install"}) {
     if (cmd == known) {
       outcome.cmd = known;
     }
@@ -222,7 +222,8 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
 
   const bool isCoreCommand = cmd == "box_ping" || cmd == "box_start" || cmd == "box_stop" ||
                              cmd == "box_stats" || cmd == "box_urltest" || cmd == "box_delays" ||
-                             cmd == "box_exitip" || cmd == "box_sites" || cmd == "box_select" || cmd == "box_route";
+                             cmd == "box_exitip" || cmd == "box_sites" || cmd == "box_select" || cmd == "box_route" ||
+                             cmd == "box_smart";
   if (isCoreCommand && core_ == nullptr) {
     return fail("gocore not loaded");
   }
@@ -557,6 +558,18 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
         response["rule"] = seen->rule;
       }
     }
+    return Dump(response);
+  }
+
+  if (cmd == "box_smart") {
+    // What the engine's smart outbound decided itself, newest first.
+    Json learned = Json::array();
+    for (const SmartVerdict& v : core_->SmartLearned()) {
+      learned.push_back(Json{{"name", v.name}, {"way", v.way}, {"why", v.why}, {"at", v.at}});
+    }
+    Json response;
+    response["cmd"] = "box_smart";
+    response["learned"] = std::move(learned);
     return Dump(response);
   }
 

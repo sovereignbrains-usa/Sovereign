@@ -85,6 +85,10 @@ GoCore::GoCore(const std::wstring& dllPath) {
   boxUrlTest_ = ResolveExport<BoxUrlTestFn>(module_.get(), "box_urltest");
   boxDelays_ = ResolveExport<BoxDelaysFn>(module_.get(), "box_delays");
   boxExitIp_ = ResolveExport<BoxExitIpFn>(module_.get(), "box_exitip");
+  if (const FARPROC smart = GetProcAddress(module_.get(), "box_smart")) {
+    boxSmart_ = reinterpret_cast<BoxSmartFn>(  // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<std::uintptr_t>(smart));
+  }
   if (const FARPROC sites = GetProcAddress(module_.get(), "box_sites")) {
     boxSites_ = reinterpret_cast<BoxSitesFn>(  // NOLINT(performance-no-int-to-ptr)
         reinterpret_cast<std::uintptr_t>(sites));
@@ -176,6 +180,36 @@ std::vector<FlowTotal> GoCore::Flows() {
     }
   }
   return flows;
+}
+
+std::vector<SmartVerdict> GoCore::SmartLearned() {
+  // gocore/smart.go writes it: {"learned":[{"name","way","why","at"}]};
+  // an entry of the wrong shape is skipped, never thrown.
+  std::vector<SmartVerdict> out;
+  if (boxSmart_ == nullptr) {
+    return out;
+  }
+  const auto json = nlohmann::json::parse(TakeOwnedString(boxSmart_()), nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object() || !json.contains("learned") || !json["learned"].is_array()) {
+    return out;
+  }
+  for (const auto& line : json["learned"]) {
+    if (!line.is_object()) {
+      continue;
+    }
+    const auto text = [&](const char* key) {
+      const auto it = line.find(key);
+      return it != line.end() && it->is_string() ? it->get<std::string>() : std::string();
+    };
+    SmartVerdict verdict{.name = text("name"), .way = text("way"), .why = text("why")};
+    if (const auto at = line.find("at"); at != line.end() && at->is_number_integer()) {
+      verdict.at = at->get<std::int64_t>();
+    }
+    if (!verdict.name.empty() && !verdict.way.empty()) {
+      out.push_back(std::move(verdict));
+    }
+  }
+  return out;
 }
 
 std::optional<RouteSeen> GoCore::RouteOf(const std::vector<std::string>& targets) {

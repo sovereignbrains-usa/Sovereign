@@ -63,7 +63,6 @@ constexpr float kSettingsRow = 34;  // a row of the settings: at 44 they did not
 constexpr float kLatencyRow = 56;  // a server to pick: its name and latency, what the measurement is made of
 constexpr float kProfileRow = 54;  // a configuration's row: its name and its state
 constexpr float kPillPad = 8;      // a Pill's text from its edge, each side
-constexpr float kPillHeight = 20;  // and its height (law.md: 20)
 constexpr float kCheckRow = 42;    // a check: its title and "?", its result on the right
 constexpr float kSwitchRow = 48;   // a switch whose explanation is in its "?"
 constexpr float kHint = 18;        // a "?" that shows a tip when pointed at
@@ -81,7 +80,15 @@ constexpr float kSettingsGap = 8;   // between the settings' cards
 constexpr float kRadius = 8;
 constexpr float kWheelStep = 64;
 constexpr float kAppIcon = 20;     // a program's icon in the per-app list
-constexpr float kTag = 28;         // a thing on the routing board
+constexpr float kTag = 32;         // a thing on the routing scheme, and its "+"
+// The routing scheme (Routing): its lines down a strip at the page's left, the words and things
+// past it (the metro map he took, 03.11.2026: "симуляция веток метро").
+constexpr float kSchemeIndent = 36;  // the words and things, from the page's left
+constexpr float kLineX = 10;         // the main line, from the page's left
+constexpr float kLineTurn = 10;      // a branch's turn off it: its radius
+constexpr float kStationX = 24;      // a station, from the page's left
+constexpr float kPillSide = 12;      // the mode's pill: its words from its ends
+constexpr float kChevron = 14;       // and the chevron after them
 constexpr ULONGLONG kToggleGraceMs = 400;  // a tray click right after the window lost focus hides it
 
 // The log page: a line's height, and how many lines it keeps (the tray keeps
@@ -228,7 +235,20 @@ enum class Kind : std::uint8_t {
   Question,      // MainWindow::Ask's card, the window dimmed round it (index: its UiQuestion::Tone)
   Pill,          // a small label in a rounded outline, not a button (`warn`: amber)
   Day,           // a calendar's key on a question's card: a day (text: its number, checked: chosen, sub 1: today) or a step (glyph set, sub: -1 back, 1 on)
+  Lead,          // the routing page's opening words, larger: "Всё идёт"
+  ModePill,      // the routing mode, a pill with a chevron: a click drops its menu (`checked`: it's open)
+  Route,         // a line of the routing scheme (rail: its way; sub: kRouteSpine, kRouteStation, kRouteEnd)
+  GhostAdd,      // a dashed key adding to a way (rail: the way); its text empty: a square "+"
+  Menu,          // a dropped menu's panel (the routing mode's), over the page
+  MenuItem,      // a choice on it: its way's dot (rail), a title, what it means (detail), a check (`checked`)
 };
+
+// The routing scheme's lines (Kind::Route's sub). The main line runs from
+// the mode down to the way everything else goes, a station at its end; a
+// way of its own branches off it to a station, the block to a dead end.
+constexpr int kRouteSpine = 0;    // rect.top: the mode's node, rect.bottom: where it turns into its way
+constexpr int kRouteStation = 1;  // a branch, the station on the middle of its rect
+constexpr int kRouteEnd = 2;      // a branch ending in a bar: the block
 
 // EditName: the configuration `index`'s name, typed over the page's title.
 // Hint: nothing on a click - it's there to be pointed at.
@@ -243,6 +263,7 @@ enum class ItemAction : std::uint8_t {
   SaveLogs,
   ToggleMore,  // the configurations' relay fold, folded or not (the window's own)
   Hide,        // our title bar's cross: the window away to the tray
+  RouteMenu,   // the routing mode's pill: its menu dropped or put away (the window's own)
   Hint,
   Answer       // a question's button (index: 1 yes, 0 no); while one is open, the only ones that take a click
 };
@@ -328,6 +349,8 @@ struct Layout {
   float viewBottom = 0;
   std::optional<D2D1_RECT_F> logBox;
   std::optional<D2D1_RECT_F> glow;  // the main screen's switch: a light behind it, under it all (DrawBackdrop)
+  float boardLeft = 0;              // the routing scheme's ways, left to right: a site is typed across them
+  float boardRight = 0;
 };
 
 // A fold's body built in full from `from` to `to`, shown as far as the fold has opened: its
@@ -930,7 +953,7 @@ class Painter {
     wic_ = wil::CoCreateInstanceNoThrow<IWICImagingFactory>(CLSID_WICImagingFactory);
     fonts_ = LoadFontCollection(dwrite_.get());
     THROW_IF_FAILED(dwrite_->CreateEllipsisTrimmingSign(MakeFormat(Text(), 14).get(), ellipsis_.put()));
-    title_ = MakeFormat(Display(), ui::kTTitle, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    lead_ = MakeFormat(Display(), ui::kTLead, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     state_ = MakeFormat(Display(), ui::kTTitle, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     delay_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     delay_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
@@ -943,6 +966,7 @@ class Painter {
     chip_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     center_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     center_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    strong_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     wrap_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_NORMAL, true);
     captionWrap_ = MakeFormat(Text(), 12.5f, DWRITE_FONT_WEIGHT_NORMAL, true);
     mono_ = MakeFormat(L"Consolas", 12.5f);
@@ -960,6 +984,18 @@ class Painter {
     THROW_IF_FAILED(d2d_->CreateStrokeStyle(
         D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND), nullptr, 0,
         roundCaps_.put()));
+    // A ghost key's outline: dashes of 3 and gaps of 3 at a width of 1.
+    constexpr std::array<float, 2> kDashes = {3, 3};
+    THROW_IF_FAILED(d2d_->CreateStrokeStyle(
+        D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_ROUND,
+                                    10, D2D1_DASH_STYLE_CUSTOM, 0),
+        kDashes.data(), static_cast<UINT32>(kDashes.size()), dashed_.put()));
+    // The main line's traffic: round dots 11.5 apart at a width of 1.5 (in widths: a dash of 1/3, a gap of 7.33).
+    constexpr std::array<float, 2> kDots = {0.5f / 1.5f, 11.0f / 1.5f};
+    THROW_IF_FAILED(d2d_->CreateStrokeStyle(
+        D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
+                                    D2D1_LINE_JOIN_ROUND, 10, D2D1_DASH_STYLE_CUSTOM, 0),
+        kDots.data(), static_cast<UINT32>(kDots.size()), dots_.put()));
   }
 
   ID2D1Factory* D2d() const { return d2d_.get(); }
@@ -975,17 +1011,19 @@ class Painter {
     const float x1 = x0 + pageWidth;
     l.viewTop = kCaption;  // the page scrolls under our title bar
     l.viewBottom = height;
-    Caption(l, c, width, page);  // fixed: before the page's items, which scroll
+    // fixed: before the page's items, which scroll
+    const bool nameWhole = Caption(l, c, width, page, HeadOf(c, page, profile));
     const std::size_t first = l.items.size();
 
-    float y = kCaption + 8;
+    // An inner page's first line 12 under the bar: its name is the bar's now.
+    float y = kCaption + (page == UiPage::Overview ? 8.0f : 12.0f);
     switch (page) {
       case UiPage::Overview: y = Overview(l, c, x0, x1, y, l.viewBottom - kPad); break;
       case UiPage::Servers: y = Servers(l, c, x0, x1, y); break;
       case UiPage::Subscription: y = Subscription(l, c, x0, x1, y); break;
       case UiPage::Logs: y = Logs(l, c, logState, x0, x1, y, height); break;
       case UiPage::Settings: y = Settings(l, c, x0, x1, y); break;
-      case UiPage::Profile: y = ProfilePage(l, c, profile, x0, x1, y); break;
+      case UiPage::Profile: y = ProfilePage(l, c, profile, x0, x1, y, nameWhole); break;
       case UiPage::Routing: y = Routing(l, c, x0, x1, y); break;
       case UiPage::Checks: y = Checks(l, c, x0, x1, y); break;
     }
@@ -1197,6 +1235,17 @@ class Painter {
       }
     }
     const float shown = EaseOut(std::clamp(questionShown, 0.0f, 1.0f));
+    // The routing scheme's way pointed at (a thing on it, its heading, its "+"), or in focus: its
+    // line lit, the others faded.
+    int hot = -1;
+    for (const int at : {in.hover, in.focusVisible ? in.focus : -1}) {
+      if (hot < 0 && at >= 0 && static_cast<std::size_t>(at) < l.items.size()) {
+        const Item& h = l.items[static_cast<std::size_t>(at)];
+        if (h.kind == Kind::Tag || h.kind == Kind::GhostAdd || h.kind == Kind::Heading) {
+          hot = h.rail;
+        }
+      }
+    }
     const auto draw = [&](std::size_t i) {
       const Item& it = l.items[i];
       const auto n = static_cast<int>(i);
@@ -1220,14 +1269,14 @@ class Painter {
       if (it.kind == Kind::LogBox && l.logBox) {
         DrawLog(k, *l.logBox, log);
       } else {
-        DrawItem(k, it, c, n == in.hover, n == in.pressed);
+        DrawItem(k, it, c, n == in.hover, n == in.pressed, hot);
       }
       if (it.clip >= 0) {
         t->PopAxisAlignedClip();
       }
       if (n == in.focus && in.focusVisible) {
         // A title bar key's ring goes round its pill: the cell runs to the window's edges.
-        const float radius = it.chrome ? 10 : kRadius;
+        const float radius = it.chrome ? 10 : it.kind == Kind::ModePill ? (it.rect.bottom - it.rect.top) / 2 + 2 : kRadius;
         t->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(it.chrome ? KeyPill(it) : it.rect, 2), radius, radius),
                                 SetColor(brush.get(), Rgb(255, 255, 255, 0.9f)), 2);
       }
@@ -1315,14 +1364,15 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 35> kNames = {
+    static constexpr std::array<const wchar_t*, 41> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
-        L"AppTitle", L"Speed",    L"Question", L"Pill",    L"Day"};
+        L"AppTitle", L"Speed",    L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
+        L"Menu",     L"MenuItem"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
-    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Day) + 1);
+    static_assert(kNames.size() == static_cast<std::size_t>(Kind::MenuItem) + 1);
     std::wstring out;
     for (std::size_t i = 0; i < l.items.size(); ++i) {
       const Item& it = l.items[i];
@@ -1332,8 +1382,16 @@ class Painter {
       float room = 0;
       float need = 0;
       switch (it.kind) {
-        case Kind::Title: room = w; need = TextWidth(it.text, title_.get()); break;
+        case Kind::Title:
         case Kind::Heading: room = w; need = TextWidth(it.text, heading_.get()); break;
+        case Kind::Lead: room = w; need = TextWidth(it.text, lead_.get()); break;
+        case Kind::ModePill: room = w - kPillSide - 8 - kChevron - kPillSide; need = TextWidth(it.text, lead_.get()); break;
+        case Kind::GhostAdd:
+          if (!it.text.empty()) {
+            room = w - 2 * 12;
+            need = TextWidth(it.text, body_.get());
+          }
+          break;
         case Kind::Button:
         case Kind::AccentButton:
         case Kind::DangerButton:
@@ -1373,8 +1431,9 @@ class Painter {
           const D2D1_RECT_F s = Seen(o);
           const bool over = Interactive(o) && s.left < r.right && s.right > r.left && s.top < r.bottom && s.bottom > r.top;
           // A card that is a link holds buttons and lines that are links of their own: they take the click.
-          // A question's buttons lie over the page, which takes no click while it's open.
-          const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer ||
+          // A question's buttons lie over the page, which takes no click while it's open; so do the
+          // routing mode's choices.
+          const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer || o.kind == Kind::MenuItem ||
                                (o.kind == Kind::IconButton && (it.kind == Kind::Title || it.kind == Kind::Card)) ||
                                ((o.kind == Kind::Muted || o.kind == Kind::Button) && it.kind == Kind::Card);
           overlaps = overlaps || (over && !allowed);
@@ -1677,7 +1736,6 @@ class Painter {
 
   /* ---- layout ---- */
 
-  // A page's top: back to the overview, the title, and a wrapped subtitle.
   // How wide `text` is on one line in `format`.
   float TextWidth(std::wstring_view text, IDWriteTextFormat* format) const {
     const auto m = Metrics(text, format, 10000, 100);
@@ -1700,26 +1758,62 @@ class Painter {
     AddHint(l, x, cy, std::move(hint));
   }
 
-  // A page's top: back, the title (a "?" after it with `hint`), and under it
-  // `subtitle` - what the page says now, not what it's for.
-  float PageTitle(Layout& l, const wchar_t* title, const wchar_t* subtitle, float x0, float x1, float y,
-                  UiPage backTo = UiPage::Overview, std::wstring hint = {}, float titleRight = 0) const {
-    Item back = Make(Kind::IconButton, {x0 - 6, y, x0 + 30, y + 36}, L"Назад", kGlyphBack);
-    back.action = ItemAction::Page;
-    back.index = static_cast<int>(backTo);
-    l.items.push_back(std::move(back));
-    const float right = titleRight > 0 ? titleRight : x1;
-    l.items.push_back(Make(Kind::Title, {x0 + 38, y, right - (hint.empty() ? 0 : kHint + 8), y + 36}, title));
-    if (!hint.empty()) {
-      HintAfter(l, title, title_.get(), x0 + 38, right, y + 18, std::move(hint));
+  // An inner page's name and what it is for (its "?"): the title bar's, in
+  // place of the app's icon and name, back before it (03.11.2026, his:
+  // "стрелочка назад ... делать ее в шапке вместо иконки и названия клиента";
+  // the page's own top row of back and title is gone). `rename`: the
+  // configuration it names - a click on it renames it; -1 else.
+  struct PageHead {
+    std::wstring title;
+    std::wstring hint;
+    int rename = -1;
+  };
+  static PageHead HeadOf(const UiContent& c, UiPage page, const std::string& profile) {
+    switch (page) {
+      case UiPage::Overview: return {};
+      case UiPage::Servers:
+        return {L"Серверы",
+                L"Флаг и провайдер — где сервер на самом деле: его выход, узнанный через него самого, а не то, "
+                L"что написано в названии.\n\nЗадержка — медиана нескольких запросов через уже открытое "
+                L"соединение, округлённая до 5 мс: разница меньше — шум сети. «Подробные замеры» внизу "
+                L"покажут разброс (±), число запросов и время соединения. Авто берёт лучший по замерам и "
+                L"меняет его, только когда другой заметно быстрее два замера подряд.\n\nПравый клик по "
+                L"серверу — копировать имя или IP выхода."};
+      case UiPage::Subscription:
+        return {L"Конфигурации",
+                L"Подписки, ключи и свои конфиги. Включённые работают вместе: их серверы — в общем списке "
+                L"«Серверы», маршруты и DNS — от первой включённой.\n\nНажми на конфигурацию, чтобы "
+                L"переименовать её, настроить обновление или выключить отдельные серверы. Правый клик — "
+                L"обновить, копировать ссылку, удалить."};
+      case UiPage::Profile: {
+        const auto found =
+            std::find_if(c.profiles.begin(), c.profiles.end(), [&](const UiProfile& p) { return p.id == profile; });
+        if (found == c.profiles.end()) {
+          return {L"Конфигурация", {}};
+        }
+        return {found->name, {}, static_cast<int>(found - c.profiles.begin())};
+      }
+      case UiPage::Routing:
+        return {L"Маршруты",
+                L"Куда идёт трафик. Решает Sovereign: из подписок берутся только серверы, их правила и DNS не "
+                L"используются.\n\nРежим наверху — куда идёт всё, о чём списки молчат. Списки ниже — то, что идёт "
+                L"иначе: через VPN, напрямую, через WARP или никуда. У каждого режима свои списки: при смене они "
+                L"не теряются.\n\nНаведи на сайт или программу — подсветится её путь. Нажми — перенести или "
+                L"убрать."};
+      case UiPage::Checks:
+        return {L"Проверка",
+                L"Запросы трея идут как у любой программы — по тем же правилам, поэтому видно то же, что "
+                L"видят твои программы и сайты.\n\n«Проверить всё» — все строки, кроме скорости и адреса: у них "
+                L"свои кнопки справа. Наведи на «?» у строки — что она проверяет и что значит результат. Правый "
+                L"клик — проверить снова или скопировать результат."};
+      case UiPage::Logs: return {L"Журнал", {}};
+      case UiPage::Settings:
+        return {L"Настройки",
+                L"Крестик закрывает клиент совсем, чёрточка прячет окно в трей. Подключение остаётся и после "
+                L"крестика: им управляет служба.\n\nВсё настроенное здесь, конфиги и их история лежат в «Папке "
+                L"данных» внизу — %LOCALAPPDATA%\\Sovereign."};
     }
-    y += 36 + 8;
-    if (subtitle != nullptr && *subtitle != L'\0') {
-      const float h = TextHeight(subtitle, captionWrap_.get(), x1 - x0);
-      l.items.push_back(Make(Kind::Caption, {x0, y - 4, x1, y - 4 + h}, subtitle));
-      y += h + 2;
-    }
-    return y + 8;
+    return {};
   }
 
   // A card's heading, a "?" after it with `hint`.
@@ -1783,195 +1877,221 @@ class Painter {
     return y + h;
   }
 
-  // The board: a bucket a way - through the proxy, directly, through WARP,
-  // blocked - with what goes there in it: services, sites, programs and the
-  // Russian sites, wrapped in rows. The bucket everything
-  // else goes to (the mode, Routing's switch) doesn't show what changes
-  // nothing there (UiChip::idle) and isn't there at all with nothing else in
-  // it - the others are the mode's exceptions; an empty one is its head alone. A click
-  // on one: where it goes instead, or away (ChipMenu); the "+" in a bucket's
-  // corner: what can go there, a site typed across the bucket (BoardAdd).
-  // WARP's bucket says how WARP goes (over the VPN, or directly where that got
-  // nothing through - its own call, no pick); its "?" says what WARP is. The
-  // block is a situational one: with nothing in it, a quiet line of its own
-  // under the board, not a card (30.10.2026, his: "оставил тут просто чтоб он
-  // не мешался"); the ads and the cookie windows are the settings' switches.
-  float Board(Layout& l, const UiRouting& r, float x0, float x1, float y) const {
-    struct Bucket {
-      int id;
+  // The routing scheme, a metro line (03.11.2026, the mockup he took: "симуляция веток метро ...
+  // ахуенно"): the mode's sentence on top - "Всё идёт [через VPN ▾]", its pill drops the two modes
+  // (RouteMenu) - its node on the line beside it; the spine down the left in the mode's colour to
+  // the way everything else goes, at the foot; off it a branch to each other way's station. A
+  // way's name and what goes there by its station - chips, a dashed "+" after them (BoardAdd:
+  // what can go there, a site typed across the ways); a click on a chip: where it goes instead,
+  // or away (ChipMenu). Pointing at a chip, a way's name or its "+" lights its route and puts the
+  // others back (Draw's `hot`). Each mode keeps its own lists (RoutingSettings); the way
+  // everything else goes shows what's named there anyway, quieter (UiChip::idle). Returns the
+  // foot; `leadBottom`: where the sentence ends (the mode's menu hangs from it).
+  float Board(Layout& l, const UiContent& c, float x0, float x1, float y, float& leadBottom) const {
+    const UiRouting& r = c.routing;
+    const int mode = r.finalDirect ? kBucketDirect : kBucketProxy;
+    const float left = x0 + kSchemeIndent;
+    l.boardLeft = left;
+    l.boardRight = x1;
+    const std::size_t lines = l.items.size();  // the scheme's lines go in here, under all of it
+
+    // "Всё идёт" and the pill on one line while they fit, the pill on a line of its own else.
+    const std::wstring lead = L"Всё идёт";
+    const float leadWidth = std::ceil(TextWidth(lead, lead_.get()));
+    l.items.push_back(Make(Kind::Lead, {left, y, left + leadWidth + 4, y + kTag}, lead));
+    const std::wstring word = r.finalDirect ? L"напрямую" : L"через VPN";
+    const float pillWidth = kPillSide + std::ceil(TextWidth(word, lead_.get())) + 8 + kChevron + kPillSide;
+    float pillX = left + leadWidth + 8;
+    float pillY = y;
+    if (pillX + pillWidth > x1) {
+      pillX = left;
+      pillY = y + kTag + 8;
+    }
+    Item pill = Make(Kind::ModePill, {pillX, pillY, pillX + pillWidth, pillY + kTag}, word);
+    pill.action = ItemAction::RouteMenu;
+    pill.checked = c.routeMenu;
+    l.items.push_back(std::move(pill));
+    const float nodeY = y + kTag / 2;
+    leadBottom = pillY + kTag;
+    y = Paragraph(l, Kind::Wrap, L"кроме того, что в списках ниже.", left, x1, leadBottom + 4) + 20;
+
+    struct Way {
       const wchar_t* name;
-      std::wstring note;
+      const wchar_t* verb;  // what a thing on it does: "YouTube идёт через VPN"
       std::wstring hint;
-      std::wstring idleNote;  // said by the way's quiet line while nothing is on it: what it is for
     };
-    const std::wstring warpHint =
-        L"WARP — бесплатный выход через Cloudflare. Выручает там, где сайт не пускает с адресов VPN-серверов "
-        L"или режет контент (ChatGPT, Netflix): сайт видит адрес Cloudflare. Google его адреса не любит — "
-        L"Gemini и поиск через WARP упрутся в капчу.\n\nWARP идёт поверх "
-        L"твоего VPN — провайдер его не видит. Не проходит так — Sovereign сам пустит WARP напрямую.";
-    // Where everything else goes: said on that bucket, with how many it doesn't show.
-    const int restBucket = r.finalDirect ? kBucketDirect : kBucketProxy;
-    const auto idle = std::count_if(r.board.begin(), r.board.end(), [](const UiChip& chip) { return chip.idle; });
-    const std::wstring rest = L"и всё остальное";
-    const std::wstring restHint = RestHint(idle);
-    const std::array<Bucket, 4> buckets = {{
-        {kBucketProxy, L"Через VPN", restBucket == kBucketProxy ? rest : std::wstring(),
-         restBucket == kBucketProxy ? restHint : std::wstring(), std::wstring()},
-        {kBucketDirect, L"Напрямую", restBucket == kBucketDirect ? rest : std::wstring(),
-         restBucket == kBucketDirect ? restHint : std::wstring(), std::wstring()},
-        {kBucketWarp, L"Через WARP", r.warpState, warpHint, std::wstring()},
-        // (31.10.2026, his: "не понимаю, чё в блок можно кинуть": the line says what goes in, the
-        // "?" gives the examples.)
-        {kBucketBlock, L"Блок", std::wstring(),
-         L"Сюда — то, чему нужно закрыть сеть совсем: сайт, который не хочешь открывать; программа, которой нельзя "
-         L"выходить в интернет (например, назойливый апдейтер); сервис из списка. Оно не откроется ни через VPN, "
-         L"ни напрямую. Пока тут пусто — блокировать нечего.\n\nРекламу и баннеры cookie включают в «+» тут же "
-         L"или в настройках — списком их добавлять не надо.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive "
-         L"и Office — они перестанут открываться. Выключателем слежки Windows это не служит.",
-         L"отрезать сайт или программу"},
+    // By bucket: direct, proxy, block, WARP.
+    const std::array<Way, 4> ways = {{
+        {L"Напрямую", L"идёт напрямую", L"Мимо VPN, как без него. Для банков и сайтов, которым VPN мешает."},
+        {L"Через VPN", L"идёт через VPN", L"Через сервер VPN."},
+        {L"Блок", L"заблокирован",
+         L"Сайт или программа останутся без сети: не откроются ни через VPN, ни напрямую. Например, сайт, который не "
+         L"хочешь открывать, или назойливый апдейтер.\n\nРекламу и баннеры cookie включают в «+» тут же или в "
+         L"настройках.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
+        {L"Через WARP", L"идёт через WARP",
+         L"Через Cloudflare WARP поверх VPN. Для сайтов, которые не пускают с адреса VPN: сайт видит адрес "
+         L"Cloudflare.\n\nGoogle его адреса не любит: Gemini и поиск через WARP упрутся в капчу. Не проходит поверх "
+         L"VPN — Sovereign сам пустит WARP напрямую."},
     }};
-    // A way's card: a rail of its colour down the left edge, its head - name,
-    // "?", how many things, "+" - and its things wrapped under it. Compact
-    // since 30.10.2026 (his: "компактнее карточки"): a head of 34, things of 28.
-    // On the law's lines (law.md, Grid Logic): words and things between the
-    // lines 20, 4 between the things both ways, 8 between the cards; the key's
-    // zone ends on the line 14 - its glyph on 20.
-    constexpr float kHead = 34;
-    constexpr float kChipGap = 4;
-    constexpr float kAddKey = 28;
-    constexpr float kWayGap = 8;
-    const float left = x0 + 20;
-    const float right = x1 - 20;
-    const float keyRight = x1 - 14;
-    // The exceptions first, the way everything else goes last: it closes the board, with what's
-    // named there set quieter (31.10.2026, his: "видеть, чё напрямую").
-    std::array<const Bucket*, 4> order{};
-    {
-      std::size_t n = 0;
-      for (const Bucket& b : buckets) {
-        order[n] = &b;
-        n += b.id == restBucket ? 0 : 1;
-      }
-      for (const Bucket& b : buckets) {
-        if (b.id == restBucket) {
-          order[n++] = &b;
+    // The exceptions first, the mode's own way last: the spine runs down to it.
+    const std::array<int, 4> order = r.finalDirect
+                                         ? std::array<int, 4>{kBucketProxy, kBucketWarp, kBucketBlock, kBucketDirect}
+                                         : std::array<int, 4>{kBucketDirect, kBucketWarp, kBucketBlock, kBucketProxy};
+    const auto idle = std::count_if(r.board.begin(), r.board.end(), [](const UiChip& chip) { return chip.idle; });
+    std::vector<Item> routes;  // the branches, then the spine goes in front of them
+    float restY = nodeY;
+    for (const int id : order) {
+      const Way& way = ways.at(static_cast<std::size_t>(id));
+      const bool rest = id == mode;
+      const float cy = y + 14;  // the name's line: its station on it
+      const float nameWidth = std::ceil(TextWidth(way.name, heading_.get()));
+      Item head = Make(Kind::Heading, {left, y, left + nameWidth + 4, y + 28}, way.name);
+      head.action = ItemAction::Hint;  // a tip, no key: the way lights while pointed at
+      head.rail = id;
+      head.tip = rest && idle > 0 ? way.hint + L"\n\n" + RestHint(idle) : way.hint;
+      l.items.push_back(std::move(head));
+      float top = y + 28;
+      // What's said by the name: the rest's "и всё остальное", how WARP goes. Beside it while
+      // it fits whole, else a line of its own under it.
+      const std::wstring aside = rest ? std::wstring(L"и всё остальное") : id == kBucketWarp ? r.warpState : std::wstring();
+      if (!aside.empty()) {
+        const float asideLeft = left + nameWidth + 8;
+        if (asideLeft + std::ceil(TextWidth(aside, caption_.get())) + 4 <= x1) {
+          l.items.push_back(Make(Kind::Muted, {asideLeft, y, x1, y + 28}, aside));
+        } else {
+          const float h = TextHeight(aside, captionWrap_.get(), x1 - left);
+          l.items.push_back(Make(Kind::Caption, {left, top, x1, top + h}, aside));
+          top += h;
         }
       }
-    }
-    for (const Bucket* bucket : order) {
-      const Bucket& b = *bucket;
-      // Its things in rows from the card's left, wrapped at its right.
+      // Its things, then the "+", in rows from the left, wrapped at the right.
       std::vector<std::pair<std::size_t, D2D1_RECT_F>> placed;
       float cx = left;
-      float cy = 0;  // from the first row's top
-      float rowHeight = kTag;  // the tallest chip of the row: one that is wider than the card wraps
+      float rowTop = top + 8;
+      float rowHeight = kTag;  // the tallest of the row: a chip wider than the page wraps
+      const auto place = [&](float w, float h) {
+        if (cx > left && cx + w > x1) {
+          cx = left;
+          rowTop += rowHeight + 8;
+          rowHeight = kTag;
+        }
+        rowHeight = std::max(rowHeight, h);
+        const D2D1_RECT_F at{cx, rowTop, cx + w, rowTop + h};
+        cx += w + 8;
+        return at;
+      };
       for (std::size_t n = 0; n < r.board.size(); ++n) {
         const UiChip& chip = r.board[n];
-        if (chip.bucket != b.id) {
-          continue;  // (what goes here anyway is shown too, quieter: he wants to see what goes directly)
+        if (chip.bucket != id) {
+          continue;
         }
         // Whole pixels up: a chip as wide as its text to the last float got its
         // last letters trimmed to "…" (brave.exe -> "brave.e…", 30.10.2026).
-        float w = 24 + std::ceil(TextWidth(chip.text, body_.get())) + (chip.icon.empty() && chip.logo.empty() ? 0.0f : 24.0f) +
+        float w = 32 + std::ceil(TextWidth(chip.text, body_.get())) + 12 +
                   (chip.detail.empty() ? 0.0f : 8 + std::ceil(TextWidth(chip.detail, caption_.get())));
-        float height = kTag;
-        if (w > right - left) {
-          // Wider than the card: the whole width, the text wrapped and the detail under it (never "…").
-          w = right - left;
-          height = std::max(kTag, ChipWrappedHeight(chip, w));
+        float h = kTag;
+        if (w > x1 - left) {  // wider than the page: the whole width, the text wrapped, the detail under it
+          w = x1 - left;
+          h = ChipWrappedHeight(chip, w);
         }
-        if (cx > left && cx + w > right) {
-          cx = left;
-          cy += rowHeight + kChipGap;
-          rowHeight = kTag;
-        }
-        rowHeight = std::max(rowHeight, height);
-        placed.emplace_back(n, D2D1_RECT_F{cx, cy, cx + w, cy + height});
-        cx += w + kChipGap;
+        placed.emplace_back(n, place(w, h));
       }
-      if (b.id == restBucket && placed.empty()) {
-        continue;  // where everything else goes, and nothing else: not an exception, not shown
-      }
-      const auto addKey = [&](float top, float height) {
-        Item add = CommandItem(Kind::IconButton, {keyRight - kAddKey, top, keyRight, top + height}, L"Добавить", kGlyphAdd,
-                               UiCommand::BoardAdd, b.id);
-        add.tip = std::format(L"Добавить в «{}»: сервис, программу или сайт", b.name);
-        return add;
-      };
-      if (placed.empty()) {
-        // Nothing sent this way: a muted line of its own, its rail faint and
-        // no card - it's there to be found, not to be looked at (the block's
-        // way since 30.10.2026, his: "оставил тут просто чтоб он не
-        // мешался"; every empty way's since).
-        constexpr float kQuiet = 30;
-        Item rail = Make(Kind::Card, {x0, y, x1, y + kQuiet});
-        rail.rail = b.id;
-        rail.quiet = true;
-        l.items.push_back(std::move(rail));
-        const float nameWidth = TextWidth(b.name, caption_.get());
-        l.items.push_back(Make(Kind::Muted, {left, y, left + nameWidth + 4, y + kQuiet}, b.name));
-        if (!b.hint.empty()) {
-          HintAfter(l, b.name, caption_.get(), left, keyRight - kAddKey - 8, y + kQuiet / 2, b.hint);
-        }
-        // What the way is for, after the "?" - only while it fits whole (never cut to "…").
-        if (!b.idleNote.empty()) {
-          const float noteLeft = left + nameWidth + 6 + kHint + 8;
-          const float noteRight = keyRight - kAddKey - 8;
-          if (noteLeft + std::ceil(TextWidth(b.idleNote, caption_.get())) + 4 <= noteRight) {
-            l.items.push_back(Make(Kind::Muted, {noteLeft, y, noteRight, y + kQuiet}, b.idleNote));
-          }
-        }
-        l.items.push_back(addKey(y + 1, kQuiet - 2));
-        y += kQuiet + kWayGap;
-        continue;
-      }
-      // Its name the card's title (heading, 15.75): the section heading over the board is the group's.
-      const float nameWidth = TextWidth(b.name, heading_.get());
-      float noteLeft = left + nameWidth + 8;
-      if (!b.hint.empty()) {
-        noteLeft += kHint + 8;
-      }
-      // How many are on it, engraved in a pill by the "+".
-      const std::wstring count = std::format(L"{:02}", placed.size());
-      const float countWidth = TextWidth(count, caption_.get()) + 2 * kPillPad;
-      const float countRight = keyRight - kAddKey - 8;
-      // The note (WARP's "через «server»") by the name while it fits; else a line of its own under
-      // the head, wrapped - a value is never cut to "…" (31.10.2026: "через «AnyTL…" at 350 wide).
-      const float noteRoom = countRight - countWidth - 8 - noteLeft;
-      const bool noteBelow = !b.note.empty() && std::ceil(TextWidth(b.note, caption_.get())) + 4 > noteRoom;
-      const float noteHeight = noteBelow ? std::max(18.0f, TextHeight(b.note, captionWrap_.get(), right - left)) : 0.0f;
-      const float head = kHead + noteHeight;
-      const float h = head + cy + rowHeight + 8;
-      Item card = Make(Kind::Card, {x0, y, x1, y + h});
-      card.rail = b.id;
-      l.items.push_back(std::move(card));
-      l.items.push_back(Make(Kind::Heading, {left, y + 3, left + nameWidth + 4, y + kHead - 3}, b.name));
-      if (!b.hint.empty()) {
-        HintAfter(l, b.name, heading_.get(), left, countRight - countWidth - 8, y + kHead / 2, b.hint);
-      }
-      l.items.push_back(Make(Kind::Pill,
-                             {countRight - countWidth, y + (kHead - kPillHeight) / 2, countRight, y + (kHead + kPillHeight) / 2},
-                             count));
-      if (noteBelow) {
-        l.items.push_back(Make(Kind::Caption, {left, y + kHead - 6, right, y + kHead - 6 + noteHeight}, b.note));
-      } else if (!b.note.empty()) {
-        l.items.push_back(Make(Kind::Muted, {noteLeft, y + 3, countRight - countWidth - 8, y + kHead - 3}, b.note));
-      }
-      l.items.push_back(addKey(y + 3, kAddKey));
       for (const auto& [n, at] : placed) {
         const UiChip& chip = r.board[n];
-        const D2D1_RECT_F place = {at.left, y + head + at.top, at.right, y + head + at.bottom};
-        Item tag = CommandItem(Kind::Tag, place, chip.text, nullptr, UiCommand::ChipMenu, static_cast<int>(n));
-        tag.tip = L"Перенести в другой путь или убрать";
+        Item tag = CommandItem(Kind::Tag, at, chip.text, nullptr, UiCommand::ChipMenu, static_cast<int>(n));
+        // What it does, read off its way; a program keeps the sites that have a way of their own.
+        tag.tip = !chip.icon.empty() && id != kBucketBlock  // (icon: a program's exe)
+                      ? std::format(L"{} {}, кроме сайтов и сервисов, у которых свой путь", chip.text, way.verb)
+                      : std::format(L"{} {}", chip.text, way.verb);
         tag.detail = chip.detail;
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
         tag.text2 = chip.icon;
         tag.logo = chip.logo;
         tag.quiet = chip.idle;
+        tag.rail = id;
         l.items.push_back(std::move(tag));
       }
-      y += h + kWayGap;
+      // Nothing yet through the VPN while only what's chosen goes there: said in amber.
+      if (r.finalDirect && id == kBucketProxy && placed.empty()) {
+        const std::wstring none = L"Пока через VPN не идёт ничего.";
+        const float h = TextHeight(none, captionWrap_.get(), x1 - left);
+        l.items.push_back(Make(Kind::Caption, {left, top + 4, x1, top + 4 + h}, none));
+        l.items.back().warn = true;
+        top += 4 + h;
+        rowTop = top + 8;
+      }
+      // The "+": a square after the things, a word where there are none.
+      {
+        const std::wstring label = !placed.empty()        ? std::wstring()
+                                   : id == kBucketBlock   ? std::wstring(L"+ отрезать сайт или программу")
+                                                          : std::wstring(L"+ сайт, сервис или программа");
+        float w = kTag;
+        float h = kTag;
+        if (!label.empty()) {
+          w = std::min(x1 - left, 12 + std::ceil(TextWidth(label, body_.get())) + 12);
+          h = std::max(kTag, TextHeight(label, wrap_.get(), w - 24) + 12);
+        }
+        Item add = CommandItem(Kind::GhostAdd, place(w, h), label, nullptr, UiCommand::BoardAdd, id);
+        add.rail = id;
+        add.tip = label.empty() ? std::wstring(L"Добавить сайт, сервис или программу") : std::wstring();
+        l.items.push_back(std::move(add));
+      }
+      Item route = Make(Kind::Route, {x0, cy - kLineTurn, x0 + kSchemeIndent - 4, cy + kLineTurn});
+      route.rail = id;
+      route.sub = id == kBucketBlock ? kRouteEnd : kRouteStation;
+      if (rest) {
+        restY = cy;
+      } else {
+        routes.push_back(std::move(route));
+      }
+      y = rowTop + rowHeight + 20;
     }
+    Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY});
+    spine.rail = mode;
+    spine.sub = kRouteSpine;
+    routes.insert(routes.begin(), std::move(spine));
+    l.items.insert(l.items.begin() + static_cast<std::ptrdiff_t>(lines), std::make_move_iterator(routes.begin()),
+                   std::make_move_iterator(routes.end()));
+    return y - 20;
+  }
+
+  // The routing mode's menu, dropped from the sentence's pill over the page: the two modes, a
+  // dot of their way's colour, what each means, a check by the one on; under them that each
+  // keeps its lists. Returns its foot.
+  float RouteMenu(Layout& l, const UiRouting& r, float x0, float x1, float top) const {
+    struct Choice {
+      const wchar_t* title;
+      const wchar_t* detail;
+      int bucket;
+    };
+    const std::array<Choice, 2> choices = {{
+        {L"Через VPN",
+         L"Заблокированное откроется само. Если банк или Госуслуги не открываются, добавь их в «Напрямую».",
+         kBucketProxy},
+        {L"Напрямую", L"Через VPN пойдёт только то, что добавишь в «Через VPN».", kBucketDirect},
+    }};
+    const std::size_t panel = l.items.size();
+    l.items.push_back(Make(Kind::Menu, {x0, top, x1, top}));
+    float y = top + 4;
+    const float textWidth = (x1 - 4) - (x0 + 4) - (12 + 8 + 12) - (12 + 16 + 12);
+    for (std::size_t i = 0; i < choices.size(); ++i) {
+      const Choice& choice = choices[i];
+      const float h = 12 + 20 + 4 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 12;
+      Item item = CommandItem(Kind::MenuItem, {x0 + 4, y, x1 - 4, y + h}, choice.title, nullptr,
+                              UiCommand::SetRouteMode, static_cast<int>(i));
+      item.detail = choice.detail;
+      item.rail = choice.bucket;
+      item.checked = r.finalDirect == (i == 1);
+      l.items.push_back(std::move(item));
+      y += h;
+    }
+    y += 4;
+    l.items.push_back(Make(Kind::Divider, {x0 + 1, y, x1 - 1, y + 1}));
+    const std::wstring foot = L"У каждого режима свои списки. При смене они не теряются.";
+    const float h = TextHeight(foot, captionWrap_.get(), x1 - x0 - 32);
+    l.items.push_back(Make(Kind::Caption, {x0 + 16, y + 12, x1 - 16, y + 12 + h}, foot));
+    y += 12 + h + 8;
+    l.items[panel].rect.bottom = y;
     return y;
   }
 
@@ -2000,7 +2120,10 @@ class Painter {
   // them gone, 16.10.2026). A new version found, its key on every page (it
   // was the main screen's banner till 24.10.2026). The rest of it drags the
   // window (WM_NCHITTEST).
-  void Caption(Layout& l, const UiContent& c, float width, UiPage page) const {
+  // On an inner page back and the page's name (HeadOf) stand where the icon and the name are; the
+  // report goes right, by the page's keys. Returns false when the name (a configuration's) did not
+  // fit: the bar says "Конфигурация" and the page carries the name, wrapped.
+  bool Caption(Layout& l, const UiContent& c, float width, UiPage page, const PageHead& head) const {
     // Keys of one width, the cross's too (it was Windows' 46): their pills
     // (DrawChrome) a step apart, the cross's as far from the window's right
     // edge as from its top. Its cell still runs to the edge - a throw of the
@@ -2050,12 +2173,27 @@ class Painter {
         right -= kKey;
       }
     }
+    if (page == UiPage::Servers) {
+      // Always to press: with the connection off the page says so, while one
+      // runs a press changes nothing.
+      Item test = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, L"Проверить задержку",
+                                     kGlyphStopwatch, UiCommand::TestDelays));
+      test.tip = L"Замерить задержку до всех серверов";
+      keys.push_back(std::move(test));
+      right -= kKey;
+    }
+    const bool inner = page != UiPage::Overview;
     // By the name: the app's own icon, its name, and the report beside them
-    // (his: "сообщить о проблеме около иконки приложения").
+    // (his: "сообщить о проблеме около иконки приложения"). On an inner page
+    // the report stands right, before the page's keys.
     Item name = Make(Kind::AppTitle, {12, 0, right - 14, kCaption}, L"Sovereign");
     name.text2 = SelfPath();
     name.scrolls = false;
     float left = 12 + 24 + TextWidth(name.text, caption_.get()) + 6;
+    if (inner) {
+      left = right - kKey;
+      right -= kKey;
+    }
     Item report = chrome(CommandItem(Kind::IconButton, {left, 0, left + kKey, kCaption}, L"Сообщить о проблеме",
                                      kGlyphReport, UiCommand::ReportProblem));
     report.tip = L"Сообщить о проблеме: отчёт без ключей и адресов, его можно прочитать перед отправкой";
@@ -2067,9 +2205,14 @@ class Painter {
     // installs it now.
     std::optional<Item> update;
     if (c.update == UiUpdate::Available || c.update == UiUpdate::Downloading || c.update == UiUpdate::Waiting) {
+      // On an inner page the arrow alone, left of the report: the room is the page's name's.
       const float wide = 4 + 22 + TextWidth(c.updateVersion, pill_.get()) + 12;
-      const float w = left + wide <= right - 4 ? wide : kKey;
-      update = chrome(CommandItem(Kind::IconButton, {left, 0, left + w, kCaption}, L"Обновить до " + c.updateVersion,
+      const float w = !inner && left + wide <= right - 4 ? wide : kKey;
+      const float at = inner ? right - kKey : left;
+      if (inner) {
+        right -= kKey;
+      }
+      update = chrome(CommandItem(Kind::IconButton, {at, 0, at + w, kCaption}, L"Обновить до " + c.updateVersion,
                                   kGlyphDownload, UiCommand::InstallUpdate));
       update->checked = true;
       if (w > kKey) {
@@ -2088,9 +2231,45 @@ class Painter {
         update->tip = L"Доступна версия " + c.updateVersion + L". Нажми, чтобы обновить";
       }
     }
-    name.rect.right = report.rect.left;
-    l.items.push_back(std::move(name));
-    // Left to right, as Tab goes: the report, the update, the page keys or "+", the cross.
+    bool whole = true;
+    if (inner) {
+      // Back on the left edge, a key's cell like the cross's on the right; the
+      // name after it, the "?" after the name. A name too long for what's
+      // left says "Конфигурация" and goes on the page.
+      Item back = chrome(Make(Kind::IconButton, {0, 0, 40, kCaption}, L"Назад", kGlyphBack));
+      back.action = ItemAction::Page;
+      back.index = static_cast<int>(BackOf(page));
+      back.tip = L"Назад (Esc)";
+      l.items.push_back(std::move(back));
+      constexpr float kTitleLeft = 44;
+      const float room = right - 8 - kTitleLeft - (head.hint.empty() ? 0.0f : 6 + kHint);
+      std::wstring title = head.title;
+      if (head.rename >= 0 && std::ceil(TextWidth(title, heading_.get())) > room) {
+        title = L"Конфигурация";
+        whole = false;
+      }
+      const float titleWidth = std::ceil(TextWidth(title, heading_.get()));
+      Item named = Make(Kind::Title, {kTitleLeft, 0, kTitleLeft + titleWidth + 4, kCaption}, title);
+      named.scrolls = false;
+      if (head.rename >= 0) {  // a click on the name renames it
+        named.action = ItemAction::EditName;
+        named.index = head.rename;
+        named.tip = L"Нажми, чтобы переименовать";
+      }
+      l.items.push_back(std::move(named));
+      if (!head.hint.empty()) {
+        AddHint(l, kTitleLeft + titleWidth + 6, kCaption / 2, head.hint, false);
+      }
+    } else {
+      name.rect.right = report.rect.left;
+      l.items.push_back(std::move(name));
+    }
+    // Left to right, as Tab goes: the report and the update (on an inner page the other way round),
+    // the page keys or "+", the cross.
+    if (inner && update) {
+      l.items.push_back(std::move(*update));
+      update.reset();
+    }
     l.items.push_back(std::move(report));
     if (update) {
       l.items.push_back(std::move(*update));
@@ -2100,6 +2279,7 @@ class Painter {
     }
     l.items.push_back(std::move(hide));
     l.items.push_back(std::move(close));
+    return whole;
   }
 
   // The one screen for every day, top to bottom: the state, what waits for a
@@ -2411,7 +2591,7 @@ class Painter {
 
   // The servers of the subscription's selector, with their latency.
   float Servers(Layout& l, const UiContent& c, float x0, float x1, float y) const {
-    const float titleTop = y;
+    // What the measuring says now, over the list (its key is the title bar's).
     std::wstring note;
     if (!c.selectError.empty()) {
       note = L"Не удалось переключить сервер: " + c.selectError;
@@ -2422,20 +2602,9 @@ class Painter {
     } else if (!c.delayError.empty()) {
       note = L"Не удалось проверить: " + c.delayError;
     }
-    y = PageTitle(l, L"Серверы", note.c_str(), x0, x1, y, UiPage::Overview,
-                  L"Флаг и провайдер — где сервер на самом деле: его выход, узнанный через него самого, а не то, "
-                  L"что написано в названии.\n\nЗадержка — медиана нескольких запросов через уже открытое "
-                  L"соединение, округлённая до 5 мс: разница меньше — шум сети. «Подробные замеры» внизу "
-                  L"покажут разброс (±), число запросов и время соединения. Авто берёт лучший по замерам и "
-                  L"меняет его, только когда другой заметно быстрее два замера подряд.\n\nПравый клик по "
-                  L"серверу — копировать имя или IP выхода.",
-                  x1 - 40);
-    Item test = CommandItem(Kind::IconButton, {x1 - 36, titleTop, x1, titleTop + 36}, L"Проверить задержку",
-                            kGlyphStopwatch, UiCommand::TestDelays);
-    // Always to press: with the connection off it says so in the note, while
-    // one runs a press changes nothing.
-    test.tip = L"Замерить задержку до всех серверов";
-    l.items.push_back(std::move(test));
+    if (!note.empty()) {
+      y = Paragraph(l, Kind::Caption, note, x0, x1, y) + kGap;
+    }
     if (c.protocols.empty()) {
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + 56}));
       l.items.push_back(Make(Kind::Muted, {x0 + 16, y, x1 - 16, y + 56},
@@ -2541,18 +2710,15 @@ class Painter {
   }
 
   float Subscription(Layout& l, const UiContent& c, float x0, float x1, float y) const {
-    y = PageTitle(l, L"Конфигурации", nullptr, x0, x1, y, UiPage::Overview,
-                  L"Подписки, ключи и свои конфиги. Включённые работают вместе: их серверы — в общем списке "
-                  L"«Серверы», маршруты и DNS — от первой включённой.\n\nНажми на конфигурацию, чтобы "
-                  L"переименовать её, настроить обновление или выключить отдельные серверы. Правый клик — "
-                  L"обновить, копировать ссылку, удалить.");
-
     // Every configuration: the switch turns it on and off, a click opens it.
     if (c.profiles.empty()) {
-      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + 56}));
-      l.items.push_back(Make(Kind::Muted, {x0 + 20, y, x1 - 20, y + 56},
-                             L"Пока ни одной — добавь через «+» на главном экране."));
-      y += 56;
+      const std::wstring none = L"Пока ни одной. Добавь из буфера, по QR-коду или из файла — кнопки вверху.";
+      const float h = std::max(56.0f, TextHeight(none, captionWrap_.get(), x1 - x0 - 40) + 32);
+      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
+      l.items.push_back(Make(Kind::Caption, {x0 + 20, y + (h - TextHeight(none, captionWrap_.get(), x1 - x0 - 40)) / 2,
+                                             x1 - 20, y + h - 16},
+                             none));
+      y += h;
     } else {
       const float h = static_cast<float>(c.profiles.size()) * kProfileRow;
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
@@ -2644,23 +2810,18 @@ class Painter {
 
   // One configuration: its name, on/off, its subscription's refreshing, a
   // waiting version, and its servers - each can be switched off.
-  float ProfilePage(Layout& l, const UiContent& c, const std::string& id, float x0, float x1, float y) const {
+  // `nameWhole`: the title bar has its name (Caption); else the page starts with it, wrapped.
+  float ProfilePage(Layout& l, const UiContent& c, const std::string& id, float x0, float x1, float y,
+                    bool nameWhole) const {
     const auto found = std::find_if(c.profiles.begin(), c.profiles.end(), [&](const UiProfile& p) { return p.id == id; });
     if (found == c.profiles.end()) {
-      y = PageTitle(l, L"Конфигурация", nullptr, x0, x1, y, UiPage::Subscription);
       l.items.push_back(Make(Kind::Muted, {x0, y, x1, y + 24}, L"Её больше нет."));
       return y + 24;
     }
     const UiProfile& p = *found;
     const int index = static_cast<int>(found - c.profiles.begin());
-    y = PageTitle(l, p.name.c_str(), nullptr, x0, x1, y, UiPage::Subscription);
-    for (auto it = l.items.rbegin(); it != l.items.rend(); ++it) {
-      if (it->kind == Kind::Title) {  // a click on the name renames it
-        it->action = ItemAction::EditName;
-        it->index = index;
-        it->tip = L"Нажми, чтобы переименовать";
-        break;
-      }
+    if (!nameWhole) {
+      y = Paragraph(l, Kind::Wrap, p.name, x0, x1, y) + kGap;
     }
     const float mid = (x0 + x1) / 2;
 
@@ -2843,170 +3004,38 @@ class Painter {
     return y + h;
   }
 
-  // Where traffic goes and how names resolve (routing.h), a section a card:
-  // the traffic's switches (and the lists they use), DNS, WARP,
-  // the user's rules - first, whatever the source.
+  // Where traffic goes (routing.h): the metro scheme (Board), the lists' state under it, the listed
+  // programs' mode; the mode's menu over all of it while open. (The route check is the checks'
+  // since 03.11.2026, his: "ни разу не пригодилась кнопка".)
   float Routing(Layout& l, const UiContent& c, float x0, float x1, float y) const {
     const UiRouting& r = c.routing;
-    y = PageTitle(l, L"Маршруты", nullptr, x0, x1, y, BackOf(UiPage::Routing),
-                  L"Куда идёт трафик. Это решает Sovereign: из подписок берутся только серверы, их правила "
-                  L"и DNS не используются.\n\n«Всё» — через VPN идёт всё, а "
-                  L"ниже исключения: то, что идёт иначе. «Только выбранное» — через VPN идёт лишь то, что "
-                  L"лежит в «Через VPN», остальное напрямую. Списки для обоих режимов хранятся: программы "
-                  L"одного не видны в другом, потому что там ничего не меняют.");
-    // The mode (RoutingSettings::finalDirect): everything through the VPN but
-    // what's sent elsewhere, or only what's sent through it.
-    {
-      // Read with the segments: "Через VPN идёт: всё" - and the buckets under
-      // it captioned as the exceptions to that ("Всё через VPN" over a list
-      // of what doesn't, uncaptioned, was a lie; "всё, кроме исключений" on
-      // the segment said both at once and outweighed the board).
-      // Section headings as the settings' (30.10.2026, a review's "типографическая
-      // шкала не системна": a label here, a heading there, for one role).
-      y = Heading(l, L"Через VPN идёт", x0, x1, y);
-      // One card holds the mode and what it comes to: "всё остальное → VPN"
-      // (or "напрямую"), the way everything the board doesn't name goes. The
-      // board under it is what goes otherwise ("Идёт иначе": WARP is no
-      // exception to anything, 30.10.2026, his: "варп вряд ли исключением
-      // можно назвать"), so the mode's own way isn't a card among them.
-      // The law's lines (law.md, Grid Logic): the segments are plates, 8 from the card's edge and 8
-      // apart; the line under them is content, its words on the line 20.
-      constexpr float kModePad = 8;
-      constexpr float kSegment = 32;
-      constexpr float kRestLine = 24;
-      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kModePad + kSegment + 8 + kRestLine + kModePad}));
-      const float mid = (x0 + x1) / 2;
-      const float inLeft = x0 + 20;
-      Item all = CommandItem(Kind::Segment, {x0 + kModePad, y + kModePad, mid - 4, y + kModePad + kSegment}, L"всё",
-                             nullptr, UiCommand::SetRouteMode, 0);
-      all.checked = !r.finalDirect;
-      Item chosen = CommandItem(Kind::Segment, {mid + 4, y + kModePad, x1 - kModePad, y + kModePad + kSegment},
-                                L"только выбранное", nullptr, UiCommand::SetRouteMode, 1);
-      chosen.checked = r.finalDirect;
-      l.items.push_back(std::move(all));
-      l.items.push_back(std::move(chosen));
-      const float lineTop = y + kModePad + kSegment + 8;
-      const std::wstring lead = L"всё остальное →";
-      const float leadWidth = TextWidth(lead, caption_.get());
-      l.items.push_back(Make(Kind::Muted, {inLeft, lineTop, inLeft + leadWidth + 4, lineTop + kRestLine}, lead));
-      const std::wstring way = r.finalDirect ? L"Напрямую" : L"VPN";
-      Item restWay = Make(Kind::Pill, {inLeft + leadWidth + 8, lineTop + (kRestLine - kPillHeight) / 2,
-                                       inLeft + leadWidth + 8 + TextWidth(way, caption_.get()) + kPillPad + 22,
-                                       lineTop + (kRestLine + kPillHeight) / 2},
-                          way);
-      restWay.rail = r.finalDirect ? kBucketDirect : kBucketProxy;
-      l.items.push_back(std::move(restWay));
-      y += kModePad + kSegment + 8 + kRestLine + kModePad + kGap;
-      y = Heading(l, L"Идёт иначе", x0, x1, y);
-      // How an exception is made, said where it's made (31.10.2026, his: sending a site "напрямую"
-      // meant finding the "+" of a way - "новички и не только не прохавают").
-      y = Paragraph(l, Kind::Caption,
-                    r.finalDirect ? L"Напрямую идёт всё, кроме того, что добавишь ниже. «+» у нужного пути — сайт, "
-                                    L"сервис или программа."
-                                  : L"Всё идёт через VPN, кроме того, что добавишь ниже. «+» у нужного пути — сайт, "
-                                    L"сервис или программа.",
-                    x0, x1, y) +
-          4;
-    }
-    // Where everything goes: the board. (The fine settings - QUIC, IPv4, DNS -
-    // are the settings' since 17.10.2026: nothing of where a site goes.)
-    y = Board(l, r, x0, x1, y);
+    float leadBottom = y;
+    y = Board(l, c, x0, x1, y, leadBottom);
     if (!r.lists.empty()) {  // only while the lists are downloading, or failed
-      y = Paragraph(l, r.listsFailed ? Kind::ErrorText : Kind::Caption, r.lists, x0 + 4, x1, y) + 4;
+      y = Paragraph(l, r.listsFailed ? Kind::ErrorText : Kind::Caption, r.lists, x0 + kSchemeIndent, x1, y) + 4;
     }
     y += kGap;
-    // Set up, then seen going: an address typed, or a tile's "Проверить" -
-    // held to its bucket; a way out under it when it went elsewhere.
-    if (c.checks.size() > kCheckRoute) {
-      const std::size_t routeCard = l.items.size();
-      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kCheckRow}));
-      const float routeGrown = CheckLine(l, c, kCheckRoute, x0, x1, y);
-      l.items[routeCard].rect.bottom += routeGrown;
-      y += kCheckRow + routeGrown;
-      const UiCheck& route = c.checks[kCheckRoute];
-      // An address was checked and seen (or not seen: the one that doesn't open): the ways it
-      // can be sent instead, one tap each - a rule for it on the board (31.10.2026, his: the
-      // check at the bottom should do something, not only say). The way it went isn't offered; nor
-      // is WARP while it's off; blocking isn't a way to fix a site that won't open.
-      if (!route.site.empty() && (route.status == UiCheck::Status::Ok || route.status == UiCheck::Status::Warn)) {
-        std::vector<std::pair<int, const wchar_t*>> ways;
-        for (const auto& [bucket, label] : {std::pair{kBucketDirect, L"Напрямую"}, std::pair{kBucketProxy, L"Через VPN"},
-                                            std::pair{kBucketWarp, L"Через WARP"}}) {
-          if (bucket != route.siteWay && (bucket != kBucketWarp || c.routing.warp)) {
-            ways.emplace_back(bucket, label);
-          }
-        }
-        if (!ways.empty()) {
-          y += 8;
-          constexpr float kSendPad = 8;
-          const float inLeft = x0 + 20;
-          const float inRight = x1 - 20;
-          // The check row cuts a long address short: the label says what was checked and how it
-          // goes now, so "иначе" has something to be other than.
-          static constexpr std::array<const wchar_t*, 4> kNow = {L"идёт напрямую", L"идёт через VPN", L"заблокирован",
-                                                                 L"идёт через WARP"};
-          const std::wstring ask =
-              L"«" + route.site + L"» " +
-              (route.siteWay >= 0 && route.siteWay < 4 ? std::wstring(kNow.at(static_cast<std::size_t>(route.siteWay))) + L". Пустить:"
-                                                       : std::wstring(L"— пустить иначе:"));
-          const float askHeight = std::max(24.0f, TextHeight(ask, captionWrap_.get(), inRight - inLeft));
-          const float cardHeight = kSendPad + askHeight + 32 + kSendPad;
-          l.items.push_back(Make(Kind::Card, {x0, y, x1, y + cardHeight}));
-          l.items.push_back(Make(Kind::Caption, {inLeft, y + kSendPad, inRight, y + kSendPad + askHeight}, ask));
-          const float each = (inRight - inLeft - 8 * static_cast<float>(ways.size() - 1)) / static_cast<float>(ways.size());
-          const float top = y + kSendPad + askHeight;
-          for (std::size_t k = 0; k < ways.size(); ++k) {
-            const float bx = inLeft + static_cast<float>(k) * (each + 8);
-            Item send = CommandItem(Kind::Button, {bx, top, bx + each, top + 32}, ways[k].second, nullptr,
-                                    UiCommand::RouteSite, ways[k].first);
-            send.tip = L"Добавить сайт в этот путь на доске «Маршруты». Уберёшь там же.";
-            l.items.push_back(std::move(send));
-          }
-          y += cardHeight;
-        }
-      }
-      if (route.status == UiCheck::Status::Fail && route.fix != UiCheck::Fix::None) {
-        const FixAction way = FixWay(route.fix, c);
-        y += 8;
-        Item banner = Make(Kind::Banner, {x0, y, x1, y + 40}, L"Не так, как на доске — " + way.label, kGlyphWarning);
-        banner.action = way.action;
-        banner.command = way.command;
-        banner.index = way.index;
-        l.items.push_back(std::move(banner));
-        y += 40;
-      }
-      y += kGap;
-    }
-    // Only the listed programs through the VPN: a mode of its own (the
-    // others are on the board).
-    return c.appsInclude ? Apps(l, c, x0, x1, y) : y;
+    const float end = c.appsInclude ? Apps(l, c, x0, x1, y) : y;
+    return c.routeMenu ? std::max(end, RouteMenu(l, r, x0, x1, leadBottom + 8)) : end;
   }
 
   // The checks: what the internet sees, leaks, the local network, DNS, and -
   // on their own buttons - speed and where an address goes.
   float Checks(Layout& l, const UiContent& c, float x0, float x1, float y) const {
-    // "Check all" in the title's row; what the page is about in its "?".
-    const float titleTop = y;
-    const float allWidth = 140;
-    y = PageTitle(l, L"Проверка", nullptr, x0, x1, y, BackOf(UiPage::Checks),
-                  L"Запросы трея идут как у любой программы — по тем же правилам, поэтому видно то же, что "
-                  L"видят твои программы и сайты.\n\n«Проверить всё» — все строки, кроме скорости и адреса: у них "
-                  L"свои кнопки справа. Наведи на «?» у строки — что она проверяет и что значит результат. Правый "
-                  L"клик — проверить снова или скопировать результат.",
-                  x1 - allWidth - 8);
-    Item all = CommandItem(Kind::AccentButton, {x1 - allWidth, titleTop + 1, x1, titleTop + 1 + kButton},
+    // "Check all" first, the page's width (the page's name and "?" are the title bar's).
+    Item all = CommandItem(Kind::AccentButton, {x0, y, x1, y + kButton},
                            c.checksRunning ? L"Проверяю…" : L"Проверить всё", kGlyphShield, UiCommand::RunChecks);
     all.enabled = !c.checksRunning;
     l.items.push_back(std::move(all));
+    y += kButton + kGap;
 
     // One card, a line each: status, title and "?", the result on the right.
-    // Speed makes traffic: a button of its own. Where an address goes is the
-    // routing page's - by the board it's checked against (16.10.2026).
+    // Speed makes traffic: a button of its own; so does where an address goes
+    // (back from the routing page, 03.11.2026, his: "ни разу не пригодилась кнопка").
     std::vector<std::size_t> shown;
+    shown.reserve(c.checks.size());
     for (std::size_t i = 0; i < c.checks.size(); ++i) {
-      if (i != kCheckRoute) {
-        shown.push_back(i);
-      }
+      shown.push_back(i);
     }
     // A line whose result won't fit beside its title is taller (CheckLine's answer): the card's foot
     // is known when the last is placed.
@@ -3038,8 +3067,8 @@ class Painter {
     std::vector<FixAction> ways;
     for (std::size_t i = 0; i < c.checks.size(); ++i) {
       const UiCheck& check = c.checks[i];
-      if (i == kCheckRoute || check.status != UiCheck::Status::Fail || check.fix == UiCheck::Fix::None) {
-        continue;  // the address's way out is under its row, by the board
+      if (check.status != UiCheck::Status::Fail || check.fix == UiCheck::Fix::None) {
+        continue;
       }
       FixAction way = FixWay(check.fix, c);
       const auto same =
@@ -3066,15 +3095,14 @@ class Painter {
   // What a row grows by (0 or kStackLine) when its value doesn't fit beside its title in the room the
   // row's rectangle gives: the value then stands under the title (Item::stacked), whole. The same
   // measure as Describe's, so what the layout test calls cut is what grows.
-  // A board chip wider than its card: the room for its text (as DrawItem gives it) and the height it
-  // then takes - the text wrapped, the detail on a line under it, 5 above and below. Over kTag always.
-  static float ChipTextRoom(const UiChip& chip, float width) {
-    return width - 22 - (chip.icon.empty() && chip.logo.empty() ? 0.0f : 24.0f);
-  }
+  // A board chip wider than the page: the room for its text (as DrawItem gives it: 32 in past its
+  // icon, 12 off the right) and the height it then takes - the text wrapped, the detail on a line
+  // under it, 6 above and below. kTag at least.
+  static float ChipTextRoom(float width) { return width - 32 - 12; }
   float ChipWrappedHeight(const UiChip& chip, float width) const {
-    const float room = ChipTextRoom(chip, width);
+    const float room = ChipTextRoom(width);
     const float detail = chip.detail.empty() ? 0.0f : TextHeight(chip.detail, captionWrap_.get(), room);
-    return std::max(kTag + 2, TextHeight(chip.text, wrap_.get(), room) + detail + 10);
+    return std::max(kTag, TextHeight(chip.text, wrap_.get(), room) + detail + 12);
   }
 
   float StackExtra(const Item& it) const {
@@ -3242,12 +3270,12 @@ class Painter {
     return y + kButton;
   }
 
-  // The log: in the title's row the level the core writes, pause and save;
-  // the level filter; the lines, filling the window; the selected line in
-  // full under them. Right-click for copy, select all, save, clear.
+  // The log: a row of the level the core writes on the left, pause and save
+  // on the right; the level filter; the lines, filling the window; the
+  // selected line in full under them. Right-click for copy, select all, save, clear.
   float Logs(Layout& l, const UiContent& c, const LogState& s, float x0, float x1, float y, float height) const {
-    const float titleTop = y;
-    y = PageTitle(l, L"Журнал", nullptr, x0, x1, y, BackOf(UiPage::Logs));
+    const float titleTop = y - 1;  // the keys of 36 on the row of kButton's line
+    y += kButton + kGap;
     float right = x1;
     Item save = Make(Kind::IconButton, {right - 36, titleTop, right, titleTop + 36}, L"Сохранить в файл", kGlyphSave);
     save.action = ItemAction::SaveLogs;
@@ -3265,8 +3293,7 @@ class Painter {
                 : s.paused ? L"Продолжить: новые строки снова пойдут"
                            : L"Пауза: новые строки подождут, пока читаешь";
     l.items.push_back(std::move(pause));
-    right -= pauseWidth + 4;
-    Item writes = CommandItem(Kind::Button, {right - 124, titleTop + 1, right, titleTop + 1 + kButton},
+    Item writes = CommandItem(Kind::Button, {x0, titleTop + 1, x0 + 132, titleTop + 1 + kButton},
                               c.logLevel.empty() ? std::wstring(L"запись: авто") : L"запись: " + c.logLevel,
                               kGlyphFilter, UiCommand::ChooseLogLevel);
     writes.tip = L"Насколько подробно ядро пишет журнал";
@@ -3379,10 +3406,6 @@ class Painter {
   }
 
   float Settings(Layout& l, const UiContent& c, float x0, float x1, float y) const {
-    y = PageTitle(l, L"Настройки", nullptr, x0, x1, y, UiPage::Overview,
-                  L"Крестик закрывает клиент совсем, чёрточка прячет окно в трей. Подключение остаётся и после "
-                  L"крестика: им управляет служба.\n\nВсё настроенное здесь, конфиги и их история лежат в «Папке "
-                  L"данных» внизу — %LOCALAPPDATA%\\Sovereign.");
 
     // Only what's set: where traffic goes (a page of its own), how the
     // connection behaves (it holds when the VPN drops, it starts with Windows,
@@ -3645,7 +3668,9 @@ class Painter {
 
   /* ---- drawing ---- */
 
-  void DrawItem(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed) const {
+  // `hot`: the way (rail) whose route the pointer is on - a chip, a heading or a "+" of it (Draw);
+  // the routing scheme's lines lit for it, the others put back. -1: none.
+  void DrawItem(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed, int hot = -1) const {
     const D2D1_RECT_F r = it.rect;
     const D2D1_COLOR_F primary = FromColorRef(ui::kPrimaryText);
     const D2D1_COLOR_F secondary = FromColorRef(ui::kSecondaryText);
@@ -3673,8 +3698,77 @@ class Painter {
         k.Line({r.left, r.top + 0.5f}, {r.right, r.top + 0.5f}, Rgb(0, 0, 0, 0.35f));
         k.Line({r.left, r.top + 1.5f}, {r.right, r.top + 1.5f}, Rgb(255, 255, 255, 0.05f));
         break;
-      case Kind::Title: k.Text(it.text, title_.get(), r, primary); break;
+      case Kind::Title:  // the page's name in the title bar; a configuration's renames on a click
+        k.Text(it.text, heading_.get(), r, hovered && it.action != ItemAction::None ? lit : primary);
+        break;
       case Kind::Heading: k.Text(it.text, heading_.get(), r, primary); break;
+      case Kind::Lead: k.Text(it.text, lead_.get(), r, primary); break;
+      case Kind::ModePill: {
+        // A key in the sentence: the card's plate, a hairline brightened while open, the
+        // chevron turned over then (the mockup's .pill).
+        const float radius = (r.bottom - r.top) / 2;
+        k.Round(r, radius, hovered || it.checked ? Rgb(36, 37, 41) : FromColorRef(ui::kCardColor));
+        if (pressed) {
+          k.Round(r, radius, Rgb(0, 0, 0, 0.12f));
+        }
+        k.Outline(r, radius, Rgb(255, 255, 255, it.checked ? 0.24f : 0.13f));
+        k.Text(it.text, lead_.get(), {r.left + kPillSide, r.top, r.right - kPillSide - kChevron - 8, r.bottom}, primary);
+        const float cx = r.right - kPillSide - kChevron / 2;
+        const float cy = (r.top + r.bottom) / 2;
+        const float turn = it.checked ? -1.0f : 1.0f;
+        Polyline(k, {{cx - 3.5f, cy - 1.75f * turn}, {cx, cy + 1.75f * turn}, {cx + 3.5f, cy - 1.75f * turn}}, secondary,
+                 1.5f);
+        break;
+      }
+      case Kind::Route: DrawRoute(k, it, hot); break;
+      case Kind::GhostAdd: {
+        // A dashed place for one more: its way's colour round it under the pointer.
+        const COLORREF tone = BucketColor(it.rail);
+        const D2D1_RECT_F in{r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f};
+        if (hovered || pressed) {
+          k.Round(r, kRadius, FromColorRef(tone, pressed ? 0.05f : 0.08f));
+        }
+        k.t->DrawRoundedRectangle(D2D1::RoundedRect(in, kRadius - 0.5f, kRadius - 0.5f),
+                                  k.Color(hovered ? FromColorRef(tone, 0.9f) : Rgb(255, 255, 255, 0.2f)), 1,
+                                  dashed_.get());
+        const D2D1_COLOR_F ink = hovered ? primary : secondary;
+        if (it.text.empty()) {  // the square: a "+" of two strokes on its middle
+          const float cx = (r.left + r.right) / 2;
+          const float cy = (r.top + r.bottom) / 2;
+          Polyline(k, {{cx - 5, cy}, {cx + 5, cy}}, ink, 1.5f);
+          Polyline(k, {{cx, cy - 5}, {cx, cy + 5}}, ink, 1.5f);
+        } else {
+          k.Text(it.text, wrap_.get(), {r.left + 12, r.top + 6, r.right - 12, r.bottom - 6}, ink);
+        }
+        break;
+      }
+      case Kind::Menu: {
+        // Raised over the page: a soft shadow under it, its own lighter plate, a hairline.
+        for (int n = 1; n <= 4; ++n) {
+          const float grow = static_cast<float>(n) * 4;
+          k.Round({r.left - grow / 2, r.top + grow / 2, r.right + grow / 2, r.bottom + grow},
+                  kRadius + grow / 2, Rgb(0, 0, 0, 0.14f));
+        }
+        k.Round(r, kRadius, FromColorRef(ui::kRaisedColor));
+        k.Outline(r, kRadius, Rgb(255, 255, 255, 0.13f));
+        break;
+      }
+      case Kind::MenuItem: {
+        if (hoverAlpha > 0) {
+          k.Round(r, 6, Rgb(255, 255, 255, pressed ? 0.04f : 0.06f));
+        }
+        const float textLeft = r.left + 12 + 8 + 12;
+        const float textRight = r.right - 12 - 16 - 12;
+        k.t->FillEllipse(D2D1::Ellipse({r.left + 12 + 4, r.top + 12 + 10}, 4, 4), k.Color(FromColorRef(BucketColor(it.rail))));
+        k.Text(it.text, strong_.get(), {textLeft, r.top + 12, textRight, r.top + 12 + 20}, primary);
+        k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 12 + 20 + 4, textRight, r.bottom - 12}, secondary);
+        if (it.checked) {
+          const float x = r.right - 12 - 16;
+          const float y = r.top + 12 + 2;
+          Polyline(k, {{x + 3, y + 8.5f}, {x + 6.2f, y + 11.5f}, {x + 13, y + 4.5f}}, lit, 1.75f);
+        }
+        break;
+      }
       case Kind::Text: k.Text(it.text, body_.get(), r, it.warn ? FromColorRef(ui::kDanger) : primary); break;
       case Kind::Muted:  // one that picks something (a Command): brighter under the mouse
         k.Text(it.engraved ? Spaced(it.text) : it.text, it.engraved ? engraved_.get() : caption_.get(), r,
@@ -3692,7 +3786,9 @@ class Painter {
         break;
       }
       case Kind::Wrap: k.Text(it.text, wrap_.get(), r, secondary); break;
-      case Kind::Caption: k.Text(it.text, captionWrap_.get(), r, secondary); break;
+      case Kind::Caption:  // `warn`: a caution, amber (the routing's "nothing goes through the VPN yet")
+        k.Text(it.text, captionWrap_.get(), r, it.warn ? FromColorRef(ui::kWarning) : secondary);
+        break;
       case Kind::ErrorText: {
         const D2D1_COLOR_F danger = FromColorRef(ui::kDanger);
         k.Text(it.glyph, glyph_.get(), {r.left, r.top, r.left + 20, r.top + 20}, danger);
@@ -3963,30 +4059,38 @@ class Painter {
         break;
       }
       case Kind::Tag: {
-        k.Round(r, 8, Rgb(255, 255, 255, 0.05f + hoverAlpha));
-        k.Outline(r, 8, Rgb(255, 255, 255, 0.08f));
-        const float cy = (r.top + r.bottom) / 2;
-        float left = r.left + 12;  // the law's chip: 12 inside, 8 between its parts
+        // A thing on a way: a plate a breath lighter than the page, a hairline, its icon 8 in
+        // (a program's, a service's logo, else a globe: a site) and its name 8 after it.
+        k.Round(r, kRadius, Rgb(255, 255, 255, 0.045f + (pressed ? 0.02f : (hovered ? 0.035f : 0.0f))));
+        k.Outline(r, kRadius, Rgb(255, 255, 255, hovered ? 0.2f : 0.13f));
+        const float iconY = it.stacked ? r.top + kTag / 2 : (r.top + r.bottom) / 2;
+        const float iconLeft = r.left + 8;
         if (ID2D1Bitmap* icon = it.logo.empty() ? ProgramIcon(k.t, it.text2) : Logo(k.t, it.logo); icon != nullptr) {
-          k.t->DrawBitmap(icon, {left, cy - 8, left + 16, cy + 8});
-          left += 24;
+          k.t->DrawBitmap(icon, {iconLeft, iconY - 8, iconLeft + 16, iconY + 8});
+        } else {  // a globe of lines: its rim, a meridian, the equator
+          const D2D1_POINT_2F mid{iconLeft + 8, iconY};
+          const D2D1_COLOR_F ink = FromColorRef(ui::kSecondaryText);
+          k.t->DrawEllipse(D2D1::Ellipse(mid, 6.4f, 6.4f), k.Color(ink), 1.2f);
+          k.t->DrawEllipse(D2D1::Ellipse(mid, 2.8f, 6.4f), k.Color(ink), 1.2f);
+          k.t->DrawLine({mid.x - 6.4f, mid.y}, {mid.x + 6.4f, mid.y}, k.Color(ink), 1.2f);
         }
-        if (it.stacked) {  // wider than the card: the text wraps, the detail stands under it (ChipWrappedHeight)
-          const float room = r.right - 10 - left;
+        const float left = r.left + 32;
+        const float right = r.right - 12;
+        // A thing that goes here anyway (the rest's way, UiChip::idle) is set quieter: named, no exception.
+        const D2D1_COLOR_F ink = it.quiet ? secondary : primary;
+        if (it.stacked) {  // wider than the page: the text wraps, the detail stands under it (ChipWrappedHeight)
+          const float room = right - left;
           const float detailHeight = it.detail.empty() ? 0.0f : TextHeight(it.detail, captionWrap_.get(), room);
-          k.Text(it.text, wrap_.get(), {left, r.top + 5, r.right - 10, r.bottom - 5 - detailHeight},
-                 it.quiet ? secondary : primary);
+          k.Text(it.text, wrap_.get(), {left, r.top + 6, right, r.bottom - 6 - detailHeight}, ink);
           if (!it.detail.empty()) {
-            k.Text(it.detail, captionWrap_.get(), {left, r.bottom - 5 - detailHeight, r.right - 10, r.bottom - 5},
-                   secondary);
+            k.Text(it.detail, captionWrap_.get(), {left, r.bottom - 6 - detailHeight, right, r.bottom - 6}, secondary);
           }
           break;
         }
-        // A thing that goes here anyway (the rest's way, UiChip::idle) is set quieter: named, no exception.
-        k.Text(it.text, body_.get(), {left, r.top, r.right - 10, r.bottom}, it.quiet ? secondary : primary);  // 2 of slack: see Board
+        k.Text(it.text, body_.get(), {left, r.top, right + 2, r.bottom}, ink);  // 2 of slack: see Board
         if (!it.detail.empty()) {
           const float after = left + std::ceil(TextWidth(it.text, body_.get())) + 8;
-          k.Text(it.detail, caption_.get(), {after, r.top, r.right - 10, r.bottom}, secondary);
+          k.Text(it.detail, caption_.get(), {after, r.top, right + 2, r.bottom}, secondary);
         }
         break;
       }
@@ -4024,7 +4128,7 @@ class Painter {
     // What it points at: a key's pill, a title's words - not the cell, the row.
     D2D1_RECT_F at = it.chrome ? KeyPill(it) : it.rect;
     if (it.kind == Kind::Title) {
-      at.right = std::min(at.right, at.left + TextWidth(it.text, title_.get()));
+      at.right = std::min(at.right, at.left + TextWidth(it.text, heading_.get()));
     }
     const float middle = (at.left + at.right) / 2;
     const float left = std::clamp(middle - w / 2, kEdge, std::max(kEdge, size.width - kEdge - w));
@@ -4510,6 +4614,69 @@ class Painter {
     }
     return out;
   }
+  // A polyline through `points`, round at its ends (the routing page's chevron, check and "+").
+  void Polyline(const Canvas& k, std::initializer_list<D2D1_POINT_2F> points, D2D1_COLOR_F ink, float width) const {
+    wil::com_ptr<ID2D1PathGeometry> path;
+    wil::com_ptr<ID2D1GeometrySink> sink;
+    if (points.size() < 2 || FAILED(d2d_->CreatePathGeometry(path.put())) || FAILED(path->Open(sink.put()))) {
+      return;
+    }
+    const auto* p = points.begin();
+    sink->BeginFigure(*p, D2D1_FIGURE_BEGIN_HOLLOW);
+    for (++p; p != points.end(); ++p) {
+      sink->AddLine(*p);
+    }
+    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    if (SUCCEEDED(sink->Close())) {
+      k.t->DrawGeometry(path.get(), k.Color(ink), width, roundCaps_.get());
+    }
+  }
+
+  // A line of the routing scheme (Kind::Route): the mode's spine from its node down to the way
+  // everything else goes, or a way's branch off it to its station (the block's: a bar, the line
+  // ends). Lit at full tone and wider when it is `hot`'s, put back to .3 when another way is.
+  void DrawRoute(const Canvas& k, const Item& it, int hot) const {
+    const D2D1_RECT_F r = it.rect;
+    const bool lit = hot == it.rail;
+    const float alpha = hot < 0 || lit ? 1.0f : 0.3f;
+    const D2D1_COLOR_F ink = FromColorRef(BucketColor(it.rail), alpha);
+    const D2D1_COLOR_F hole = FromColorRef(ui::kWindowColor);
+    const float x = r.left + kLineX;
+    const float end = r.left + kStationX;
+    const bool spine = it.sub == kRouteSpine;
+    const float width = (spine ? 3.0f : 2.0f) + (lit ? (spine ? 0.5f : 1.5f) : 0.0f);
+    const float y = spine ? r.bottom : (r.top + r.bottom) / 2;  // where it turns into its way
+    const float from = spine ? r.top : y - kLineTurn;
+    wil::com_ptr<ID2D1PathGeometry> path;
+    wil::com_ptr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(d2d_->CreatePathGeometry(path.put())) && SUCCEEDED(path->Open(sink.put()))) {
+      sink->BeginFigure({x, from}, D2D1_FIGURE_BEGIN_HOLLOW);
+      sink->AddLine({x, y - kLineTurn});
+      sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment({x, y}, {x + kLineTurn, y}));
+      sink->AddLine({end, y});
+      sink->EndFigure(D2D1_FIGURE_END_OPEN);
+      if (SUCCEEDED(sink->Close())) {
+        k.t->DrawGeometry(path.get(), k.Color(ink), width, roundCaps_.get());
+        if (spine) {  // the traffic on the main line: dots going down it (still, with the motion off)
+          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, 0.55f * alpha)), 1.5f, dots_.get());
+        }
+      }
+    }
+    if (it.sub == kRouteEnd) {  // the block: the line ends in a bar
+      k.t->DrawLine({end, y - 6}, {end, y + 6}, k.Color(ink), width, roundCaps_.get());
+    } else {  // a station, hollow: the window's colour inside its ring
+      const float radius = spine ? 5.0f : 4.0f;
+      k.t->FillEllipse(D2D1::Ellipse({end, y}, radius, radius), k.Color(hole));
+      k.t->DrawEllipse(D2D1::Ellipse({end, y}, radius, radius), k.Color(ink), spine ? 3.0f : 2.0f);
+    }
+    if (spine) {  // the mode's node at the top: a faint ring, a disc, a hole
+      const D2D1_POINT_2F node{x, r.top};
+      k.t->DrawEllipse(D2D1::Ellipse(node, 10, 10), k.Color(FromColorRef(BucketColor(it.rail), 0.25f * alpha)), 1.5f);
+      k.t->FillEllipse(D2D1::Ellipse(node, 6, 6), k.Color(FromColorRef(BucketColor(it.rail), alpha)));
+      k.t->FillEllipse(D2D1::Ellipse(node, 2.5f, 2.5f), k.Color(hole));
+    }
+  }
+
   // The title bar's own icons, drawn as lines like the cross and the dash -
   // one stroke, round ends, 14 DIPs across, nothing filled - instead of
   // Segoe's glyphs, which differ in weight and detail from each other
@@ -4565,6 +4732,10 @@ class Painter {
         line(-3.4f, y, -6.4f, y - 1.0f);
         line(3.4f, y, 6.4f, y - 1.0f);
       }
+    } else if (glyph == kGlyphBack) {  // back: an arrow to the left, the title bar's first key
+      line(-6, 0, 6, 0);
+      line(-6, 0, -1, -5);
+      line(-6, 0, -1, 5);
     } else if (glyph == kGlyphChevron) {  // goes on to a choice
       line(-1.8f, -4, 2.2f, 0);
       line(2.2f, 0, -1.8f, 4);
@@ -4676,8 +4847,10 @@ class Painter {
   wil::com_ptr<IDWriteFontCollection> fonts_;  // Geist; null if missing
   wil::com_ptr<IWICImagingFactory> wic_;
   wil::com_ptr<ID2D1StrokeStyle> roundCaps_;  // the title bar's cross and dash
+  wil::com_ptr<ID2D1StrokeStyle> dashed_;     // a ghost key's outline
+  wil::com_ptr<ID2D1StrokeStyle> dots_;       // the routing scheme's main line, its traffic
   wil::com_ptr<IDWriteInlineObject> ellipsis_;
-  wil::com_ptr<IDWriteTextFormat> title_;
+  wil::com_ptr<IDWriteTextFormat> lead_;  // the routing page's opening words and its mode (17.75)
   wil::com_ptr<IDWriteTextFormat> state_;
   wil::com_ptr<IDWriteTextFormat> delay_;
   wil::com_ptr<IDWriteTextFormat> heading_;
@@ -4685,6 +4858,7 @@ class Painter {
   wil::com_ptr<IDWriteTextFormat> caption_;
   wil::com_ptr<IDWriteTextFormat> button_;
   wil::com_ptr<IDWriteTextFormat> center_;
+  wil::com_ptr<IDWriteTextFormat> strong_;  // 14 semibold from the left: a menu choice's title
   wil::com_ptr<IDWriteTextFormat> chip_;
   wil::com_ptr<IDWriteTextFormat> wrap_;
   wil::com_ptr<IDWriteTextFormat> captionWrap_;
@@ -4749,6 +4923,7 @@ struct MainWindow::Impl {
   LogView log;
   bool selecting = false;      // dragging a selection over the log
   bool settingsMore = false;   // the configurations' relay fold open (UiContent::settingsMore)
+  bool routeMenu = false;      // the routing mode's menu dropped (UiContent::routeMenu)
   // The servers' order on their page (UiContent::serverOrder): kept through
   // a latency test - every figure "…" there, the list would fall back to the
   // subscription's order and jump again as the results came in.
@@ -5078,6 +5253,9 @@ struct MainWindow::Impl {
       if (question && item.action != ItemAction::Answer) {
         continue;  // a question open: the page under it takes nothing
       }
+      if (routeMenu && !InMenu(item)) {
+        continue;  // the mode's menu dropped: a press elsewhere only puts it away (WM_LBUTTONDOWN)
+      }
       if ((!anyItem && !Interactive(item)) || !Contains(Seen(item), x, y)) {
         continue;
       }
@@ -5087,6 +5265,11 @@ struct MainWindow::Impl {
       return static_cast<int>(i);
     }
     return -1;
+  }
+
+  // The routing mode's menu and the pill it drops from: all that takes a press while it's open.
+  static bool InMenu(const Item& item) {
+    return item.kind == Kind::Menu || item.kind == Kind::MenuItem || item.kind == Kind::ModePill;
   }
 
   // What shows a tip: a "?" at once, an icon button (its name) after a while.
@@ -5233,6 +5416,7 @@ struct MainWindow::Impl {
       state.detail = log.Line(log.caret);
     }
     content.settingsMore = settingsMore;
+    content.routeMenu = routeMenu;
     content.serverOrder = serverOrder;
     content.question = question;
     layout = painter.Build(content, page, openProfile, size.width, size.height, scroll, state);
@@ -5348,16 +5532,15 @@ struct MainWindow::Impl {
       const bool button = it.action == ItemAction::Command && it.command == anchor && it.index == index;
       if (title || button) {
         D2D1_RECT_F rect = it.rect;
-        if (anchor == UiCommand::BoardAdd || anchor == UiCommand::ChipMenu) {
-          // A "+" in a bucket's corner: a site is typed across the bucket, up
-          // to the "+"; a chip: what's in it, or its name, across the bucket.
-          for (const Item& card : layout.items) {
-            if (card.kind == Kind::Card && card.rect.top <= it.rect.top && card.rect.bottom >= it.rect.bottom &&
-                card.rect.left <= it.rect.left && card.rect.right >= it.rect.right) {
-              rect = {card.rect.left + 8, it.rect.top,
-                      anchor == UiCommand::ChipMenu ? card.rect.right - 8 : it.rect.left - 4, it.rect.bottom};
-            }
-          }
+        if (anchor == UiCommand::BoardAdd) {
+          // A way's "+": a site is typed from it to the scheme's right, from the scheme's left
+          // where that leaves too little for an address.
+          constexpr float kRoom = 160;
+          rect = {layout.boardRight - it.rect.left >= kRoom ? it.rect.left : layout.boardLeft, it.rect.top,
+                  layout.boardRight, it.rect.top + kTag};
+        } else if (anchor == UiCommand::ChipMenu) {
+          // A chip: what's in it, or its name, across the scheme on its line.
+          rect = {layout.boardLeft, it.rect.top, layout.boardRight, it.rect.top + kTag};
         }
         if (anchor == UiCommand::CheckRoute) {
           // Its button is an icon: the address is typed over the line's result.
@@ -5573,10 +5756,28 @@ struct MainWindow::Impl {
       scroll = 0;
       in.focus = -1;
       in.pressed = -1;
+      routeMenu = false;
     }
     Relayout();
     KickLive();
     KickCube();  // back on the overview, the cube's idle life starts again
+  }
+
+  // The routing mode's menu dropped or put away; the focus, on an item of the page, would
+  // be on nothing it can reach.
+  void SetRouteMenu(bool open) {
+    if (routeMenu == open) {
+      return;
+    }
+    routeMenu = open;
+    in.pressed = -1;
+    if (open && in.focusVisible) {
+      in.focus = -1;  // Tab goes into the menu: MoveFocus below
+    }
+    Relayout();
+    if (open && in.focusVisible) {
+      MoveFocus(false);
+    }
   }
 
   void Activate(const Item& item) {
@@ -5616,9 +5817,13 @@ struct MainWindow::Impl {
         NoteFolds();
         Relayout();
         return;
+      case ItemAction::RouteMenu: SetRouteMenu(!routeMenu); return;
       case ItemAction::Hide: PostMessageW(hwnd, WM_CLOSE, 0, 0); return;
       case ItemAction::Answer: Answer(item.index); return;
       case ItemAction::Command: break;
+    }
+    if (item.kind == Kind::MenuItem) {
+      SetRouteMenu(false);  // a mode picked: the menu goes, the command relayouts with it gone
     }
     UiArgs args;
     args.index = item.index;
@@ -5790,8 +5995,10 @@ struct MainWindow::Impl {
   void MoveFocus(bool back) {
     std::vector<int> order;
     for (std::size_t i = 0; i < layout.items.size(); ++i) {
-      if (Interactive(layout.items[i]) && layout.items[i].kind != Kind::Hint && layout.items[i].kind != Kind::Day &&
-          (!question || layout.items[i].action == ItemAction::Answer)) {
+      // A tip's own ("?", a way's name) takes no focus: there's nothing to press.
+      const Item& it = layout.items[i];
+      if (Interactive(it) && it.action != ItemAction::Hint && it.kind != Kind::Day &&
+          (!question || it.action == ItemAction::Answer) && (!routeMenu || InMenu(it))) {
         order.push_back(static_cast<int>(i));
       }
     }
@@ -5983,7 +6190,8 @@ struct MainWindow::Impl {
           GetClientRect(w, &rc);
           return at.x < frame * 2 ? HTTOPLEFT : at.x >= rc.right - frame * 2 ? HTTOPRIGHT : HTTOP;
         }
-        if (HitAt(at) >= 0 ||
+        // The mode's menu dropped: a press anywhere is the window's, to put it away.
+        if (HitAt(at) >= 0 || routeMenu ||
             (!question && (InLog(at) || log.pan.has_value() || barGrab.has_value() || selecting))) {
           return HTCLIENT;
         }
@@ -6102,6 +6310,11 @@ struct MainWindow::Impl {
         if (question) {
           in.pressed = HitAt(at);  // its buttons only: the log under it keeps its lines
           InvalidateRect(w, nullptr, FALSE);
+          return 0;
+        }
+        if (routeMenu && HitAt(at) < 0) {
+          ReleaseCapture();
+          SetRouteMenu(false);  // a press beside the mode's menu puts it away, and does nothing else
           return 0;
         }
         if (const auto thumb = page == UiPage::Logs && OnLogBar(at) && layout.logBox ? LogThumb(*layout.logBox, log)
@@ -6302,8 +6515,10 @@ struct MainWindow::Impl {
       return true;
     }
     if (key == VK_ESCAPE) {
-      // Back (BackOf); from the overview, away.
-      if (page != UiPage::Overview) {
+      // The mode's menu away first; else back (BackOf); from the overview, away.
+      if (routeMenu) {
+        SetRouteMenu(false);
+      } else if (page != UiPage::Overview) {
         Go(BackOf(page));
       } else {
         ShowWindow(hwnd, SW_HIDE);
@@ -6510,11 +6725,13 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
   }
   Interaction in;
   if (!tipFor.empty()) {
-    const auto it = std::find_if(layout.items.begin(), layout.items.end(),
-                                 [&](const Item& item) { return TipText(item).starts_with(tipFor); });
+    // Its tip, or its words where it has none: pointed at, without a tip then.
+    const auto it = std::find_if(layout.items.begin(), layout.items.end(), [&](const Item& item) {
+      return TipText(item).starts_with(tipFor) || (TipText(item).empty() && item.text.starts_with(tipFor));
+    });
     THROW_HR_IF(E_INVALIDARG, it == layout.items.end());
-    in.tip = static_cast<int>(it - layout.items.begin());
-    in.hover = in.tip;
+    in.hover = static_cast<int>(it - layout.items.begin());
+    in.tip = TipText(*it).empty() ? -1 : in.hover;
   }
   target->BeginDraw();
   painter.Draw(target.get(), layout, content, in, log, &live);

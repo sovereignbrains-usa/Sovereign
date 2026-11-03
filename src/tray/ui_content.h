@@ -309,6 +309,7 @@ struct UiContent {
   bool connectAtStartup = true;         // and connects (if it was on), else starts turned off
   bool routingMore = false;             // the settings' fine settings (QUIC, IPv4, DNS) unfolded
   bool settingsMore = false;            // the configurations' relay fold open (the window's own)
+  bool routeMenu = false;               // the routing mode's menu dropped (the window's own)
   // How open each fold is while it moves (0 folded .. 1 open; the window's own, law.md --d-fold); -1: at rest,
   // as the flag above says.
   float routingFold = -1;               // the fine settings'

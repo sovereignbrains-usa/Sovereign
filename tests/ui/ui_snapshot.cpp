@@ -237,20 +237,16 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96,
                                               dir + L"\\routing-block-empty.png");
     // His narrow window (350, 31.10.2026): WARP's note - a long server's name - on a line under the
-    // name, not cut to "…"; the route's "?" before its button, not on the title.
+    // name, not cut to "…".
     routed.routing.warpState = L"через «AnyTLS-Reality | Frankfurt №1»";
-    routed.checks = SampleChecks();
-    routed.checks[3].status = sovereign::tray::UiCheck::Status::NotRun;
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-narrow.png");
-    // An address checked and seen: the other ways one tap each under the result (31.10.2026).
-    routed.checks[3] = {L"Не открывается сайт?", L"yandex.ru: через VPN", L"yandex.ru — через VPN (AnyTLS); ни одно правило не подошло — «остальное»",
-                        sovereign::tray::UiCheck::Status::Ok, L"Что проверяет и как.", sovereign::tray::UiCheck::Fix::None,
-                        {}, {}, L"yandex.ru", 1};
-    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 1000, 96,
-                                              dir + L"\\routing-site-ways.png");
+    // The mode's menu dropped from the sentence's pill, over the scheme.
+    routed.routeMenu = true;
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
+                                              dir + L"\\routing-menu.png");
+    routed.routeMenu = false;
     // Only the chosen through the VPN: what goes directly - the things named there, quieter - is seen.
-    routed.checks[3].site.clear();
     routed.routing.finalDirect = true;
     for (sovereign::tray::UiChip& chip : routed.routing.board) {
       chip.idle = chip.bucket == 0 && chip.kind != sovereign::tray::UiChip::Kind::Rule;
@@ -457,10 +453,16 @@ int Snapshots(const std::wstring& dir) {
     routed.routing.warpRegistered = true;
     routed.routing.warpState = L"через «4G | Whitelist №1»";
     routed.routing.board = SampleBoard();
+    // A way's name pointed at: its paragraphs, its route lit and the others back; a chip: what it
+    // does, its way lit.
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96, dir + L"\\tip-hint.png",
-                                              L"WARP — бесплатный");
+                                              L"Через Cloudflare WARP");
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96, dir + L"\\tip-chip.png",
-                                              L"Перенести");
+                                              L"Steam идёт напрямую");
+    // An empty way's "+" pointed at: its route lit (no tip of its own: its words say it).
+    std::erase_if(routed.routing.board, [](const sovereign::tray::UiChip& chip) { return chip.bucket == 2; });
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96, dir + L"\\hover-block.png",
+                                              L"+ отрезать");
   });
 
   variant([&](UiContent& merged) {
@@ -608,15 +610,16 @@ int EditTest(HINSTANCE instance) {
     SendMessageW(hwnd, WM_KEYDOWN, vk, 0);
     Pump();
   };
-  // Tab goes through the window's own caption first (0.4.97 on) - then the
-  // page's back arrow. Before, the count left them out: Enter landed on "+"
-  // and its menu waited for a click (CI failed from dc9e160 on, a desktop run
-  // hung). The configurations' list has the three ways to add (paste, QR, file), "hide" and the cross there, a
-  // configuration's page "hide" and the cross (MainWindow's Caption); both
-  // "report a problem" and the new version's key before them (0.5.52 on), the
-  // sample having one found.
-  constexpr int kListCaption = 7;
-  constexpr int kProfileCaption = 4;
+  // Tab goes through the window's own caption first (0.4.97 on). Before, the
+  // count left it out: Enter landed on "+" and its menu waited for a click (CI
+  // failed from dc9e160 on, a desktop run hung). An inner page's caption opens
+  // with back and the page's name (03.11.2026 on, MainWindow's Caption): the
+  // configurations' list then has the new version's key (the sample has one
+  // found), "report a problem", the three ways to add (paste, QR, file),
+  // "hide" and the cross - eight, the first configuration next; a
+  // configuration's page has its name, the one to rename, second.
+  constexpr int kListCaption = 8;
+  constexpr int kProfileTitle = 2;
   const auto tabs = [&](int n) {
     for (int i = 0; i < n; ++i) {
       key(VK_TAB);
@@ -625,9 +628,9 @@ int EditTest(HINSTANCE instance) {
   const auto startEdit = [&] {
     key(VK_ESCAPE);  // to the list, if on the configuration's page
     window.Show(UiPage::Subscription);
-    tabs(kListCaption + 2);  // past the caption and back: the first configuration
+    tabs(kListCaption + 1);  // past the caption: the first configuration
     key(VK_RETURN);
-    tabs(kProfileCaption + 2);  // past the caption and back: the title
+    tabs(kProfileTitle);  // back, then the title
     key(VK_RETURN);
     return FindWindowExW(hwnd, nullptr, L"EDIT", nullptr);
   };

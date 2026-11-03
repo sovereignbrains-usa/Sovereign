@@ -94,12 +94,34 @@ func TestRacePreferredReset(t *testing.T) {
 }
 
 func TestRacePreferredSilent(t *testing.T) {
-	r, took := race(t, 300*time.Millisecond, fakeWay{behave: "silent"}, fakeWay{behave: "answer"})
+	// The second way answered: the silent preferred gets the grace, not the
+	// whole wait.
+	r, took := race(t, 3*time.Second, fakeWay{behave: "silent"}, fakeWay{behave: "answer"})
 	if r.index != 1 || r.why[0] != "silent" {
 		t.Fatalf("silent preferred: kept %d, why %v", r.index, r.why)
 	}
-	if took < 250*time.Millisecond || took > 2*time.Second {
-		t.Fatalf("the choice waits the preferred's patience out, no more: %v", took)
+	if took < smartGraceWait-50*time.Millisecond || took > smartGraceWait+500*time.Millisecond {
+		t.Fatalf("the choice waits the grace out, no more: %v", took)
+	}
+}
+
+func TestRacePreferredSlowWithinGrace(t *testing.T) {
+	// The preferred answers 400 ms after the second: still within the grace,
+	// still kept.
+	r, _ := race(t, 3*time.Second, fakeWay{behave: "answer", delay: 400 * time.Millisecond}, fakeWay{behave: "answer"})
+	if r.index != 0 {
+		t.Fatalf("a slow preferred within the grace: kept %d, why %v", r.index, r.why)
+	}
+}
+
+func TestRaceAllSilentWaitsWhole(t *testing.T) {
+	// Nobody answered: no grace starts, the whole wait is waited.
+	r, took := race(t, 300*time.Millisecond, fakeWay{behave: "silent"}, fakeWay{behave: "silent"})
+	if r.index != -1 || r.why[0] != "silent" || r.why[1] != "silent" {
+		t.Fatalf("all silent: kept %d, why %v", r.index, r.why)
+	}
+	if took < 250*time.Millisecond {
+		t.Fatalf("all silent ended early: %v", took)
 	}
 }
 

@@ -55,6 +55,7 @@ const (
 	smartType      = "sov-smart"
 	smartRaceWait  = 3 * time.Second // how long a way may stay silent after the hello
 	smartHelloWait = 2 * time.Second // the client's hello, if the sniffer hasn't kept it
+	smartGraceWait = time.Second     // a silent way's wait once a later way answered
 	smartHelloMax  = 16 * 1024       // a ClientHello with a post-quantum share is ~1.8 KB
 	smartRemember  = 6 * time.Hour   // a verdict asked again after this
 	smartKeep      = 4096            // names remembered
@@ -266,7 +267,8 @@ type wayAnswer struct {
 
 // raceWays sends `hello` down every dialer at once and keeps the first in
 // their order whose server answered with a TLS handshake record within
-// `wait`: a way is chosen once every way before it has failed. The others are
+// `wait`: a way is chosen once every way before it has failed - or, a later
+// way having answered, stayed silent for the grace more. The others are
 // closed as they come.
 func raceWays(ctx context.Context, dialers []N.Dialer, destination M.Socksaddr, hello []byte, wait time.Duration) raceResult {
 	ctx, cancel := context.WithTimeout(ctx, wait)
@@ -279,13 +281,13 @@ func raceWays(ctx context.Context, dialers []N.Dialer, destination M.Socksaddr, 
 	got := make([]*wayAnswer, len(dialers))
 	failed := make([]bool, len(dialers))
 	next := 0 // the way the choice waits for: all before it failed
-	for range dialers {
-		a := <-answers
-		got[a.index] = &a
-		if a.why != "" {
-			failed[a.index] = true
-			result.why[a.index] = a.why
-		}
+	// A later way answered while an earlier one is silent: the earlier gets
+	// `grace` more, not the whole wait. DPI that drops the hello stays silent
+	// to the end, and a server reached directly answers sooner than through
+	// a server abroad - on his line every blocked site's first visit took the
+	// full 3 s (04.11.2026).
+	var graceOver <-chan time.Time
+	choose := func() {
 		for next < len(dialers) && failed[next] {
 			next++
 		}
@@ -295,6 +297,33 @@ func raceWays(ctx context.Context, dialers []N.Dialer, destination M.Socksaddr, 
 			cancel() // the slower ways stop waiting
 		}
 	}
+	for left := len(dialers); left > 0; {
+		select {
+		case a := <-answers:
+			left--
+			got[a.index] = &a
+			switch {
+			case failed[a.index]:
+				// Lost by the grace already: its late word (an answer, or
+				// "silent" from the cancel) doesn't replace the grace's.
+			case a.why != "":
+				failed[a.index] = true
+				result.why[a.index] = a.why
+			case graceOver == nil && a.index > next:
+				graceOver = time.After(smartGrace(wait))
+			}
+			choose()
+		case <-graceOver:
+			graceOver = nil
+			// The silent ones before the later way that answered lose; their
+			// goroutines still report (closed by the cancel) and are counted.
+			for i := next; i < len(dialers) && got[i] == nil; i++ {
+				failed[i] = true
+				result.why[i] = "silent"
+			}
+			choose()
+		}
+	}
 	for i, a := range got {
 		if i != result.index && a != nil && a.conn != nil {
 			_ = a.conn.Close()
@@ -302,6 +331,13 @@ func raceWays(ctx context.Context, dialers []N.Dialer, destination M.Socksaddr, 
 		}
 	}
 	return result
+}
+
+// smartGrace: how much longer a silent way is waited for once a later way
+// answered - a direct handshake takes ~0.2 s, a second is plenty; never more
+// than a third of the whole wait.
+func smartGrace(wait time.Duration) time.Duration {
+	return min(smartGraceWait, wait/3)
 }
 
 func tryWay(ctx context.Context, index int, dialer N.Dialer, destination M.Socksaddr, hello []byte, wait time.Duration) wayAnswer {

@@ -950,6 +950,9 @@ class Worker {
     std::string error;  // the last refresh failed with this
     std::optional<TrayModel::Clock::time_point> lastFailure;
     bool heldBack = false;  // not fetched at all: no connection, no relay - its server would see the user's IP
+    std::string skipped;  // the first server of the last answer that could not be made into an outbound, and why
+    std::size_t skippedOf = 0;  // out of how many servers the answer had
+    std::size_t taken = 0;      // and how many of them became outbounds
     std::string choiceError;              // why the last choice about a waiting version didn't go through
     std::vector<std::string> mergeNotes;  // where the last carry-over met changes on both sides
     std::optional<std::string> seenOriginal;  // the texts below were computed from
@@ -1578,8 +1581,14 @@ class Worker {
       // Whatever the server answers with - a sing-box config, keys (a base64
       // list, as for V2Ray clients), Clash YAML, Xray JSON: when it isn't a
       // sing-box config itself, the config is made from its servers.
+      state.skipped.clear();
       if (auto made = sovereign::tray::ConfigFromSubscription(fetched->body); made.config) {
         fetched->body = std::move(*made.config);
+        if (!made.errors.empty()) {
+          state.skipped = made.errors.front();
+          state.skippedOf = made.found;
+          state.taken = made.servers;
+        }
       }
       check = sovereign::tray::CheckSubscriptionConfig(fetched->body);
       error = check.error;
@@ -1718,8 +1727,13 @@ class Worker {
       return;
     }
     const Profile* added = sovereign::tray::FindProfile(settings_.profiles, profile.id);
-    Notify(L"Sovereign: подписка добавлена",
-           std::format(L"«{}» включена вместе с остальными.", Widen(added->name)), false, UiPage::Subscription);
+    const ProfileRuntime& after = runtime_[profile.id];
+    std::wstring body = std::format(L"«{}» включена вместе с остальными.", Widen(added->name));
+    if (!after.skipped.empty()) {
+      body += std::format(L" Взято серверов: {} из {}. Не подошёл: {}", after.taken, after.skippedOf,
+                          Widen(after.skipped));
+    }
+    Notify(L"Sovereign: подписка добавлена", body, !after.skipped.empty(), UiPage::Subscription);
   }
 
   std::string FindIdByUrl(const std::string& url) const {

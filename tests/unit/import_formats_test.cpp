@@ -406,6 +406,26 @@ void TestSip008AndSingBox() {
   CHECK(ConfigFromSubscription(whole).config == std::optional<std::string>(whole));
 }
 
+// A panel's base64 list with xhttp servers among the others (Cyberia,
+// 04.11.2026): sing-box has no xhttp, so those two are left out and the
+// answer says so - the rest still make a config.
+void TestSubscriptionWithXhttp() {
+  const std::string list =
+      "vless://00000000-0000-4000-8000-000000000001@203.0.113.1:44443?type=tcp&security=reality&encryption=none"
+      "&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=ab&sni=www.example.com&fp=firefox&flow=xtls-rprx-vision#nl-01\n"
+      "vless://00000000-0000-4000-8000-000000000001@203.0.113.2:443?type=tcp&security=reality&encryption=none"
+      "&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=ab&sni=www.example.org&fp=firefox&flow=xtls-rprx-vision#nl-02\n"
+      "vless://00000000-0000-4000-8000-000000000001@cdn.example.com:443?type=xhttp&security=tls&encryption=none"
+      "&sni=cdn.example.com&host=cdn.example.com&alpn=h2&fp=chrome&path=%2Fassets%2Fx&mode=packet-up#cdn-1\n"
+      "vless://00000000-0000-4000-8000-000000000001@cdn2.example.com:443?type=xhttp&security=tls&encryption=none"
+      "&sni=cdn2.example.com&host=cdn2.example.com&alpn=h2&fp=chrome&path=%2Fassets%2Fy&mode=packet-up#cdn-2\n";
+  const auto made = ConfigFromSubscription(list);
+  CHECK(made.config.has_value());
+  CHECK(made.servers == 2);
+  CHECK(made.found == 4);
+  CHECK(made.errors.size() == 2);
+  CHECK(!made.errors.empty() && made.errors.front().find("xhttp") != std::string::npos);
+}
 void TestDeepLinks() {
   const auto url = [](std::string_view text) {
     const auto items = RecognizeImport(text);
@@ -643,6 +663,7 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestXray();
     TestSip008AndSingBox();
     TestDeepLinks();
+    TestSubscriptionWithXhttp();
     TestShapes();
     TestSchemes();
     if (argc == 3 && std::string_view(argv[1]) == "--check") {

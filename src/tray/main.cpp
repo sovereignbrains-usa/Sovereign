@@ -287,6 +287,7 @@ struct View {
   bool quicBlocked = true;  // RoutingSettings::quic as it came to with the servers (QuicBlocked)
   std::vector<std::string> rulesFrom;  // the configurations with rules the user hasn't taken yet (ids)
   std::vector<std::string> blockedAds;  // what the ads lists blocked lately, newest first
+  std::map<std::string, std::uint64_t> blockCounts;  // what each block category refused (box_blocked)
   std::size_t listsReady = 0;             // the routing's lists downloaded
   std::size_t listsNeeded = 0;
   std::int64_t listsUpdated = 0;          // unix seconds of the last one downloaded
@@ -849,6 +850,7 @@ class Worker {
       ApplyServiceSelections(stats);
       WatchWarp(stats);
       WatchSmart(stats);
+      WatchBlockCounts(stats);
       UpdateExitIp(stats);
       UpdateServerExits(stats);
       UpdateServerSites(stats);
@@ -2501,6 +2503,26 @@ class Worker {
     }
   }
 
+  // What each block category has refused, asked of the service every few seconds while
+  // any of them is on: the counts on the block's chips.
+  void WatchBlockCounts(const std::optional<sovereign::tray::Stats>& stats) {
+    constexpr auto kEvery = std::chrono::seconds(5);
+    const auto now = TrayModel::Clock::now();
+    const auto& r = settings_.routing;
+    if (!stats || !stats->running || !(r.blockAds || r.trackers || r.cookieWindows || r.malware)) {
+      blockCounts_.clear();
+      blockCountsAsked_.reset();
+      return;
+    }
+    if (blockCountsAsked_ && now - *blockCountsAsked_ < kEvery) {
+      return;
+    }
+    blockCountsAsked_ = now;
+    if (const auto response = sovereign::tray::RequestService(R"({"cmd":"box_blocked"})")) {
+      blockCounts_ = sovereign::tray::ParseBlockedAnswer(*response);
+    }
+  }
+
   void WatchWarp(const std::optional<sovereign::tray::Stats>& stats) {
     const auto now = TrayModel::Clock::now();
     if (!stats || !stats->running || !combined_ || !sovereign::tray::WarpReady(settings_.routing)) {
@@ -2831,6 +2853,7 @@ class Worker {
       v.warpServer = warpServer_;
       v.warpDirect = warpDirect_;
       v.smartLearned = smartLearned_;
+      v.blockCounts = blockCounts_;
       v.quicBlocked = quicBlocked_;
       v.rulesFrom = rulesFrom_;
       v.blockedAds = {blocked_.begin(), blocked_.end()};
@@ -3002,6 +3025,8 @@ class Worker {
   bool warpDirect_ = false;
   std::vector<sovereign::tray::SmartSeen> smartLearned_;  // View::smartLearned
   std::optional<TrayModel::Clock::time_point> smartAsked_;
+  std::map<std::string, std::uint64_t> blockCounts_;  // View::blockCounts
+  std::optional<TrayModel::Clock::time_point> blockCountsAsked_;
   std::deque<std::string> blocked_;  // WatchBlocked's: what the ads lists blocked, newest first
   bool quicBlocked_ = true;  // View::quicBlocked
   std::vector<std::string> rulesFrom_;  // View::rulesFrom
@@ -4040,25 +4065,37 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
   using sovereign::tray::UiChip;
   const auto& r = v.routing;
   std::vector<UiChip> board;
+  // What a block category has refused (the core counts it): "1 204", none while zero.
+  const auto counted = [&v](const char* category) -> std::wstring {
+    const auto it = v.blockCounts.find(category);
+    if (it == v.blockCounts.end() || it->second == 0) {
+      return {};
+    }
+    std::wstring digits = std::to_wstring(it->second);
+    for (std::size_t at = digits.size(); at > 3; at -= 3) {
+      digits.insert(at - 3, 1, L'\u00A0');
+    }
+    return digits;
+  };
   if (r.russia) {
     board.push_back({.kind = UiChip::Kind::Russia, .index = 0, .bucket = static_cast<int>(*r.russia),
                      .text = L"Российские сайты", .detail = {}, .icon = {}, .logo = "russia"});
   }
   if (r.blockAds) {
     board.push_back({.kind = UiChip::Kind::Ads, .index = 0, .bucket = sovereign::tray::kBucketBlock,
-                     .text = L"Реклама", .detail = {}, .icon = {}, .logo = "ads"});
+                     .text = L"Реклама", .detail = counted("ads"), .icon = {}, .logo = "ads"});
   }
   if (r.trackers) {
     board.push_back({.kind = UiChip::Kind::Trackers, .index = 0, .bucket = sovereign::tray::kBucketBlock,
-                     .text = L"Трекеры", .detail = {}, .icon = {}, .logo = "trackers"});
+                     .text = L"Трекеры", .detail = counted("trackers"), .icon = {}, .logo = "trackers"});
   }
   if (r.cookieWindows) {
     board.push_back({.kind = UiChip::Kind::Cookies, .index = 0, .bucket = sovereign::tray::kBucketBlock,
-                     .text = L"Баннеры cookie", .detail = {}, .icon = {}, .logo = "cookies"});
+                     .text = L"Баннеры cookie", .detail = counted("cookies"), .icon = {}, .logo = "cookies"});
   }
   if (r.malware) {
     board.push_back({.kind = UiChip::Kind::Malware, .index = 0, .bucket = sovereign::tray::kBucketBlock,
-                     .text = L"Вредоносные сайты", .detail = {}, .icon = {}, .logo = "malware"});
+                     .text = L"Вредоносные сайты", .detail = counted("malware"), .icon = {}, .logo = "malware"});
   }
   for (std::size_t n = 0; n < r.services.size(); ++n) {
     const ServiceRoute& s = r.services[n];

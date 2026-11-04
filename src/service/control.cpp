@@ -211,7 +211,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
   const std::string cmd = parsed.value("cmd", "");
   for (const std::string_view known :
        {"box_ping", "box_start", "box_stop", "box_stats", "box_logs", "box_urltest", "box_delays", "box_exitip",
-        "box_sites", "box_select", "box_route", "box_smart", "box_boot", "kill_switch", "update_install"}) {
+        "box_sites", "box_select", "box_route", "box_smart", "box_blocked", "box_boot", "kill_switch", "update_install"}) {
     if (cmd == known) {
       outcome.cmd = known;
     }
@@ -223,7 +223,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
   const bool isCoreCommand = cmd == "box_ping" || cmd == "box_start" || cmd == "box_stop" ||
                              cmd == "box_stats" || cmd == "box_urltest" || cmd == "box_delays" ||
                              cmd == "box_exitip" || cmd == "box_sites" || cmd == "box_select" || cmd == "box_route" ||
-                             cmd == "box_smart";
+                             cmd == "box_smart" || cmd == "box_blocked";
   if (isCoreCommand && core_ == nullptr) {
     return fail("gocore not loaded");
   }
@@ -570,6 +570,18 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     Json response;
     response["cmd"] = "box_smart";
     response["learned"] = std::move(learned);
+    return Dump(response);
+  }
+
+  if (cmd == "box_blocked") {
+    // What each block category has refused: {"counts":{"ads":n,...}}.
+    Json counts = Json::object();
+    for (const auto& [category, count] : core_->BlockedCounts()) {
+      counts[category] = count;
+    }
+    Json response;
+    response["cmd"] = "box_blocked";
+    response["counts"] = std::move(counts);
     return Dump(response);
   }
 

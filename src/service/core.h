@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -161,6 +162,10 @@ class ICore {
   // What the smart outbound decided itself, newest first; empty from an
   // engine without one (or an older DLL).
   virtual std::vector<SmartVerdict> SmartLearned() { return {}; }
+
+  // What each block category (ads, trackers, cookies, malware) has refused since the
+  // engine loaded; empty from an engine without it (or an older DLL).
+  virtual std::map<std::string, std::uint64_t> BlockedCounts() { return {}; }
 
   // Starts a latency test in the background and returns at once: empty
   // string once it runs, otherwise why not (e.g. the engine isn't running).

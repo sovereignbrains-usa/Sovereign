@@ -36,12 +36,17 @@ type blockedWatch struct {
 	asked map[string]string // request ID -> the name it's about
 	order []string          // the IDs in `asked`, oldest first
 	said  map[string]time.Time
+	// What each block category refused, every match counted (the notice above says a name
+	// once in ten minutes): "ads", "trackers", "cookies", "malware". box_blocked says it.
+	counts  map[string]uint64
+	counted map[string]time.Time // category+name -> when last counted
 }
 
 var blocked = newBlockedWatch()
 
 func newBlockedWatch() *blockedWatch {
-	return &blockedWatch{asked: map[string]string{}, said: map[string]time.Time{}}
+	return &blockedWatch{asked: map[string]string{}, said: map[string]time.Time{}, counts: map[string]uint64{},
+		counted: map[string]time.Time{}}
 }
 
 // askedName: the name a line says is asked or sniffed, or "".
@@ -60,6 +65,61 @@ func askedName(text string) string {
 		}
 	}
 	return ""
+}
+
+// category: which block category the rule of a match line belongs to, by the first list in its
+// rule_set - routing.cpp makes one rule a category, so its lists are all one category.
+func category(text string) string {
+	at := strings.Index(text, "rule_set=")
+	if at < 0 {
+		return "ads"
+	}
+	tag := strings.TrimPrefix(text[at+len("rule_set="):], "[")
+	if end := strings.IndexAny(tag, " ]"); end >= 0 {
+		tag = tag[:end]
+	}
+	switch {
+	case strings.HasPrefix(tag, "sov-ads-trackers"):
+		return "trackers"
+	case strings.HasPrefix(tag, "sov-ads-malware"), tag == "sov-ads-phishing", tag == "sov-ads-scams":
+		return "malware"
+	case tag == "sov-ads-cookies":
+		return "cookies"
+	}
+	return "ads"
+}
+
+// countWindow: the A and the AAAA of one name, asked together, are one block.
+const countWindow = 3 * time.Second
+
+// count: one block of `name` by `cat`; w.mu is held.
+func (w *blockedWatch) count(cat, name string, now time.Time) {
+	if name != "" {
+		key := cat + " " + name
+		if last, ok := w.counted[key]; ok && now.Sub(last) < countWindow {
+			return
+		}
+		w.counted[key] = now
+		if len(w.counted) > askedKeep {
+			for k, at := range w.counted {
+				if now.Sub(at) >= countWindow {
+					delete(w.counted, k)
+				}
+			}
+		}
+	}
+	w.counts[cat]++
+}
+
+// blockedCounts: what each category has refused since the engine loaded.
+func (w *blockedWatch) blockedCounts() map[string]uint64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make(map[string]uint64, len(w.counts))
+	for cat, n := range w.counts {
+		out[cat] = n
+	}
+	return out
 }
 
 // notice: the line to say for a log `message` (sing-box's, formatted), or "".
@@ -91,6 +151,7 @@ func (w *blockedWatch) notice(message string, now time.Time) string {
 		return ""
 	}
 	name := w.asked[id]
+	w.count(category(text), name, now)
 	if name == "" {
 		return ""
 	}

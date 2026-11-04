@@ -1105,10 +1105,25 @@ std::vector<SmartSeen> ParseSmartAnswer(std::string_view response) {
   return out;
 }
 
+std::map<std::string, std::uint64_t> ParseBlockedAnswer(std::string_view response) {
+  std::map<std::string, std::uint64_t> out;
+  const Json json = Json::parse(response, nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object() || json.value("cmd", Json()) != "box_blocked" || !json.contains("counts") ||
+      !json["counts"].is_object()) {
+    return out;
+  }
+  for (const auto& [category, count] : json["counts"].items()) {
+    if (count.is_number_unsigned()) {
+      out[category] = count.get<std::uint64_t>();
+    }
+  }
+  return out;
+}
+
 namespace {
 
-// What "Блок" blocks by name, a category a switch: its lists, all one rule that
-// rejects (and gives no addresses). Every tag starts with "sov-ads":
+// What "Блок" blocks by name, a category a switch: its lists, one rule
+// each that rejects (and gives no addresses). Every tag starts with "sov-ads":
 // gocore/blocked.go says what it blocked the way it does for the ads.
 struct BlockCategory {
   bool RoutingSettings::* on;
@@ -1329,18 +1344,21 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   if (route["rule_set"].empty()) {
     route.erase("rule_set");
   }
-  // The ads lists there are - sing-geosite's, AdGuard's - and the cookie
-  // windows' one: one rule for all.
-  Json adsLists = Json::array();
+  // The block lists there are, one rule a category: sing-box says in its log which rule
+  // matched, by its lists - so gocore/blocked.go counts what each category blocked.
+  std::vector<Json> blockSets;
   for (const BlockCategory& category : BlockCategories()) {
+    Json tags = Json::array();
     for (const RuleSetSource& list : category.lists) {
       if (settings.*category.on && lists.contains(list.tag)) {
-        adsLists.push_back(list.tag);
+        tags.push_back(list.tag);
       }
     }
-  }
-  if (adsLists.size() == 1) {
-    adsLists = Json(adsLists[0]);
+    if (tags.size() == 1) {
+      blockSets.emplace_back(tags[0]);
+    } else if (!tags.empty()) {
+      blockSets.push_back(std::move(tags));
+    }
   }
   const std::vector<std::string> russianNames = [&] {
     std::vector<std::string> names;
@@ -1425,8 +1443,8 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // The ads (and the cookie windows) before the services: blocked is blocked
   // through any of them - YouTube's or Google's ad names, in their lists too,
   // went where the service went before 0.4.86. A site of the user's still wins.
-  if (!adsLists.empty()) {
-    rules.push_back(Json{{"rule_set", adsLists}, {"action", "reject"}});
+  for (const Json& sets : blockSets) {
+    rules.push_back(Json{{"rule_set", sets}, {"action", "reject"}});
   }
   // A service's app the user sent its own way (Telegram.exe while Telegram
   // goes elsewhere - "the app apart"): before the services, or the service's
@@ -1613,8 +1631,8 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     dnsRules.push_back(std::move(rule));
   }
   // The ads before the services, as in the routing.
-  if (!adsLists.empty()) {
-    Json ads{{"rule_set", adsLists}};
+  for (const Json& sets : blockSets) {
+    Json ads{{"rule_set", sets}};
     SetNoAddress(ads);
     dnsRules.push_back(std::move(ads));
   }

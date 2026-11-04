@@ -299,8 +299,8 @@ void TestAdGuard() {
   CHECK(refused && k["dns"]["rules"].dump().contains("sov-ads-cookies") && !k.dump().contains("\"sov-ads\""));
 }
 
-// The block's catalog: the trackers and the malware lists are on by default, one reject
-// rule holds every list of every category on, each switch takes its own lists out.
+// The block's catalog: the trackers and the malware lists are on by default, a reject
+// rule a category holds its lists, each switch takes its own lists out.
 void TestBlockCategories() {
   const RoutingSettings fresh;
   CHECK(fresh.trackers && fresh.malware && fresh.blockAds && !fresh.cookieWindows);
@@ -336,13 +336,18 @@ void TestBlockCategories() {
                                           {{"sov-ads-trackers", "C:/lists/t.json"},
                                            {"sov-ads-trackers-lowe", "C:/lists/t2.json"},
                                            {"sov-ads-phishing", "C:/lists/p.json"}}));
-  bool rejected = false;
+  bool trackers = false;
+  bool malware = false;
   for (const json& rule : c["route"]["rules"]) {
     const std::string text = rule.dump();
-    rejected = rejected || (rule.value("action", "") == "reject" && text.contains("sov-ads-trackers-lowe") &&
-                            text.contains("sov-ads-phishing"));
+    if (rule.value("action", "") != "reject") {
+      continue;
+    }
+    // One rule a category: the log tells which rule matched, by its lists.
+    trackers = trackers || (text.contains("sov-ads-trackers-lowe") && !text.contains("sov-ads-phishing"));
+    malware = malware || (text.contains("sov-ads-phishing") && !text.contains("sov-ads-trackers"));
   }
-  CHECK(rejected && c["dns"]["rules"].dump().contains("sov-ads-trackers"));
+  CHECK(trackers && malware && c["dns"]["rules"].dump().contains("sov-ads-trackers"));
 }
 
 // The order: a blocked program first (no network at all), then the sites, the
@@ -1278,6 +1283,15 @@ void TestSmartAnswer() {
 
 // The lists' check: one a poll, each once a round - a failing one neither
 // fetched again at once nor in the way of the next - over when all are tried.
+// The box_blocked answer: the counts as they came; a wrong shape gives none.
+void TestBlockedAnswer() {
+  CHECK(ParseBlockedAnswer("not json").empty());
+  CHECK(ParseBlockedAnswer(R"({"cmd":"box_smart","counts":{"ads":1}})").empty());
+  CHECK(ParseBlockedAnswer(R"({"cmd":"box_blocked","counts":[]})").empty());
+  const auto counts = ParseBlockedAnswer(R"({"cmd":"box_blocked","counts":{"ads":1204,"trackers":"x","malware":3}})");
+  CHECK(counts.size() == 2 && counts.at("ads") == 1204 && counts.at("malware") == 3);
+}
+
 void TestRuleSetRound() {
   RuleSetRound round;
   CHECK(round.Over({}));
@@ -1332,6 +1346,7 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestRussiaWays();
     TestNaiveInsecure();
     TestSmartAnswer();
+  TestBlockedAnswer();
     TestLocalDnsFallback();
     TestCustomDns();
     TestWarpWatch();

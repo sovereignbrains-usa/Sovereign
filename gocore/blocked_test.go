@@ -48,3 +48,32 @@ func TestBlockedNotice(t *testing.T) {
 		t.Fatalf("no name: %q", got)
 	}
 }
+
+// Every match is a count of its category, by the first list of its rule; the A and the AAAA of
+// one name together are one; the user's own rule counts nothing.
+func TestBlockedCounts(t *testing.T) {
+	w := newBlockedWatch()
+	at := time.Unix(1_800_000_000, 0)
+	hit := func(id, name, rule string) {
+		w.notice("DEBUG ["+id+" 0ms] dns: exchange "+name+". IN A", at)
+		w.notice("DEBUG ["+id+" 1ms] dns: match[3] rule_set="+rule+" => predefined(rcode=NOERROR)", at)
+	}
+	hit("1", "ads.example.com", "[sov-ads sov-ads-adguard]")
+	hit("2", "ads.example.com", "[sov-ads sov-ads-adguard]") // the AAAA, at once
+	hit("3", "pixel.example.net", "[sov-ads-trackers sov-ads-trackers-lowe]")
+	hit("4", "evil.example.org", "[sov-ads-malware sov-ads-malware-dandelion sov-ads-phishing sov-ads-scams]")
+	hit("5", "consent.example.org", "sov-ads-cookies")
+	hit("6", "yandex.com", "domain_suffix=yandex.com")
+	at = at.Add(countWindow)
+	hit("7", "ads.example.com", "[sov-ads sov-ads-adguard]") // later: another block
+	got := w.blockedCounts()
+	want := map[string]uint64{"ads": 2, "trackers": 1, "malware": 1, "cookies": 1}
+	if len(got) != len(want) {
+		t.Fatalf("counts %v, want %v", got, want)
+	}
+	for cat, n := range want {
+		if got[cat] != n {
+			t.Fatalf("counts %v, want %v", got, want)
+		}
+	}
+}

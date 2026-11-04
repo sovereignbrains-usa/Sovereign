@@ -89,6 +89,10 @@ GoCore::GoCore(const std::wstring& dllPath) {
     boxSmart_ = reinterpret_cast<BoxSmartFn>(  // NOLINT(performance-no-int-to-ptr)
         reinterpret_cast<std::uintptr_t>(smart));
   }
+  if (const FARPROC blocked = GetProcAddress(module_.get(), "box_blocked")) {
+    boxBlocked_ = reinterpret_cast<BoxBlockedFn>(  // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<std::uintptr_t>(blocked));
+  }
   if (const FARPROC sites = GetProcAddress(module_.get(), "box_sites")) {
     boxSites_ = reinterpret_cast<BoxSitesFn>(  // NOLINT(performance-no-int-to-ptr)
         reinterpret_cast<std::uintptr_t>(sites));
@@ -207,6 +211,24 @@ std::vector<SmartVerdict> GoCore::SmartLearned() {
     }
     if (!verdict.name.empty() && !verdict.way.empty()) {
       out.push_back(std::move(verdict));
+    }
+  }
+  return out;
+}
+
+std::map<std::string, std::uint64_t> GoCore::BlockedCounts() {
+  // gocore/blocked_export.go writes it: {"counts":{"ads":n,...}}; a wrong shape is skipped.
+  std::map<std::string, std::uint64_t> out;
+  if (boxBlocked_ == nullptr) {
+    return out;
+  }
+  const auto json = nlohmann::json::parse(TakeOwnedString(boxBlocked_()), nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object() || !json.contains("counts") || !json["counts"].is_object()) {
+    return out;
+  }
+  for (const auto& [category, count] : json["counts"].items()) {
+    if (count.is_number_unsigned()) {
+      out[category] = count.get<std::uint64_t>();
     }
   }
   return out;

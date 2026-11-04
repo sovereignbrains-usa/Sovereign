@@ -94,6 +94,10 @@ class FakeCore final : public ICore {
 
   std::vector<sovereign::service::SmartVerdict> SmartLearned() override { return learned; }
 
+  std::map<std::string, std::uint64_t> BlockedCounts() override { return blocked; }
+
+  std::map<std::string, std::uint64_t> blocked;
+
   std::vector<sovereign::service::SmartVerdict> learned;
   bool running = false;
   std::optional<std::vector<std::string>> routeAsked;
@@ -447,6 +451,13 @@ void TestSmart() {
   CHECK(answer["learned"][1].value("name", "") == "ip:1.2.3.4");
   CHECK(answer["learned"][1].value("why", "") == "cut");
   CHECK(answer["learned"][1].value("at", 0) == 1700000100);
+
+  // What each block category refused: none yet - an empty object; then its numbers.
+  CHECK(Send(handler, R"({"cmd":"box_blocked"})") == json::parse(R"({"cmd":"box_blocked","counts":{}})"));
+  core.blocked = {{"ads", 12}, {"trackers", 3}};
+  answer = Send(handler, R"({"cmd":"box_blocked"})");
+  CHECK(answer.value("cmd", "") == "box_blocked");
+  CHECK(answer["counts"].value("ads", 0) == 12 && answer["counts"].value("trackers", 0) == 3);
 }
 
 class FakeKillSwitch final : public sovereign::service::IKillSwitch {

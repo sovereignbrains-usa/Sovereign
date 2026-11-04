@@ -2752,8 +2752,12 @@ class Painter {
     // tells them apart; without it, network and country; without those, a server of its own).
     const auto groupKey = [&](std::size_t i) -> std::wstring {
       const UiLocation* loc = i < c.locations.size() ? &c.locations[i] : nullptr;
-      if (loc != nullptr && !loc->ip.empty()) return loc->ip;
-      if (loc != nullptr && !loc->isp.empty()) return loc->country + L"/" + loc->isp;
+      if (loc != nullptr && !loc->ip.empty()) {
+        return loc->ip;
+      }
+      if (loc != nullptr && !loc->isp.empty()) {
+        return loc->country + L"/" + loc->isp;
+      }
       return L"#" + std::to_wstring(i);
     };
     std::vector<std::wstring> keys;           // groups in the order of their first (fastest) member

@@ -74,7 +74,7 @@ constexpr std::string_view kTelegramIps = "https://raw.githubusercontent.com/Met
 constexpr std::string_view kSteamGames = R"((?i)\\steamapps\\common\\)";
 constexpr std::string_view kEpicGames = R"((?i)\\Epic Games\\)";
 
-constexpr std::array<ServiceInfo, 29> kServices = {{
+constexpr std::array<ServiceInfo, 30> kServices = {{
     {"yandex", "Яндекс", "yandex", {}, {}, {}},  // 30.10.2026, his: the only one he uses
     {"netflix", "Netflix", "netflix", {}, {}, {}},
     {"youtube", "YouTube", "youtube", {}, {}, {}},
@@ -104,6 +104,12 @@ constexpr std::array<ServiceInfo, 29> kServices = {{
     {"epicgames", "Epic Games", "epicgames", "EpicGamesLauncher.exe,EpicWebHelper.exe", {}, kEpicGames},
     {"microsoft", "Microsoft", "microsoft", {}, {}, {}},
     {"apple", "Apple", "apple", {}, {}, {}},
+    // Not a site: the torrent clients (04.11.2026, his: if a provider forbids torrents, let the
+    // client send them past it). No list, only the programs - sent "Напрямую" in a click.
+    {"torrents", "Торрент-клиенты", {},
+     "qbittorrent.exe,uTorrent.exe,utorrent.exe,BitTorrent.exe,transmission-qt.exe,deluge.exe,tixati.exe,BiglyBT.exe,"
+     "Vuze.exe,Azureus.exe,FrostWire.exe,WebTorrent.exe",
+     {}, {}},
 }};
 
 constexpr std::string_view kGeositeBase = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/";
@@ -1164,8 +1170,10 @@ std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settingsIn) {
   }
   for (const ServiceRoute& r : settings.services) {
     if (const ServiceInfo* info = FindService(r.id)) {
-      sets.push_back({std::string(kServicePrefix) + r.id,
-                      std::string(kGeositeBase) + "geosite-" + std::string(info->geosite) + ".srs", false});
+      if (!info->geosite.empty()) {  // the torrent clients have none: programs only
+        sets.push_back({std::string(kServicePrefix) + r.id,
+                        std::string(kGeositeBase) + "geosite-" + std::string(info->geosite) + ".srs", false});
+      }
       if (!info->geoip.empty()) {
         sets.push_back({ServiceIpsTag(r.id), std::string(info->geoip), true});
       }

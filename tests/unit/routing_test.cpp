@@ -868,6 +868,22 @@ void TestServiceApps() {
     }
   }
   CHECK(game >= 0 && games > game);
+
+  // The torrent clients: programs only - no list to fetch - sent directly past the VPN.
+  RoutingSettings t;
+  t.services.push_back({.id = "torrents", .way = ServiceRoute::Way::Direct, .country = {}});
+  CHECK(ServiceOfProgram("qbittorrent.exe") == FindService("torrents"));
+  for (const RuleSetSource& set : NeededRuleSets(t)) {
+    CHECK(!set.tag.starts_with("sov-svc-torrents"));
+  }
+  const std::string torrentText = ApplyRouting(config, t, {});
+  Checked().emplace_back("torrents", torrentText);
+  bool torrent = false;
+  for (const json& r : json::parse(torrentText)["route"]["rules"]) {
+    torrent = torrent || (r.contains("process_name") && r["process_name"].dump().contains("qbittorrent.exe") &&
+                          r.value("outbound", "") == "direct");
+  }
+  CHECK(torrent);
 }
 
 // The routing board: a service directly, through the proxy or blocked, kept

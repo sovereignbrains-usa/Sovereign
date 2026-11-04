@@ -4,6 +4,7 @@
 //
 //   ui-snapshot.exe <out dir>     every page, at 100% and the overview at 150%
 //   ui-snapshot.exe --window      the real window with the same content, to click through
+//                                 (--window servers: opened on the servers' page)
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -519,7 +520,7 @@ int Snapshots(const std::wstring& dir) {
   return 0;
 }
 
-int Window(HINSTANCE instance) {
+int Window(HINSTANCE instance, bool servers) {
   // The cross asks as the client's does (main.cpp); its yes closes this.
   sovereign::tray::MainWindow* self = nullptr;
   sovereign::tray::MainWindow window(instance, [&self](sovereign::tray::UiCommand c, const sovereign::tray::UiArgs&) {
@@ -535,7 +536,7 @@ int Window(HINSTANCE instance) {
   self = &window;
   window.Update(SampleContent());
   window.SetLogs(SampleLogs());
-  window.Show(UiPage::Overview);
+  window.Show(servers ? UiPage::Servers : UiPage::Overview);
   MSG msg;
   while (GetMessageW(&msg, nullptr, 0, 0) > 0 && window.IsVisible()) {
     TranslateMessage(&msg);
@@ -1119,39 +1120,6 @@ int LayoutTest(const std::wstring& dir) {
       }
     }
   }
-  {
-    // "In the best": within the noise (a fifth, 20 ms at least) of the fastest, and only when it tells servers apart.
-    using sovereign::tray::UiDelay;
-    sovereign::tray::UiContent c;
-    c.protocols = {L"a", L"b", L"c", L"d", L"e"};
-    const auto set = [&c](std::vector<int> ms) {
-      c.delays.assign(ms.size(), UiDelay{});
-      for (std::size_t i = 0; i < ms.size(); ++i) {
-        c.delays[i].state = ms[i] < 0 ? UiDelay::State::Failed : UiDelay::State::Ok;
-        c.delays[i].ms = ms[i];
-      }
-    };
-    set({100, 115, 118, 300, -1});  // reach 120: three lead, the slow and the dead are out
-    if (sovereign::tray::DelayLeaders(c) != std::vector<std::size_t>{0, 1, 2}) {
-      std::fwprintf(stdout, L"layout: leaders of 100/115/118/300/dead are not the first three\n");
-      ++failures;
-    }
-    set({30, 45, 60, 80, 90});  // reach 50 (20 ms beats a fifth of 30): two lead
-    if (sovereign::tray::DelayLeaders(c) != std::vector<std::size_t>{0, 1}) {
-      std::fwprintf(stdout, L"layout: the 20 ms floor of the leaders' reach is gone\n");
-      ++failures;
-    }
-    set({100, 105, 110, 112, 115});  // all alike: none is a leader
-    if (!sovereign::tray::DelayLeaders(c).empty()) {
-      std::fwprintf(stdout, L"layout: servers that are all alike have leaders\n");
-      ++failures;
-    }
-    set({100, 300, -1, -1, -1});  // two answered: nothing to pick from
-    if (!sovereign::tray::DelayLeaders(c).empty()) {
-      std::fwprintf(stdout, L"layout: two answers have leaders\n");
-      ++failures;
-    }
-  }
   std::fwprintf(stdout, L"layout: %d overlapping or outside, %d lines of text cut\n", failures, cut);
   return failures == 0 ? 0 : 1;
 }
@@ -1167,7 +1135,7 @@ int wmain(int argc, wchar_t** argv) {  // NOLINT(bugprone-exception-escape) - se
   int result = 2;
   try {
     const std::wstring arg = argc > 1 ? argv[1] : L"ui-snapshots";
-    result = arg == L"--window"      ? Window(GetModuleHandleW(nullptr))
+    result = arg == L"--window"      ? Window(GetModuleHandleW(nullptr), argc > 2 && std::wstring(argv[2]) == L"servers")
              : arg == L"--edit-test" ? EditTest(GetModuleHandleW(nullptr))
              : arg == L"--ask-test"  ? AskTest(GetModuleHandleW(nullptr))
              : arg == L"--tip-test"  ? TipTest(GetModuleHandleW(nullptr))

@@ -245,7 +245,16 @@ enum class Kind : std::uint8_t {
   GhostAdd,      // a dashed key adding to a way (rail: the way); its text empty: a square "+"
   Menu,          // a dropped menu's panel (the routing mode's), over the page
   MenuItem,      // a choice on it: its way's dot (rail), a title, what it means (detail), a check (`checked`)
+  ServerColumns, // the heads of the servers' columns (text: the latency's, detail: the failures'), right-aligned over them
 };
+
+// The servers' columns at a Choice's right edge, from the edge in: the failures (a dot and a count), then the
+// latency. The latency's is as wide as "нет ответа" (or "48 ±3 мс" in full) needs.
+constexpr float kFailCol = 30;
+constexpr float kDelayColNarrow = 80;
+constexpr float kDelayColFull = 88;
+constexpr float kColGap = 12;  // the Choice's inner margin to the right of the last column
+constexpr float kColSplit = 4;  // between the latency's column and the failures'
 
 // The routing scheme's lines (Kind::Route's sub). The main line runs from
 // the mode down to the way everything else goes, a station at its end; a
@@ -1370,15 +1379,15 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 41> kNames = {
+    static constexpr std::array<const wchar_t*, 42> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
         L"AppTitle", L"Speed",    L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
-        L"Menu",     L"MenuItem"};
+        L"Menu",     L"MenuItem", L"Columns"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
-    static_assert(kNames.size() == static_cast<std::size_t>(Kind::MenuItem) + 1);
+    static_assert(kNames.size() == static_cast<std::size_t>(Kind::ServerColumns) + 1);
     std::wstring out;
     for (std::size_t i = 0; i < l.items.size(); ++i) {
       const Item& it = l.items[i];
@@ -1405,7 +1414,7 @@ class Painter {
           need = TextWidth(it.text, body_.get()) + (it.glyph.empty() ? 0.0f : 26.0f);
           break;
         case Kind::Switch: room = w - 16 - 76; need = TextWidth(it.text, body_.get()); break;
-        case Kind::Choice: room = w - 42 - 100 - 8; need = TextWidth(it.text, body_.get()); break;
+        case Kind::Choice: room = w - 42 - (kDelayColNarrow + kFailCol + kColSplit + kColGap) - 8; need = TextWidth(it.text, body_.get()); break;
         case Kind::ProfileRow: room = w - 14 - 28; need = TextWidth(it.text, body_.get()); break;
         case Kind::ServerCard: room = w - 16 - 34; need = TextWidth(it.text, heading_.get()); break;
         case Kind::ValueRow:
@@ -2673,7 +2682,6 @@ class Painter {
                              c.hasConfig ? L"В конфиге нет выбора сервера." : L"Ни одна конфигурация не включена."));
       return y + 56;
     }
-    const std::vector<std::size_t> leaders = DelayLeaders(c);
     // Returns how much taller than kLatencyRow the row is: its detail wraps (never cut to "…") when it
     // does not fit under the name.
     const auto row = [&](std::size_t i, float top, bool grouped = false) -> float {
@@ -2706,9 +2714,6 @@ class Painter {
                                                    : L"сейчас " + server + L" — другой сервер чуть быстрее, но разница мала";
       } else if (i < c.delays.size()) {
         choice.detail = DelayDetail(c.delays[i], c.delaysDetailed);
-        if (std::find(leaders.begin(), leaders.end(), i) != leaders.end()) {
-          choice.detail = L"в числе лучших · " + choice.detail;
-        }
       }
       if (!isp.empty() && static_cast<int>(i) != c.autoOption) {
         choice.detail = choice.detail.empty() ? isp : isp + L" · " + choice.detail;
@@ -2783,6 +2788,7 @@ class Painter {
     l.items.push_back(Make(Kind::Card, {x0, y, x1, y + static_cast<float>(order.size()) * kLatencyRow}));
     float top = y;
     constexpr float kGroupHead = 30;
+    const bool columns = AnyDelayAnswered(c);  // the latency and failures columns' heads over each group
     for (std::size_t g = 0; g < members.size(); ++g) {
       const std::size_t first = members[g].front();
       if (g > 0) {
@@ -2795,6 +2801,11 @@ class Painter {
       }
       head += loc != nullptr && !loc->isp.empty() ? loc->isp : WithoutFlagEmoji(OptionTitle(c, first));
       l.items.push_back(Make(Kind::Caption, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, head));
+      if (columns && g == 0) {
+        Item heads = Make(Kind::ServerColumns, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, L"ОТКЛИК");
+        heads.detail = L"СБОИ";
+        l.items.push_back(std::move(heads));
+      }
       top += kGroupHead;
       for (std::size_t m = 0; m < members[g].size(); ++m) {
         top += kLatencyRow + row(members[g][m], top, true);
@@ -3914,6 +3925,15 @@ class Painter {
         k.Text(it.text, body_.get(), {r.left, r.top, r.left + 110, r.bottom}, secondary);
         k.Text(it.detail, body_.get(), {r.left + 110, r.top, r.right, r.bottom}, primary);
         break;
+      case Kind::ServerColumns: {
+        // Over the Choice's columns: this rect ends at x1 - 20, the Choice's at x1 - 4, and its columns end kColGap in.
+        const float failRight = r.right + 16 - kColGap;
+        const float delayRight = failRight - kFailCol - kColSplit;
+        k.Text(it.detail, trailing_.get(), {failRight - 2 * kFailCol, r.top, failRight, r.bottom}, secondary);  // wider than its column: it has the width of its word
+        k.Text(it.text, trailing_.get(), {delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow), r.top, delayRight - 8, r.bottom},
+               secondary);
+        break;
+      }
       case Kind::Power: DrawPower(k, it, c, hovered, pressed); break;
       case Kind::SpeedGraph: DrawSpeed(k, it, c); break;
       case Kind::Question: DrawQuestion(k, c); break;
@@ -4034,7 +4054,13 @@ class Painter {
         const D2D1_RECT_F line = it.detail.empty() ? r : D2D1_RECT_F{r.left, r.top + 4, r.right, mid + 2};
         // Which sites open through the server, right to left before the latency:
         // green opens, red answers "not from here", dim doesn't answer.
-        float nameRight = line.right - 100;  // "48 ±3 мс" and "нет ответа" fit in the 88 from here to the edge
+        const bool isServer = it.command == UiCommand::SetProtocol && it.index >= 0 &&
+                              static_cast<std::size_t>(it.index) < c.delays.size();
+        const bool failCol = isServer && AnyDelayAnswered(c);
+        const float failRight = line.right - kColGap;
+        const float delayRight = failCol ? failRight - kFailCol - kColSplit : failRight;
+        const float delayLeft = delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow);
+        float nameRight = delayLeft;  // "48 ±3 мс" and "нет ответа" fit between here and the failures
         if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.sites.size()) {
           const auto& sites = c.sites[static_cast<std::size_t>(it.index)];
           for (auto site = sites.rbegin(); site != sites.rend(); ++site) {
@@ -4051,10 +4077,21 @@ class Painter {
           k.Text(it.detail, it.stacked ? captionWrap_.get() : caption_.get(),
                  {r.left + 42, mid + 2, r.right - 12, r.bottom - 4}, secondary);
         }
-        if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.delays.size()) {
+        if (isServer) {
           const UiDelay& delay = c.delays[static_cast<std::size_t>(it.index)];
-          k.Text(DelayLabel(delay, c.delaysDetailed), delay_.get(), {line.right - 100, line.top, line.right - 12, line.bottom},
+          k.Text(DelayLabel(delay, c.delaysDetailed), delay_.get(), {delayLeft, line.top, delayRight, line.bottom},
                  FromColorRef(ui::DelayColor(delay)));
+          if (failCol && delay.state == UiDelay::State::Ok) {
+            // The requests that got no answer: green none, amber a few, red a tenth or more of them.
+            const int lost = DelayFailures(delay);
+            const D2D1_COLOR_F ink = lost == 0       ? FromColorRef(ui::kUpload)
+                                     : delay.loss >= 10 ? FromColorRef(ui::kDanger)
+                                                        : FromColorRef(ui::kWarning);
+            const float cy = (line.top + line.bottom) / 2;
+            k.t->FillEllipse(D2D1::Ellipse({failRight - kFailCol + 6, cy}, 3, 3), k.Color(ink));
+            k.Text(std::to_wstring(lost), trailing_.get(), {failRight - kFailCol + 12, line.top, failRight, line.bottom},
+                   lost == 0 ? secondary : primary);
+          }
         }
         break;
       }

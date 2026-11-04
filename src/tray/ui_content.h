@@ -491,6 +491,21 @@ inline std::wstring DelayVerdict(const UiDelay& delay) {
   return L"стабильный";
 }
 
+// How many of a measurement's requests got no answer ("сбои"): the loss as a share of the requests.
+inline int DelayFailures(const UiDelay& delay) {
+  return delay.state == UiDelay::State::Ok ? (delay.loss * delay.samples + 50) / 100 : 0;
+}
+
+// Whether any server of the page has answered: the columns (latency, failures) show only then.
+inline bool AnyDelayAnswered(const UiContent& c) {
+  for (const UiDelay& delay : c.delays) {
+    if (delay.state == UiDelay::State::Ok) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Why a server gave no answer, short: the core's error is a Go one -
 // `Head "https://www.gstatic.com/generate_204": context deadline exceeded` -
 // the sort of text nobody reads. Unknown ones are cut after the quoted URL.
@@ -531,33 +546,6 @@ inline std::wstring DelayDetail(const UiDelay& delay, bool detailed) {
     text += std::format(L" · соединение {} мс", delay.connect);
   }
   return text;
-}
-
-// The servers whose latency is within the noise of the best one: the best's
-// own plus a fifth of it, and not less than 20 ms (delays.h's rule for Auto:
-// two measurements of one server differ by more than that). Empty unless
-// three or more answered and some answered worse: when all are "among the
-// best", none is.
-inline std::vector<std::size_t> DelayLeaders(const UiContent& c) {
-  std::vector<std::size_t> answered;
-  int best = 0;
-  for (std::size_t i = 0; i < c.delays.size() && i < c.protocols.size(); ++i) {
-    if (static_cast<int>(i) == c.autoOption || c.delays[i].state != UiDelay::State::Ok) {
-      continue;
-    }
-    if (answered.empty() || c.delays[i].ms < best) {
-      best = c.delays[i].ms;
-    }
-    answered.push_back(i);
-  }
-  std::vector<std::size_t> leaders;
-  const int reach = best + (best / 5 > 20 ? best / 5 : 20);
-  for (const std::size_t i : answered) {
-    if (c.delays[i].ms <= reach) {
-      leaders.push_back(i);
-    }
-  }
-  return answered.size() >= 3 && leaders.size() < answered.size() ? leaders : std::vector<std::size_t>{};
 }
 
 // The servers as their page lists them, indices into c.protocols, auto left

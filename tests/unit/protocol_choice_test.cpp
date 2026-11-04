@@ -95,6 +95,9 @@ void TestServerTitles() {
     {"type":"vmess","tag":"v3","transport":{"type":"grpc"}},
     {"type":"shadowsocks","tag":"s1","method":"2022-blake3-aes-128-gcm"},
     {"type":"shadowsocks","tag":"s2","method":"chacha20-ietf-poly1305"},
+    {"type":"shadowtls","tag":"hop","server":"nl.example.com","server_port":443,"version":3},
+    {"type":"shadowsocks","tag":"stls","server":"nl.example.com","server_port":443,
+     "method":"2022-blake3-aes-128-gcm","detour":"hop"},
     {"type":"trojan","tag":"t","tls":{"enabled":true}},
     {"type":"http","tag":"h","tls":{"enabled":true}},
     {"type":"selector","tag":"proxy","outbounds":["auto"]},{"type":"direct","tag":"direct"},
@@ -109,6 +112,8 @@ void TestServerTitles() {
   CHECK(title("v1") == "VLESS + Vision + REALITY" && title("v2") == "VLESS + WebSocket + TLS");
   CHECK(title("v3") == "VMess + gRPC");
   CHECK(title("s1") == "Shadowsocks 2022" && title("s2") == "Shadowsocks" && title("h") == "HTTPS");
+  // Shadowsocks inside a ShadowTLS: named for both, as it's one server (04.11.2026).
+  CHECK(title("stls") == "Shadowsocks 2022 + ShadowTLS" && titles.at("stls").host == "nl.example.com");
   CHECK(title("wg") == "WireGuard" && titles.at("wg").host == "wg.example.com");
   CHECK(title("proxy") == "-" && title("direct") == "-" && title("n") == "-");
   CHECK(ServerTitles("not json").empty());

@@ -145,15 +145,26 @@ void TestChain() {
   CHECK(Tagged(c, "SS-TLS").is_null());  // chained through the one switched off
   CHECK(Members(c, "proxy") == std::vector<std::string>({"auto", "NL", "FI"}));
 
+  // The ShadowTLS under the Shadowsocks isn't a server of its own: one entry for the pair.
   const auto labels = ListServers(frame.dump());
-  CHECK(labels.size() == 4);
-  if (labels.size() == 4) {
+  CHECK(labels.size() == 3);
+  if (labels.size() == 3) {
     CHECK(labels[0].tag == "NL" && labels[0].label == "VLESS · REALITY");
     CHECK(labels[1].label == "Trojan · WS");
-    CHECK(labels[2].label == "ShadowTLS");
-    CHECK(labels[3].label == "Shadowsocks · через stls");
+    CHECK(labels[2].tag == "SS-TLS" && labels[2].label == "ShadowTLS");
   }
   CHECK(ListServers("not json").empty());
+
+  // A second configuration with the same pair: the link stays in the config,
+  // out of the selector and the URL test.
+  const auto both = CombineConfigs({{"A", Frame(), {}}, {"B", frame.dump(), {}}});
+  const json b = Parsed(both);
+  const auto members = Members(b, "proxy");
+  CHECK(std::find(members.begin(), members.end(), "SS-TLS") != members.end());
+  CHECK(std::find(members.begin(), members.end(), "stls") == members.end());
+  CHECK(!Tagged(b, "stls").is_null() && Tagged(b, "SS-TLS")["detour"] == "stls");
+  const auto autoMembers = Members(b, "auto");
+  CHECK(std::find(autoMembers.begin(), autoMembers.end(), "stls") == autoMembers.end());
 }
 
 // A configuration connecting through another (ProfileConfig::via): the other's

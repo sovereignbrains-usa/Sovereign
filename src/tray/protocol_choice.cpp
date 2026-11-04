@@ -123,7 +123,8 @@ bool Enabled(const Json& o, const char* key) {
   return o.contains(key) && o[key].is_object() && Field<bool>(o[key], "enabled", false);
 }
 
-std::optional<ServerTitle> TitleOf(const Json& o) {
+// `viaType`: the type of the server `o` goes through, if it's one of the config's.
+std::optional<ServerTitle> TitleOf(const Json& o, std::string_view viaType = {}) {
   const auto type = Field<std::string>(o, "type", {});
   if (type == "urltest") {
     return ServerTitle{.title = "Авто", .host = {}, .port = 0};
@@ -136,6 +137,9 @@ std::optional<ServerTitle> TitleOf(const Json& o) {
     name = "Shadowsocks 2022";
   }
   std::vector<std::string> parts = {name};
+  if (viaType == "shadowtls") {
+    parts.emplace_back("ShadowTLS");  // Shadowsocks wrapped in it: "Shadowsocks 2022 + ShadowTLS"
+  }
   if (Field<std::string>(o, "flow", {}) == "xtls-rprx-vision") {
     parts.emplace_back("Vision");
   }
@@ -231,6 +235,17 @@ std::map<std::string, ServerTitle> ServerTitles(std::string_view config) {
   if (!c.is_object()) {
     return titles;
   }
+  std::map<std::string, std::string> types;  // tag -> type, to see what a "detour" goes through
+  for (const char* list : {"outbounds", "endpoints"}) {
+    if (!c.contains(list) || !c[list].is_array()) {
+      continue;
+    }
+    for (const Json& o : c[list]) {
+      if (const auto tag = o.is_object() ? Field<std::string>(o, "tag", {}) : std::string(); !tag.empty()) {
+        types[tag] = Field<std::string>(o, "type", {});
+      }
+    }
+  }
   for (const char* list : {"outbounds", "endpoints"}) {
     if (!c.contains(list) || !c[list].is_array()) {
       continue;
@@ -240,7 +255,8 @@ std::map<std::string, ServerTitle> ServerTitles(std::string_view config) {
       if (tag.empty()) {
         continue;
       }
-      if (auto title = TitleOf(o)) {
+      const auto via = types.find(Field<std::string>(o, "detour", {}));
+      if (auto title = TitleOf(o, via != types.end() ? std::string_view(via->second) : std::string_view())) {
         titles[tag] = std::move(*title);
       }
     }

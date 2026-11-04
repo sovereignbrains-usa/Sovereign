@@ -194,12 +194,41 @@ std::set<std::string> AllTags(Json& config) {
   return tags;
 }
 
-std::vector<std::string> ServerTags(Json& config) {
-  std::vector<std::string> tags;
+// The servers other servers go through ("detour"): a chain's inner links, a
+// ShadowTLS under Shadowsocks. They carry nothing of their own, so they're
+// never offered (selector, "Авто", lists) - they only stay in the config.
+std::set<std::string> HopTags(Json& config) {
+  std::set<std::string> servers;
+  std::set<std::string> detours;
   for (const char* name : kLists) {
     if (Json* list = List(config, name)) {
       for (const Json& o : *list) {
         if (IsServer(o) && !Tag(o).empty()) {
+          servers.insert(Tag(o));
+          if (const std::string detour = Str(o, "detour"); !detour.empty() && detour != Tag(o)) {
+            detours.insert(detour);
+          }
+        }
+      }
+    }
+  }
+  std::set<std::string> hops;
+  for (const std::string& detour : detours) {
+    if (servers.contains(detour)) {
+      hops.insert(detour);
+    }
+  }
+  return hops;
+}
+
+// The servers to offer; `withHops`: the chains' inner links too.
+std::vector<std::string> ServerTags(Json& config, bool withHops = false) {
+  std::vector<std::string> tags;
+  const std::set<std::string> hops = withHops ? std::set<std::string>{} : HopTags(config);
+  for (const char* name : kLists) {
+    if (Json* list = List(config, name)) {
+      for (const Json& o : *list) {
+        if (IsServer(o) && !Tag(o).empty() && !hops.contains(Tag(o))) {
           tags.push_back(Tag(o));
         }
       }
@@ -349,8 +378,15 @@ void MakeChains(Json& frame, const std::vector<ProfileConfig>& parts, const std:
         group = std::format("«{}» {}", name, n);
       }
       taken.insert(group);
+      std::vector<std::string> members;  // not the inner links: they're only reached through the others
+      const std::set<std::string> hops = HopTags(frame);
+      for (const std::string& tag : tags[target->second]) {
+        if (!hops.contains(tag)) {
+          members.push_back(tag);
+        }
+      }
       if (Json* outbounds = List(frame, "outbounds")) {
-        outbounds->push_back(Json{{"type", "urltest"}, {"tag", group}, {"outbounds", tags[target->second]}});
+        outbounds->push_back(Json{{"type", "urltest"}, {"tag", group}, {"outbounds", members}});
       }
     }
     const std::set<std::string> mine(tags[i].begin(), tags[i].end());
@@ -370,7 +406,11 @@ void MakeChains(Json& frame, const std::vector<ProfileConfig>& parts, const std:
   }
 }
 
-std::string Label(const Json& o) {
+// `viaType`: the type of the server `o` goes through, if it's one of the config's.
+std::string Label(const Json& o, std::string_view viaType = {}) {
+  if (viaType == "shadowtls") {
+    return "ShadowTLS";  // Shadowsocks under it: the pair is one server, named for its outer link
+  }
   static const std::map<std::string, std::string, std::less<>> kNames = {
       {"vless", "VLESS"},         {"vmess", "VMess"},       {"trojan", "Trojan"},   {"shadowsocks", "Shadowsocks"},
       {"hysteria2", "Hysteria2"}, {"hysteria", "Hysteria"}, {"tuic", "TUIC"},       {"anytls", "AnyTLS"},
@@ -498,7 +538,7 @@ CombinedConfig CombineConfigs(const std::vector<ProfileConfig>& parts, const std
   const std::set<std::string> frameDns = DnsServerTags(*frame);
   std::vector<std::vector<std::string>> partTags(parts.size());  // each part's servers in the frame (chains)
   if (first == 1) {
-    partTags[0] = ServerTags(*frame);
+    partTags[0] = ServerTags(*frame, /*withHops=*/true);  // chains need the inner links too
   }
   for (std::size_t i = first; i < parts.size(); ++i) {
     std::string error;
@@ -523,17 +563,23 @@ CombinedConfig CombineConfigs(const std::vector<ProfileConfig>& parts, const std
     for (Json& o : moved.outbounds) {
       outbounds.push_back(std::move(o));
     }
-    // Into the selector, and into the URL tests it offers ("auto").
+    // Into the selector, and into the URL tests it offers ("auto") - the
+    // chains' inner links (ShadowTLS under Shadowsocks) stay out of both.
+    const std::set<std::string> hops = HopTags(*frame);
     Json& main = outbounds[selector];
     const std::vector<std::string> offered = Members(main);
     for (const std::string& tag : moved.tags) {
-      main["outbounds"].push_back(tag);
+      if (!hops.contains(tag)) {
+        main["outbounds"].push_back(tag);
+      }
     }
     for (Json& o : outbounds) {
       if (Str(o, "type") == "urltest" &&
           std::find(offered.begin(), offered.end(), Tag(o)) != offered.end()) {
         for (const std::string& tag : moved.tags) {
-          o["outbounds"].push_back(tag);
+          if (!hops.contains(tag)) {
+            o["outbounds"].push_back(tag);
+          }
         }
       }
     }
@@ -562,11 +608,22 @@ std::vector<ServerInfo> AllServers(std::string_view config) {
     return servers;
   }
   Json json = Json::parse(config, nullptr, /*allow_exceptions=*/false);
+  std::map<std::string, std::string> types;  // every server's tag -> its type (what a "detour" points at)
   for (const char* name : kLists) {
     if (Json* list = List(json, name)) {
       for (const Json& o : *list) {
         if (IsServer(o) && !Tag(o).empty()) {
-          servers.push_back({Tag(o), Str(o, "type"), Label(o)});
+          types[Tag(o)] = Str(o, "type");
+        }
+      }
+    }
+  }
+  for (const char* name : kLists) {
+    if (Json* list = List(json, name)) {
+      for (const Json& o : *list) {
+        if (IsServer(o) && !Tag(o).empty()) {
+          const auto via = types.find(Str(o, "detour"));
+          servers.push_back({Tag(o), Str(o, "type"), Label(o, via != types.end() ? via->second : std::string_view())});
         }
       }
     }
@@ -648,8 +705,10 @@ std::vector<std::string> ProviderBalancers(std::string_view config) {
 std::vector<ServerInfo> ListServers(std::string_view config) {
   std::vector<ServerInfo> servers = AllServers(config);
   const std::vector<std::string> balancers = ProviderBalancers(config);
+  Json json = Json::parse(config, nullptr, /*allow_exceptions=*/false);
+  const std::set<std::string> hops = HopTags(json);  // chains' inner links aren't servers of their own
   std::erase_if(servers, [&](const ServerInfo& s) {
-    return std::find(balancers.begin(), balancers.end(), s.tag) != balancers.end();
+    return std::find(balancers.begin(), balancers.end(), s.tag) != balancers.end() || hops.contains(s.tag);
   });
   return servers;
 }

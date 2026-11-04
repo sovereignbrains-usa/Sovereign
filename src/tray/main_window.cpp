@@ -2673,6 +2673,7 @@ class Painter {
                              c.hasConfig ? L"В конфиге нет выбора сервера." : L"Ни одна конфигурация не включена."));
       return y + 56;
     }
+    const std::vector<std::size_t> leaders = DelayLeaders(c);
     // Returns how much taller than kLatencyRow the row is: its detail wraps (never cut to "…") when it
     // does not fit under the name.
     const auto row = [&](std::size_t i, float top, bool grouped = false) -> float {
@@ -2705,6 +2706,9 @@ class Painter {
                                                    : L"сейчас " + server + L" — другой сервер чуть быстрее, но разница мала";
       } else if (i < c.delays.size()) {
         choice.detail = DelayDetail(c.delays[i], c.delaysDetailed);
+        if (std::find(leaders.begin(), leaders.end(), i) != leaders.end()) {
+          choice.detail = L"в числе лучших · " + choice.detail;
+        }
       }
       if (!isp.empty() && static_cast<int>(i) != c.autoOption) {
         choice.detail = choice.detail.empty() ? isp : isp + L" · " + choice.detail;

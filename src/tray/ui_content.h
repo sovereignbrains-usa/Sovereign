@@ -533,6 +533,31 @@ inline std::wstring DelayDetail(const UiDelay& delay, bool detailed) {
   return text;
 }
 
+// The servers whose latency is within the noise of the best one: the best's
+// own plus a fifth of it, and not less than 20 ms (delays.h's rule for Auto:
+// two measurements of one server differ by more than that). Empty unless
+// three or more answered and some answered worse: when all are "among the
+// best", none is.
+inline std::vector<std::size_t> DelayLeaders(const UiContent& c) {
+  std::vector<std::size_t> answered;
+  int best = 0;
+  for (std::size_t i = 0; i < c.delays.size() && i < c.protocols.size(); ++i) {
+    if (static_cast<int>(i) == c.autoOption || c.delays[i].state != UiDelay::State::Ok) {
+      continue;
+    }
+    best = answered.empty() ? c.delays[i].ms : std::min(best, c.delays[i].ms);
+    answered.push_back(i);
+  }
+  std::vector<std::size_t> leaders;
+  const int reach = best + std::max(20, best / 5);
+  for (const std::size_t i : answered) {
+    if (c.delays[i].ms <= reach) {
+      leaders.push_back(i);
+    }
+  }
+  return answered.size() >= 3 && leaders.size() < answered.size() ? leaders : std::vector<std::size_t>{};
+}
+
 // The servers as their page lists them, indices into c.protocols, auto left
 // out (it has a card of its own): with serversByDelay the answering ones
 // fastest first, then the ones not measured, then the ones that didn't

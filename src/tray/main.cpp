@@ -405,6 +405,8 @@ struct RoutingChange {
     Russia,         // value: RouteRule::Action (WARP: turned on), -1: no way of their own
     BlockAds,       // on
     CookieWindows,  // on
+    Trackers,       // on
+    Malware,        // on
     Quic,           // value: RoutingSettings::Quic's number
     HysteriaMbps,   // value: Mbit/s, 0: BBR
     FinalDirect,    // on; value: 1 - "в обход блокировок" (RoutingSettings::smart)
@@ -1150,6 +1152,8 @@ class Worker {
       }
       case RoutingChange::What::BlockAds: r.blockAds = change.on; break;
       case RoutingChange::What::CookieWindows: r.cookieWindows = change.on; break;
+      case RoutingChange::What::Trackers: r.trackers = change.on; break;
+      case RoutingChange::What::Malware: r.malware = change.on; break;
       case RoutingChange::What::Quic:
         r.quic = static_cast<sovereign::tray::RoutingSettings::Quic>(std::clamp(change.value, 0, 2));
         break;
@@ -4044,9 +4048,17 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
     board.push_back({.kind = UiChip::Kind::Ads, .index = 0, .bucket = sovereign::tray::kBucketBlock,
                      .text = L"Реклама", .detail = {}, .icon = {}, .logo = "ads"});
   }
+  if (r.trackers) {
+    board.push_back({.kind = UiChip::Kind::Trackers, .index = 0, .bucket = sovereign::tray::kBucketBlock,
+                     .text = L"Трекеры", .detail = {}, .icon = {}, .logo = "trackers"});
+  }
   if (r.cookieWindows) {
     board.push_back({.kind = UiChip::Kind::Cookies, .index = 0, .bucket = sovereign::tray::kBucketBlock,
                      .text = L"Баннеры cookie", .detail = {}, .icon = {}, .logo = "cookies"});
+  }
+  if (r.malware) {
+    board.push_back({.kind = UiChip::Kind::Malware, .index = 0, .bucket = sovereign::tray::kBucketBlock,
+                     .text = L"Вредоносные сайты", .detail = {}, .icon = {}, .logo = "malware"});
   }
   for (std::size_t n = 0; n < r.services.size(); ++n) {
     const ServiceRoute& s = r.services[n];
@@ -4725,6 +4737,8 @@ UiContent ContentFrom(const View& v) {
   c.routing.russia = r.russia ? static_cast<int>(*r.russia) : -1;
   c.routing.blockAds = r.blockAds;
   c.routing.cookieWindows = r.cookieWindows;
+  c.routing.trackers = r.trackers;
+  c.routing.malware = r.malware;
   c.routing.quic = static_cast<int>(r.quic);
   c.routing.quicBlocked = v.quicBlocked;
   c.routing.hysteriaMbps = r.hysteriaMbps;
@@ -5304,6 +5318,8 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       break;
     case UiCommand::ToggleBlockAds: send(What::BlockAds, !r.blockAds); break;
     case UiCommand::ToggleCookieWindows: send(What::CookieWindows, !r.cookieWindows); break;
+    case UiCommand::ToggleTrackers: send(What::Trackers, !r.trackers); break;
+    case UiCommand::ToggleMalware: send(What::Malware, !r.malware); break;
     case UiCommand::BlockedMenu: {
       // What the lists blocked lately (the ads' and the cookie windows'
       // alike): a click lets one through - a rule of its own where
@@ -5436,7 +5452,7 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
     }
     case UiCommand::BoardAdd: {
       // What can go to this bucket: the Russian sites, a service, a program, a site.
-      enum class Add : std::uint8_t { Russia, Service, Program, Site, Import, Ads, Cookies };
+      enum class Add : std::uint8_t { Russia, Service, Program, Site, Import, Ads, Trackers, Cookies, Malware };
       const int bucket = args.index;
       std::vector<std::wstring> items;
       std::vector<Add> adds;
@@ -5458,9 +5474,17 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
           items.emplace_back(L"Убирать рекламу");
           adds.push_back(Add::Ads);
         }
+        if (!r.trackers) {
+          items.emplace_back(L"Блокировать трекеры");
+          adds.push_back(Add::Trackers);
+        }
         if (!r.cookieWindows) {
           items.emplace_back(L"Убирать баннеры cookie");
           adds.push_back(Add::Cookies);
+        }
+        if (!r.malware) {
+          items.emplace_back(L"Блокировать вредоносные сайты");
+          adds.push_back(Add::Malware);
         }
       } else {
         items.emplace_back(L"Сервис…");
@@ -5490,6 +5514,8 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
         case Add::Russia: send(What::Russia, false, bucket); break;
         case Add::Ads: send(What::BlockAds, true); break;
         case Add::Cookies: send(What::CookieWindows, true); break;
+        case Add::Trackers: send(What::Trackers, true); break;
+        case Add::Malware: send(What::Malware, true); break;
         case Add::Service: {
           std::vector<std::wstring> names;
           std::vector<std::string> ids;
@@ -5584,12 +5610,21 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
                                             sovereign::tray::kBucketWarp, sovereign::tray::kBucketBlock};
       static constexpr std::array<const wchar_t*, 4> kBuckets = {L"Через VPN", L"Напрямую", L"Через WARP", L"Блок"};
 
-      if (chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies) {
+      if (chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies || chip.kind == UiChip::Kind::Trackers ||
+          chip.kind == UiChip::Kind::Malware) {
         // Always the block's: there is only to stop blocking them (the settings' switch).
-        const bool ads = chip.kind == UiChip::Kind::Ads;
-        const std::vector<std::wstring> items = {ads ? L"Не убирать рекламу" : L"Не убирать баннеры cookie"};
+        using Kind = UiChip::Kind;
+        const std::wstring item = chip.kind == Kind::Ads        ? L"Не убирать рекламу"
+                                  : chip.kind == Kind::Trackers ? L"Не блокировать трекеры"
+                                  : chip.kind == Kind::Cookies  ? L"Не убирать баннеры cookie"
+                                                                : L"Не блокировать вредоносные сайты";
+        const std::vector<std::wstring> items = {item};
         if (PickFromMenu(owner, cursor, items, -1)) {
-          send(ads ? What::BlockAds : What::CookieWindows, false);
+          send(chip.kind == Kind::Ads        ? What::BlockAds
+               : chip.kind == Kind::Trackers ? What::Trackers
+               : chip.kind == Kind::Cookies  ? What::CookieWindows
+                                             : What::Malware,
+               false);
         }
         break;
       }
@@ -5866,6 +5901,8 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::ToggleWarp:
     case UiCommand::ToggleBlockAds:
     case UiCommand::ToggleCookieWindows:
+    case UiCommand::ToggleTrackers:
+    case UiCommand::ToggleMalware:
     case UiCommand::BlockedMenu:
     case UiCommand::AddWarpSite:
     case UiCommand::AddWarpSiteText:

@@ -17,6 +17,7 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -281,6 +282,8 @@ void TestAdGuard() {
   CHECK(!RoutingSettings{}.cookieWindows && !c.dump().contains("sov-ads-cookies"));
   s.cookieWindows = true;
   s.blockAds = false;
+  s.trackers = false;
+  s.malware = false;
   CHECK(RoutingFromJson(json::parse(RoutingToJson(s).dump())).cookieWindows);
   bool needed = false;
   for (const RuleSetSource& source : NeededRuleSets(s)) {
@@ -294,6 +297,52 @@ void TestAdGuard() {
     refused = refused || (rule.value("rule_set", json()) == "sov-ads-cookies" && rule.value("action", "") == "reject");
   }
   CHECK(refused && k["dns"]["rules"].dump().contains("sov-ads-cookies") && !k.dump().contains("\"sov-ads\""));
+}
+
+// The block's catalog: the trackers and the malware lists are on by default, one reject
+// rule holds every list of every category on, each switch takes its own lists out.
+void TestBlockCategories() {
+  const RoutingSettings fresh;
+  CHECK(fresh.trackers && fresh.malware && fresh.blockAds && !fresh.cookieWindows);
+  RoutingSettings s;
+  s.trackers = false;
+  s.malware = false;
+  CHECK(RoutingFromJson(json::parse(RoutingToJson(s).dump())).trackers == false);
+  CHECK(RoutingFromJson(json::parse(RoutingToJson(s).dump())).malware == false);
+
+  const auto tags = [](const RoutingSettings& settings) {
+    std::set<std::string> out;
+    for (const RuleSetSource& source : NeededRuleSets(settings)) {
+      if (source.tag.starts_with("sov-ads")) {
+        out.insert(source.tag);
+      }
+    }
+    return out;
+  };
+  const auto has = [&](const RoutingSettings& settings, const char* tag) { return tags(settings).contains(tag); };
+  CHECK(!has(s, "sov-ads-trackers") && !has(s, "sov-ads-malware") && has(s, "sov-ads"));
+  s.trackers = true;
+  CHECK(has(s, "sov-ads-trackers") && has(s, "sov-ads-trackers-lowe") && !has(s, "sov-ads-phishing"));
+  s.malware = true;
+  CHECK(has(s, "sov-ads-malware") && has(s, "sov-ads-malware-dandelion") && has(s, "sov-ads-phishing") &&
+        has(s, "sov-ads-scams"));
+  s.blockAds = false;
+  CHECK(!has(s, "sov-ads") && !has(s, "sov-ads-adguard") && has(s, "sov-ads-trackers"));
+
+  // Every list that is on, in the one rule; the DNS rule gives no address for them too.
+  const auto keys = BuildConfigFromLinks({"trojan://pw@nl.example.com:443#NL"}).config.value_or("{}");
+  const std::string config = CombineConfigs({{"Ключи", keys, {}}}, OwnFrame(s)).config.value_or("{}");
+  const json c = json::parse(ApplyRouting(config, s,
+                                          {{"sov-ads-trackers", "C:/lists/t.json"},
+                                           {"sov-ads-trackers-lowe", "C:/lists/t2.json"},
+                                           {"sov-ads-phishing", "C:/lists/p.json"}}));
+  bool rejected = false;
+  for (const json& rule : c["route"]["rules"]) {
+    const std::string text = rule.dump();
+    rejected = rejected || (rule.value("action", "") == "reject" && text.contains("sov-ads-trackers-lowe") &&
+                            text.contains("sov-ads-phishing"));
+  }
+  CHECK(rejected && c["dns"]["rules"].dump().contains("sov-ads-trackers"));
 }
 
 // The order: a blocked program first (no network at all), then the sites, the
@@ -1290,6 +1339,7 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestQuic();
     TestOrder();
     TestAdGuard();
+  TestBlockCategories();
     TestCountryVia();
     TestHysteriaSpeed();
     if (check) {

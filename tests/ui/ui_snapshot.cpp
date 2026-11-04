@@ -59,6 +59,8 @@ std::vector<sovereign::tray::UiChip> SampleBoard() {
        .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Ads, .index = 0, .bucket = 2, .text = L"Реклама", .detail = {}, .icon = {}, .logo = "ads"},
     {.kind = UiChip::Kind::Cookies, .index = 0, .bucket = 2, .text = L"Баннеры cookie", .detail = {}, .icon = {}, .logo = "cookies"},
+    {.kind = UiChip::Kind::Trackers, .index = 0, .bucket = 2, .text = L"Трекеры", .detail = {}, .icon = {}, .logo = "trackers"},
+    {.kind = UiChip::Kind::Malware, .index = 0, .bucket = 2, .text = L"Вредоносные сайты", .detail = {}, .icon = {}, .logo = "malware"},
     {.kind = UiChip::Kind::Rule, .index = 2, .bucket = 2, .text = L"~tracker", .detail = {}, .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Rule, .index = 3, .bucket = 3, .text = L"chatgpt.com", .detail = {}, .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Rule, .index = 4, .bucket = 0,
@@ -501,7 +503,7 @@ int Snapshots(const std::wstring& dir) {
 
   // Every service's logo draws (assets/services: what Direct2D's SVG can't
   // draw comes out empty) - at the menus' 16 px and at 150 %.
-  std::vector<std::string_view> logos = {"lan", "russia", "ads", "cookies", "hysteria", "cloudflare", "quad9"};  // the board's, the settings'
+  std::vector<std::string_view> logos = {"lan", "russia", "ads", "cookies", "trackers", "malware", "hysteria", "cloudflare", "quad9"};  // the board's, the settings'
   for (const auto& service : sovereign::tray::ServiceCatalog()) {
     logos.push_back(service.id);
   }

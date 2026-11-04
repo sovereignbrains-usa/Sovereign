@@ -1932,7 +1932,7 @@ class Painter {
         {L"Через VPN", L"идёт через VPN", L"Через сервер VPN."},
         {L"Блок", L"заблокирован",
          L"Сайт или программа останутся без сети: не откроются ни через VPN, ни напрямую. Например, сайт, который не "
-         L"хочешь открывать, или назойливый апдейтер.\n\nРеклама и баннеры cookie тоже здесь: их включают в «+» "
+         L"хочешь открывать, или назойливый апдейтер.\n\nРеклама, трекеры, баннеры cookie и вредоносные сайты тоже здесь: их включают в «+» "
          L"или в настройках.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
         {L"Через WARP", L"идёт через WARP",
          L"Через Cloudflare WARP поверх VPN. Для сайтов, которые не пускают с адреса VPN: сайт видит адрес "
@@ -2016,6 +2016,10 @@ class Painter {
           tag.tip = L"Реклама блокируется: списки рекламных адресов.";
         } else if (chip.kind == UiChip::Kind::Cookies) {
           tag.tip = L"Баннеры cookie блокируются: окна «принять cookie?» на сайтах.";
+        } else if (chip.kind == UiChip::Kind::Trackers) {
+          tag.tip = L"Трекеры блокируются: серверы слежки и аналитики, по которым сайты узнают тебя.";
+        } else if (chip.kind == UiChip::Kind::Malware) {
+          tag.tip = L"Вредоносные сайты блокируются: вирусы, фишинг и мошенничество по спискам.";
         }
         tag.detail = chip.detail;
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
@@ -3551,11 +3555,11 @@ class Painter {
       y = Paragraph(l, Kind::ErrorText, L"Kill switch: " + c.killSwitchError, x0, x1, y) + kSettingsGap;
     }
 
-    // What's cut on the way: the ads and the cookie windows. Switches, not a
+    // What's cut on the way: ads, trackers, cookie windows, malware. Switches, not a
     // way to somewhere - they were the routing board's block's chips till
     // 30.10.2026 (his: "не особо клеятся в блоке"). What was blocked lately
     // is a row under them: a click lets one through.
-    y = Heading(l, L"Реклама", x0, x1, y);
+    y = Heading(l, L"Блокировка", x0, x1, y);
     {
       const std::size_t card = open(y);
       float top = y;
@@ -3564,8 +3568,17 @@ class Painter {
       ads.tick = kBucketBlock;
       l.items.push_back(std::move(ads));
       HintAfter(l, L"Блокировать рекламу", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Запросы к рекламным и трекерным серверам по спискам никуда не уходят: страницы грузятся без "
-                L"рекламы. Сломалось что-то нужное — «Недавно заблокировано» ниже: нажми имя, и оно пойдёт дальше.");
+                L"Запросы к рекламным серверам по спискам никуда не уходят: страницы грузятся без рекламы. "
+                L"Сломалось что-то нужное — «Недавно заблокировано» ниже: нажми имя, и оно пойдёт дальше.");
+      top += kSettingsRow;
+      line(top);
+      Item trackers = CommandItem(Kind::Switch, row(top), L"Блокировать трекеры", nullptr, UiCommand::ToggleTrackers);
+      trackers.checked = c.routing.trackers;
+      trackers.tick = kBucketBlock;
+      l.items.push_back(std::move(trackers));
+      HintAfter(l, L"Блокировать трекеры", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
+                L"Серверы аналитики и слежки (счётчики, пиксели, профилирование): сайт открывается, но не узнаёт, "
+                L"куда ты ходил до него. Обычно ничего не ломает.");
       top += kSettingsRow;
       line(top);
       Item cookies =
@@ -3577,7 +3590,17 @@ class Painter {
                 L"Убирает окна «принять cookie» OneTrust, Cookiebot и подобные. Своё окно сайта (TikTok, "
                 L"DeepSeek) — нет: это не скрипт со стороны.");
       top += kSettingsRow;
-      if (c.routing.blockAds || c.routing.cookieWindows) {
+      line(top);
+      Item malware =
+          CommandItem(Kind::Switch, row(top), L"Блокировать вредоносные сайты", nullptr, UiCommand::ToggleMalware);
+      malware.checked = c.routing.malware;
+      malware.tick = kBucketBlock;
+      l.items.push_back(std::move(malware));
+      HintAfter(l, L"Блокировать вредоносные сайты", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
+                L"Адреса с вирусами, фишингом и мошенничеством по спискам: поддельный банк или «выигрыш» не "
+                L"откроется.");
+      top += kSettingsRow;
+      if (c.routing.blockAds || c.routing.cookieWindows || c.routing.trackers || c.routing.malware) {
         line(top);
         Item recent = CommandItem(Kind::ValueRow, row(top), L"Недавно заблокировано", nullptr, UiCommand::BlockedMenu);
         recent.detail = L"пропустить нужное";

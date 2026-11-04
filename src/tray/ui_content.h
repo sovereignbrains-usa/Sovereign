@@ -133,7 +133,7 @@ struct UiService {
 struct UiChip {
   // Ads and Cookies: the block's own two lists (the settings' switches, shown here while on again
   // since 03.11.2026, his: "давай возвращать рекламу и куки сюда в блок").
-  enum class Kind : std::uint8_t { Service, Rule, Russia, Ads, Cookies };
+  enum class Kind : std::uint8_t { Service, Rule, Russia, Ads, Cookies, Trackers, Malware };
   Kind kind = Kind::Rule;
   int index = 0;        // Service: into the routing's services; Rule: into its rules
   int bucket = 1;
@@ -161,6 +161,8 @@ struct UiRouting {
   int russia = kBucketDirect;  // the Russian sites' way, a bucket; -1: none of their own
   bool blockAds = true;
   bool cookieWindows = false;  // the "accept cookies?" windows of sites, taken off
+  bool trackers = true;        // the trackers' and analytics' servers
+  bool malware = true;         // malware, phishing and scam domains
   int quic = 0;             // RoutingSettings::Quic's number: 0 auto, 1 blocked, 2 let through
   bool quicBlocked = true;  // what it comes to - auto: by the servers
   int hysteriaMbps = 0;     // RoutingSettings::hysteriaMbps
@@ -370,6 +372,8 @@ enum class UiCommand : std::uint8_t {
   ToggleIpv4Only,
   ToggleBlockAds,     // the ads lists, on or off (the settings')
   ToggleCookieWindows,  // the cookie windows' list, on or off
+  ToggleTrackers,       // the trackers' lists, on or off
+  ToggleMalware,        // the malware and phishing lists, on or off
   BlockedMenu,        // anchor: what was blocked lately - a click lets one through
   ToggleWarp,         // on: registers a WARP device first if there's none
   AddWarpSite,        // starts typing over WARP's button

@@ -131,6 +131,11 @@ struct RoutingSettings {
   // someone else's script - a site's own stays; and a site that waits for the
   // answer may not work without it, so it's off until asked for.
   bool cookieWindows = false;
+  // The trackers (analytics, telemetry, fingerprinting): their names given no
+  // addresses, like the ads' - on, as ads are (0.5.91).
+  bool trackers = true;
+  // Malware and phishing hosts, the scams: on, a site's break by them is rare.
+  bool malware = true;
   // QUIC (HTTP/3 over UDP) refused, so browsers take TCP. Auto: refused
   // unless every server carries UDP as UDP (Hysteria, TUIC) - through a TCP
   // one (VLESS, Trojan, AnyTLS...) it's UDP packed in TCP, worse than TCP.

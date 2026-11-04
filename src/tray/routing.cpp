@@ -35,6 +35,26 @@ constexpr std::string_view kAdGuardFilter = "https://adguardteam.github.io/Hostl
 // it blocked the way it does for the ads lists.
 constexpr const char* kCookieWindows = "sov-ads-cookies";
 constexpr std::string_view kCookieFilter = "https://filters.adtidy.org/extension/ublock/filters/18.txt";
+
+// The trackers: ShadowWhisperer's (~118 000 names of analytics, telemetry and
+// fingerprinting, no ads) and Peter Lowe's classic one, from AdGuard's registry.
+constexpr const char* kTrackersA = "sov-ads-trackers";
+constexpr std::string_view kTrackersAFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_69.txt";
+constexpr const char* kTrackersB = "sov-ads-trackers-lowe";
+constexpr std::string_view kTrackersBFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_3.txt";
+// The malware and the phishing: URLHaus' malicious hosts, Dandelion Sprout's
+// anti-malware list, PhishTank and OpenPhish, DurableNapkin's scams (~37 000
+// names in all). What a person never wants to open, so a site's break by it is
+// rare and the switch is on.
+constexpr const char* kMalwareA = "sov-ads-malware";
+constexpr std::string_view kMalwareAFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt";
+constexpr const char* kMalwareB = "sov-ads-malware-dandelion";
+constexpr std::string_view kMalwareBFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_12.txt";
+constexpr const char* kPhishing = "sov-ads-phishing";
+constexpr std::string_view kPhishingFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_30.txt";
+constexpr const char* kScams = "sov-ads-scams";
+constexpr std::string_view kScamsFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_10.txt";
+
 constexpr const char* kLocalDns = "sov-local";
 constexpr std::string_view kServicePrefix = "sov-svc-";  // a service's list: sov-svc-<id>
 
@@ -463,6 +483,8 @@ nlohmann::json RoutingToJson(const RoutingSettings& s) {
   return {{"russia", s.russia ? ActionName(*s.russia) : "off"},
           {"blockAds", s.blockAds},
           {"cookieWindows", s.cookieWindows},
+          {"trackers", s.trackers},
+          {"malware", s.malware},
           {"quic", s.quic == RoutingSettings::Quic::Block   ? "block"
                    : s.quic == RoutingSettings::Quic::Allow ? "allow"
                                                             : "auto"},
@@ -515,6 +537,8 @@ RoutingSettings RoutingFromJson(const nlohmann::json& json) {
   }
   flag("blockAds", s.blockAds);
   flag("cookieWindows", s.cookieWindows);
+  flag("trackers", s.trackers);
+  flag("malware", s.malware);
   // "blockQuic" before 0.4.56: off stays off; on, the default, is auto now.
   bool blockQuic = true;
   flag("blockQuic", blockQuic);
@@ -1081,6 +1105,35 @@ std::vector<SmartSeen> ParseSmartAnswer(std::string_view response) {
   return out;
 }
 
+namespace {
+
+// What "Блок" blocks by name, a category a switch: its lists, all one rule that
+// rejects (and gives no addresses). Every tag starts with "sov-ads":
+// gocore/blocked.go says what it blocked the way it does for the ads.
+struct BlockCategory {
+  bool RoutingSettings::* on;
+  std::vector<RuleSetSource> lists;  // sing-geosite's binary one, then AdGuard-format texts
+};
+const std::vector<BlockCategory>& BlockCategories() {
+  static const std::vector<BlockCategory> categories = {
+      {&RoutingSettings::blockAds,
+       {{std::string(kAds), std::string(kGeositeBase) + "geosite-category-ads-all.srs", false, false},
+        {std::string(kAdsAdGuard), std::string(kAdGuardFilter), false, true}}},
+      {&RoutingSettings::cookieWindows, {{std::string(kCookieWindows), std::string(kCookieFilter), false, true}}},
+      {&RoutingSettings::trackers,
+       {{std::string(kTrackersA), std::string(kTrackersAFilter), false, true},
+        {std::string(kTrackersB), std::string(kTrackersBFilter), false, true}}},
+      {&RoutingSettings::malware,
+       {{std::string(kMalwareA), std::string(kMalwareAFilter), false, true},
+        {std::string(kMalwareB), std::string(kMalwareBFilter), false, true},
+        {std::string(kPhishing), std::string(kPhishingFilter), false, true},
+        {std::string(kScams), std::string(kScamsFilter), false, true}}},
+  };
+  return categories;
+}
+
+}  // namespace
+
 std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settingsIn) {
   const RoutingSettings settings = Effective(settingsIn);
   std::vector<RuleSetSource> sets;
@@ -1089,12 +1142,10 @@ std::vector<RuleSetSource> NeededRuleSets(const RoutingSettings& settingsIn) {
     sets.push_back({std::string(kGeositeGovRu), std::string(kGeositeBase) + "geosite-category-gov-ru.srs", false});
     sets.push_back({std::string(kGeoipRu), std::string(kGeoipBase) + "geoip-ru.srs", true});
   }
-  if (settings.blockAds) {
-    sets.push_back({std::string(kAds), std::string(kGeositeBase) + "geosite-category-ads-all.srs", false});
-    sets.push_back({std::string(kAdsAdGuard), std::string(kAdGuardFilter), false, true});
-  }
-  if (settings.cookieWindows) {
-    sets.push_back({std::string(kCookieWindows), std::string(kCookieFilter), false, true});
+  for (const BlockCategory& category : BlockCategories()) {
+    if (settings.*category.on) {
+      sets.insert(sets.end(), category.lists.begin(), category.lists.end());
+    }
   }
   for (const ServiceRoute& r : settings.services) {
     if (const ServiceInfo* info = FindService(r.id)) {
@@ -1281,10 +1332,11 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // The ads lists there are - sing-geosite's, AdGuard's - and the cookie
   // windows' one: one rule for all.
   Json adsLists = Json::array();
-  for (const std::string_view tag : {kAds, kAdsAdGuard, kCookieWindows}) {
-    const bool on = tag == kCookieWindows ? settings.cookieWindows : settings.blockAds;
-    if (on && lists.contains(std::string(tag))) {
-      adsLists.push_back(std::string(tag));
+  for (const BlockCategory& category : BlockCategories()) {
+    for (const RuleSetSource& list : category.lists) {
+      if (settings.*category.on && lists.contains(list.tag)) {
+        adsLists.push_back(list.tag);
+      }
     }
   }
   if (adsLists.size() == 1) {

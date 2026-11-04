@@ -262,7 +262,7 @@ func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metada
 	// Only what the sniffer saw as TLS races: a protocol whose server speaks
 	// first (SSH, SMTP) would wait for a hello that never comes.
 	if key == "" || metadata.Protocol != constant.ProtocolTLS || len(s.ways) < 2 {
-		s.connections.NewConnection(ctx, s.ways[0], conn, metadata, onClose)
+		s.connections.NewConnection(ctx, s.dialFallback(&metadata), conn, metadata, onClose)
 		return
 	}
 	hello := buf.NewSize(smartHelloMax)
@@ -272,7 +272,7 @@ func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metada
 	if err != nil || hello.IsEmpty() || hello.Byte(0) != tlsHandshake {
 		// Not TLS (or the client said nothing): the preferred way, the bytes
 		// read given back.
-		s.connections.NewConnection(ctx, s.ways[0], bufio.NewCachedConn(conn, hello), metadata, onClose)
+		s.connections.NewConnection(ctx, s.dialFallback(&metadata), bufio.NewCachedConn(conn, hello), metadata, onClose)
 		return
 	}
 	dialers := make([]N.Dialer, len(s.ways))
@@ -302,6 +302,56 @@ func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metada
 		won = watchCut(won, s.wait, s.onCut(result.index, key, &metadata))
 	}
 	s.connections.NewConnection(ctx, &preDialed{conn: won}, conn, metadata, onClose)
+}
+
+// dialFallback: the dialer for what is not TLS (Telegram's own protocol, SSH,
+// mail): no hello to race, so the way is found by the dialing itself.
+func (s *smartOutbound) dialFallback(metadata *adapter.InboundContext) N.Dialer {
+	if len(s.ways) < 2 {
+		return s.ways[0]
+	}
+	return &fallbackDialer{ways: s.ways, wait: s.wait, ip: smartIPKey(metadata), logger: s.logger}
+}
+
+// fallbackDialer: each way in turn, the connect given `wait` (the last, the
+// whole of the caller's patience). An address blocked by IP gives no answer
+// to the connect at all - the way after it takes the connection, and the
+// address is remembered for it ("dial"), so the next connection there goes
+// straight. Nothing is learned of a name: what answered on the way is not
+// known to be the same site, only the address.
+type fallbackDialer struct {
+	ways   []adapter.Outbound
+	wait   time.Duration
+	ip     string
+	logger log.ContextLogger
+}
+
+func (d *fallbackDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	var last error
+	for i, way := range d.ways {
+		attempt, cancel := ctx, context.CancelFunc(func() {})
+		if i+1 < len(d.ways) && N.NetworkName(network) == N.NetworkTCP {
+			attempt, cancel = context.WithTimeout(ctx, d.wait)
+		}
+		conn, err := way.DialContext(attempt, network, destination)
+		cancel()
+		if err == nil {
+			if i > 0 && d.ip != "" {
+				smartMemo.remember(d.ip, way.Tag(), "dial", time.Now())
+				d.logger.InfoContext(ctx, "smart: ", d.ip, " did not connect on ", d.ways[0].Tag(), " (", failure(last), "), now via ", way.Tag())
+			}
+			return conn, nil
+		}
+		last = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, last
+}
+
+func (d *fallbackDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	return d.ways[0].ListenPacket(ctx, destination)
 }
 
 // cutWatchDialer: a way whose connections are watched for the cut.

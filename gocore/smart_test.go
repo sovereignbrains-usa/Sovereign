@@ -18,6 +18,7 @@ import (
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/trafficcontrol"
+	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	singjson "github.com/sagernet/sing/common/json"
 	M "github.com/sagernet/sing/common/metadata"
@@ -34,6 +35,10 @@ type fakeWay struct {
 func (f fakeWay) DialContext(ctx context.Context, _ string, _ M.Socksaddr) (net.Conn, error) {
 	if f.behave == "dial" {
 		return nil, fmt.Errorf("refused")
+	}
+	if f.behave == "hang" { // an address blocked by IP: the connect gets no answer
+		<-ctx.Done()
+		return nil, ctx.Err()
 	}
 	client, server := net.Pipe()
 	go func() {
@@ -480,3 +485,47 @@ func TestSmartCutInRealBox(t *testing.T) {
 		t.Fatalf("the second page, direct: %d bytes", got)
 	}
 }
+
+// What is not TLS has no hello to race: the dialing finds the way - a connect
+// that gets no answer (blocked by IP) or is refused goes to the next way, the
+// address remembered for it; a way that connects stays as it is.
+func TestFallbackDial(t *testing.T) {
+	ways := func(first, second string) []adapter.Outbound {
+		return []adapter.Outbound{fallbackWay{fakeWay{behave: first}, "direct"}, fallbackWay{fakeWay{behave: second}, "vpn"}}
+	}
+	run := func(first, second string) (time.Duration, string, error) {
+		forget("ip:203.0.113.9")
+		defer forget("ip:203.0.113.9")
+		d := &fallbackDialer{ways: ways(first, second), wait: 200 * time.Millisecond, ip: "ip:203.0.113.9", logger: log.NewNOPFactory().Logger()}
+		started := time.Now()
+		conn, err := d.DialContext(context.Background(), N.NetworkTCP, M.ParseSocksaddr("203.0.113.9:443"))
+		if conn != nil {
+			conn.Close()
+		}
+		v := smartMemo.learned(time.Now())["ip:203.0.113.9"]
+		return time.Since(started), v.Way + "/" + v.Why, err
+	}
+	if took, mem, err := run("answer", "answer"); err != nil || mem != "/" {
+		t.Fatalf("the preferred connects: %v %q %v", took, mem, err)
+	}
+	if took, mem, err := run("hang", "answer"); err != nil || mem != "vpn/dial" || took < 150*time.Millisecond || took > 2*time.Second {
+		t.Fatalf("silent connect: %v %q %v", took, mem, err)
+	}
+	if _, mem, err := run("dial", "answer"); err != nil || mem != "vpn/dial" {
+		t.Fatalf("refused connect: %q %v", mem, err)
+	}
+	if _, mem, err := run("hang", "dial"); err == nil || mem != "/" {
+		t.Fatalf("no way connects: %q %v", mem, err)
+	}
+}
+
+// fallbackWay: a fakeWay with a tag, to stand as an outbound.
+type fallbackWay struct {
+	fakeWay
+	tag string
+}
+
+func (w fallbackWay) Tag() string            { return w.tag }
+func (w fallbackWay) Type() string           { return "fake" }
+func (w fallbackWay) Network() []string      { return []string{N.NetworkTCP} }
+func (w fallbackWay) Dependencies() []string { return nil }

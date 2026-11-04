@@ -183,6 +183,8 @@ constexpr const wchar_t* kGlyphClock = L"\xE917";
 constexpr const wchar_t* kGlyphRoute = L"\xE8F0";
 constexpr const wchar_t* kGlyphShield = L"\xEA18";
 constexpr const wchar_t* kGlyphSpeed = L"\xEC4A";
+constexpr const wchar_t* kGlyphLightning = L"\xE945";   // auto: the fastest server by itself
+constexpr const wchar_t* kGlyphDiagnostic = L"\xE9D9";  // the measurements in full
 constexpr const wchar_t* kGlyphReport = L"\xEBE8";  // Bug: "something's wrong", plainer than the feedback bubble
 
 // The three ways to add a configuration, each a key of its own with its tip
@@ -2225,6 +2227,22 @@ class Painter {
       test.tip = L"Замерить задержку до всех серверов";
       keys.push_back(std::move(test));
       right -= kKey;
+      // `keys` is read backwards: the figures in full, then auto, then the test.
+      Item details = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, L"Подробные замеры",
+                                        kGlyphDiagnostic, UiCommand::ToggleDelayDetails));
+      details.checked = c.delaysDetailed;
+      details.tip = L"Подробные замеры: ± разброс, число запросов, время соединения; ошибка сервера как её вернуло ядро";
+      keys.push_back(std::move(details));
+      right -= kKey;
+      if (c.autoOption >= 0 && static_cast<std::size_t>(c.autoOption) < c.protocols.size()) {
+        Item autoKey = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, L"Авто",
+                                          kGlyphLightning, UiCommand::SetProtocol, c.autoOption));
+        autoKey.checked = c.protocol == c.autoOption;
+        autoKey.tip = c.autoServer.empty() ? L"Авто: выберет лучший сервер после первого замера"
+                                           : L"Авто: сам берёт самый быстрый. Сейчас — " + c.autoServer;
+        keys.push_back(std::move(autoKey));
+        right -= kKey;
+      }
     }
     const bool inner = page != UiPage::Overview;
     // By the name: the app's own icon, its name, and the report beside them
@@ -2657,7 +2675,7 @@ class Painter {
     }
     // Returns how much taller than kLatencyRow the row is: its detail wraps (never cut to "…") when it
     // does not fit under the name.
-    const auto row = [&](std::size_t i, float top) -> float {
+    const auto row = [&](std::size_t i, float top, bool grouped = false) -> float {
       // Where the server is, once known: its country's flag in place of any
       // its name has, and the network it's in ahead of the measurement.
       const UiLocation* location = i < c.locations.size() ? &c.locations[i] : nullptr;
@@ -2666,8 +2684,9 @@ class Painter {
                                                                static_cast<char>(location->country[1])})
                                     : std::wstring();
       const std::wstring title = OptionTitle(c, i);
-      const std::wstring name = flag.empty() ? title : flag + L" " + WithoutFlagEmoji(title);
-      std::wstring isp = location != nullptr ? location->isp : std::wstring();
+      const std::wstring name = grouped ? WithoutFlagEmoji(title)
+                                        : flag.empty() ? title : flag + L" " + WithoutFlagEmoji(title);
+      std::wstring isp = location != nullptr && !grouped ? location->isp : std::wstring();
       if (i < c.protocolNotes.size() && !c.protocolNotes[i].empty()) {
         std::wstring note = WithoutFlagEmoji(c.protocolNotes[i]);
         note.erase(0, note.find_first_not_of(L' '));
@@ -2702,15 +2721,15 @@ class Painter {
       l.items.push_back(std::move(choice));
       return grown;
     };
-    // Auto on its own card above the servers: it isn't one of them, it's a
-    // way to pick one.
-    const bool hasAuto = c.autoOption >= 0 && static_cast<std::size_t>(c.autoOption) < c.protocols.size();
-    if (hasAuto) {
-      const std::size_t card = l.items.size();
-      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kLatencyRow}));
-      const float grown = row(static_cast<std::size_t>(c.autoOption), y);
-      l.items[card].rect.bottom += grown;
-      y += kLatencyRow + grown + kGap;
+    // Auto is a key in the title bar; here only what it picked now, while it's the choice.
+    if (c.autoOption >= 0 && c.protocol == c.autoOption) {
+      const auto at = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
+      const std::wstring server =
+          at == c.protocols.end() ? c.autoServer : OptionTitle(c, static_cast<std::size_t>(at - c.protocols.begin()));
+      const std::wstring line = c.autoServer.empty() ? std::wstring(L"Авто: выберет лучший после первого замера")
+                                : c.autoIsBest       ? L"Авто: сейчас " + server + L" — лучший по замерам"
+                                                     : L"Авто: сейчас " + server + L" — другой чуть быстрее, но разница мала";
+      y = Paragraph(l, Kind::Caption, line, x0, x1, y) + kGap;
     }
     const std::vector<std::size_t> order = c.serverOrder.empty() ? ServerOrder(c) : c.serverOrder;
     if (order.empty()) {
@@ -2729,28 +2748,53 @@ class Painter {
       l.items.push_back(std::move(listed));
       y += 32 + kGap;
     }
-    const std::size_t listCard = l.items.size();
-    l.items.push_back(Make(Kind::Card, {x0, y, x1, y + static_cast<float>(order.size()) * kLatencyRow}));
-    std::size_t shown = 0;
-    float top = y;
+    // One physical server is one entry: its protocols are rows under one header (the exit's address
+    // tells them apart; without it, network and country; without those, a server of its own).
+    const auto groupKey = [&](std::size_t i) -> std::wstring {
+      const UiLocation* loc = i < c.locations.size() ? &c.locations[i] : nullptr;
+      if (loc != nullptr && !loc->ip.empty()) return loc->ip;
+      if (loc != nullptr && !loc->isp.empty()) return loc->country + L"/" + loc->isp;
+      return L"#" + std::to_wstring(i);
+    };
+    std::vector<std::wstring> keys;           // groups in the order of their first (fastest) member
+    std::vector<std::vector<std::size_t>> members;
     for (const std::size_t i : order) {
       if (i >= c.protocols.size()) {
         continue;
       }
-      if (shown > 0) {
+      const std::wstring key = groupKey(i);
+      const auto at = std::find(keys.begin(), keys.end(), key);
+      if (at == keys.end()) {
+        keys.push_back(key);
+        members.push_back({i});
+      } else {
+        members[static_cast<std::size_t>(at - keys.begin())].push_back(i);
+      }
+    }
+    const std::size_t listCard = l.items.size();
+    l.items.push_back(Make(Kind::Card, {x0, y, x1, y + static_cast<float>(order.size()) * kLatencyRow}));
+    float top = y;
+    constexpr float kGroupHead = 30;
+    for (std::size_t g = 0; g < members.size(); ++g) {
+      const std::size_t first = members[g].front();
+      if (g > 0) {
         l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
       }
-      top += kLatencyRow + row(i, top);
-      ++shown;
+      const UiLocation* loc = first < c.locations.size() ? &c.locations[first] : nullptr;
+      std::wstring head;
+      if (loc != nullptr && loc->country.size() == 2) {
+        head = FlagEmojiFor(std::string{static_cast<char>(loc->country[0]), static_cast<char>(loc->country[1])}) + L" ";
+      }
+      head += loc != nullptr && !loc->isp.empty() ? loc->isp : WithoutFlagEmoji(OptionTitle(c, first));
+      l.items.push_back(Make(Kind::Caption, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, head));
+      top += kGroupHead;
+      for (std::size_t m = 0; m < members[g].size(); ++m) {
+        top += kLatencyRow + row(members[g][m], top, true);
+      }
     }
     const float h = top - y;
     l.items[listCard].rect.bottom = y + h;
-    // The figures in full, or one rounded: noise to most, a tool to some.
-    const std::vector<SwitchRow> details = {
-        Row(L"Подробные замеры", L"Цифры за словом «стабильный»: ± разброс, сколько было запросов, время соединения; "
-                                 L"ошибка сервера как её вернуло ядро.",
-            c.delaysDetailed, UiCommand::ToggleDelayDetails)};
-    return Switches(l, details, x0, x1, y + h + kGap);
+    return y + h;
   }
 
   float Subscription(Layout& l, const UiContent& c, float x0, float x1, float y) const {

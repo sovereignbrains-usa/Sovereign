@@ -545,11 +545,13 @@ inline std::vector<std::size_t> DelayLeaders(const UiContent& c) {
     if (static_cast<int>(i) == c.autoOption || c.delays[i].state != UiDelay::State::Ok) {
       continue;
     }
-    best = answered.empty() ? c.delays[i].ms : std::min(best, c.delays[i].ms);
+    if (answered.empty() || c.delays[i].ms < best) {
+      best = c.delays[i].ms;
+    }
     answered.push_back(i);
   }
   std::vector<std::size_t> leaders;
-  const int reach = best + std::max(20, best / 5);
+  const int reach = best + (best / 5 > 20 ? best / 5 : 20);
   for (const std::size_t i : answered) {
     if (c.delays[i].ms <= reach) {
       leaders.push_back(i);

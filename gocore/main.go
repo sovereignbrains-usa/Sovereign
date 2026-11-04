@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 	"unsafe"
 
 	box "github.com/sagernet/sing-box"
@@ -75,6 +76,9 @@ func box_start(configJSON *C.char) *C.char {
 	}
 
 	ctx := coreContext(context.Background())
+	if path := smartStorePath(); path != "" {
+		smartMemo.open(path, time.Now()) // what the last run learned (once)
+	}
 	var options option.Options
 	if err := singjson.UnmarshalContext(ctx, []byte(C.GoString(configJSON)), &options); err != nil {
 		return C.CString(fmt.Sprintf("parse config: %s", err))

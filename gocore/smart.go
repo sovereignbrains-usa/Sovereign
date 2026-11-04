@@ -51,6 +51,7 @@ import (
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
+	"github.com/sagernet/sing/common/control"
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -144,7 +145,25 @@ func (s *smartOutbound) Start(stage adapter.StartStage, _ *adapter.Scope) error 
 	smartLiveMu.Lock()
 	smartLive[s.Tag()] = s
 	smartLiveMu.Unlock()
+	s.followNetwork()
 	return nil
+}
+
+// followNetwork: the memory is the one of the network the machine is on,
+// and changes with it (home, a hotspot).
+func (s *smartOutbound) followNetwork() {
+	manager := service.FromContext[adapter.NetworkManager](s.ctx)
+	if manager == nil {
+		return
+	}
+	monitor := manager.InterfaceMonitor()
+	if monitor == nil {
+		return
+	}
+	smartMemo.switchNet(smartNetKey(monitor.DefaultInterface()), time.Now())
+	monitor.RegisterCallback(func(ifc *control.Interface, _ int) {
+		smartMemo.switchNet(smartNetKey(ifc), time.Now())
+	})
 }
 
 // The running box's smart outbounds by tag: box_flows and box_route tell a
@@ -640,7 +659,12 @@ func (d *preDialed) ListenPacket(context.Context, M.Socksaddr) (net.PacketConn, 
 // core (a reconnect shouldn't forget), not the service.
 type smartMemory struct {
 	mu    sync.Mutex
-	items map[string]smartVerdict
+	items map[string]smartVerdict // the current network's (smart_store.go)
+
+	nets    map[string]*smartNet // by network; nets[cur].Items is items
+	cur     string               // "": the network isn't known yet
+	path    string               // "": nothing is kept on disk
+	pending bool                 // a write is scheduled
 }
 
 type smartVerdict struct {
@@ -670,6 +694,9 @@ func (m *smartMemory) remember(key, way, why string, now time.Time) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if why != "" || m.items[key].Why != "" {
+		m.touchLocked() // only what the preferred way failed is kept on disk
+	}
 	m.items[key] = smartVerdict{Way: way, Why: why, At: now}
 	if len(m.items) <= smartKeep {
 		return

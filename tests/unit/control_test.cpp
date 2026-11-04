@@ -95,8 +95,10 @@ class FakeCore final : public ICore {
   std::vector<sovereign::service::SmartVerdict> SmartLearned() override { return learned; }
 
   std::map<std::string, std::uint64_t> BlockedCounts() override { return blocked; }
+  sovereign::service::BlockedWho BlockedByWho() override { return blockedWho; }
 
   std::map<std::string, std::uint64_t> blocked;
+  sovereign::service::BlockedWho blockedWho;
 
   std::vector<sovereign::service::SmartVerdict> learned;
   bool running = false;
@@ -453,11 +455,20 @@ void TestSmart() {
   CHECK(answer["learned"][1].value("at", 0) == 1700000100);
 
   // What each block category refused: none yet - an empty object; then its numbers.
-  CHECK(Send(handler, R"({"cmd":"box_blocked"})") == json::parse(R"({"cmd":"box_blocked","counts":{}})"));
+  CHECK(Send(handler, R"({"cmd":"box_blocked"})") ==
+        json::parse(R"({"cmd":"box_blocked","counts":{},"cloaked":0,"apps":[]})"));
   core.blocked = {{"ads", 12}, {"trackers", 3}};
   answer = Send(handler, R"({"cmd":"box_blocked"})");
   CHECK(answer.value("cmd", "") == "box_blocked");
   CHECK(answer["counts"].value("ads", 0) == 12 && answer["counts"].value("trackers", 0) == 3);
+  // Who it was for: the programs and the names behind a CNAME.
+  core.blockedWho.cloaked = 4;
+  core.blockedWho.apps = {{"brave.exe", "C:\\Brave\\brave.exe", 9}, {"svchost.exe", "", 2}};
+  answer = Send(handler, R"({"cmd":"box_blocked"})");
+  CHECK(answer.value("cloaked", 0) == 4);
+  CHECK(answer["apps"].size() == 2);
+  CHECK(answer["apps"][0].value("app", "") == "brave.exe" && answer["apps"][0].value("count", 0) == 9);
+  CHECK(answer["apps"][1].value("path", "x").empty());
 }
 
 class FakeKillSwitch final : public sovereign::service::IKillSwitch {

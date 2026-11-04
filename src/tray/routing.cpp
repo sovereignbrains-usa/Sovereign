@@ -1126,6 +1126,28 @@ std::map<std::string, std::uint64_t> ParseBlockedAnswer(std::string_view respons
   return out;
 }
 
+BlockedPrograms ParseBlockedPrograms(std::string_view response) {
+  BlockedPrograms out;
+  const Json json = Json::parse(response, nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object() || json.value("cmd", Json()) != "box_blocked") {
+    return out;
+  }
+  if (const auto it = json.find("cloaked"); it != json.end() && it->is_number_unsigned()) {
+    out.cloaked = it->get<std::uint64_t>();
+  }
+  if (const auto it = json.find("apps"); it != json.end() && it->is_array()) {
+    for (const auto& entry : *it) {
+      if (!entry.is_object() || !entry.value("app", Json()).is_string() ||
+          !entry.value("count", Json()).is_number_unsigned()) {
+        continue;
+      }
+      out.apps.push_back({entry["app"].get<std::string>(), entry.value("path", std::string()),
+                          entry["count"].get<std::uint64_t>()});
+    }
+  }
+  return out;
+}
+
 namespace {
 
 // What "Блок" blocks by name, a category a switch: its lists, one rule

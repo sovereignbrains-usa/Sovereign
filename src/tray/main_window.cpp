@@ -3668,6 +3668,10 @@ class Painter {
         Item recent = CommandItem(Kind::ValueRow, row(top), L"Недавно заблокировано", nullptr, UiCommand::BlockedMenu);
         recent.detail = L"пропустить нужное";
         top += kSettingsRow + put(std::move(recent));
+        line(top);
+        Item who = CommandItem(Kind::ValueRow, row(top), L"Кто обращается", nullptr, UiCommand::BlockedApps);
+        who.detail = L"программы и CNAME";
+        top += kSettingsRow + put(std::move(who));
       }
       y = close(card, top);
     }

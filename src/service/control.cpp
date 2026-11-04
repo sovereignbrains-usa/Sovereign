@@ -579,9 +579,18 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     for (const auto& [category, count] : core_->BlockedCounts()) {
       counts[category] = count;
     }
+    // And who it was for: "cloaked" (the names behind a CNAME) and "apps", the programs that
+    // asked most.
+    const auto who = core_->BlockedByWho();
+    Json apps = Json::array();
+    for (const auto& app : who.apps) {
+      apps.push_back({{"app", app.app}, {"path", app.path}, {"count", app.count}});
+    }
     Json response;
     response["cmd"] = "box_blocked";
     response["counts"] = std::move(counts);
+    response["cloaked"] = who.cloaked;
+    response["apps"] = std::move(apps);
     return Dump(response);
   }
 

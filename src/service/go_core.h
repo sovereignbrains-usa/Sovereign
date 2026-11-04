@@ -42,6 +42,7 @@ class GoCore final : public ICore {
   std::optional<RouteSeen> RouteOf(const std::vector<std::string>& targets) override;
   std::vector<SmartVerdict> SmartLearned() override;
   std::map<std::string, std::uint64_t> BlockedCounts() override;
+  BlockedWho BlockedByWho() override;
   std::string StartUrlTest(const UrlTestRequest& request) override;
   std::vector<DelayResult> Delays() override;
   ExitIp LookupExitIp(const std::string& tag, bool refresh) override;

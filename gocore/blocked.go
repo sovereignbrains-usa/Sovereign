@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ const (
 	adsListPrefix = "sov-ads"        // routing.cpp's ads lists: sov-ads, sov-ads-adguard
 	blockedRepeat = 10 * time.Minute // a name said again after this
 	askedKeep     = 4096             // requests remembered, their names
+	appsKeep      = 256              // programs counted
 	blockedNotice = "ads: blocked "  // what the tray looks for
 )
 
@@ -40,13 +42,17 @@ type blockedWatch struct {
 	// once in ten minutes): "ads", "trackers", "cookies", "malware". box_blocked says it.
 	counts  map[string]uint64
 	counted map[string]time.Time // category+name -> when last counted
+	// Who asked: the program (its path) -> how many refusals; and how many of all were a
+	// name behind a CNAME (guard.go). Only what the core itself refuses says a program.
+	apps    map[string]uint64
+	cloaked uint64
 }
 
 var blocked = newBlockedWatch()
 
 func newBlockedWatch() *blockedWatch {
 	return &blockedWatch{asked: map[string]string{}, said: map[string]time.Time{}, counts: map[string]uint64{},
-		counted: map[string]time.Time{}}
+		counted: map[string]time.Time{}, apps: map[string]uint64{}}
 }
 
 // askedName: the name a line says is asked or sniffed, or "".
@@ -92,8 +98,9 @@ func category(text string) string {
 // countWindow: the A and the AAAA of one name, asked together, are one block.
 const countWindow = 3 * time.Second
 
-// count: one block of `name` by `cat`; w.mu is held.
-func (w *blockedWatch) count(cat, name string, now time.Time) {
+// count: one block of `name` by `cat`, asked by the program `app` (its path, or ""), a name
+// behind a CNAME when `cloaked`; w.mu is held.
+func (w *blockedWatch) count(cat, name, app string, cloaked bool, now time.Time) {
 	if name != "" {
 		key := cat + " " + name
 		if last, ok := w.counted[key]; ok && now.Sub(last) < countWindow {
@@ -109,6 +116,14 @@ func (w *blockedWatch) count(cat, name string, now time.Time) {
 		}
 	}
 	w.counts[cat]++
+	if cloaked {
+		w.cloaked++
+	}
+	if app != "" {
+		if _, known := w.apps[app]; known || len(w.apps) < appsKeep {
+			w.apps[app]++
+		}
+	}
 }
 
 // blockedCounts: what each category has refused since the engine loaded.
@@ -120,6 +135,32 @@ func (w *blockedWatch) blockedCounts() map[string]uint64 {
 		out[cat] = n
 	}
 	return out
+}
+
+// blockedApps: the programs that asked most for what was refused, most first (at most `most`),
+// and how many of all refusals were behind a CNAME.
+type appCount struct {
+	App   string `json:"app"`  // the program's file name
+	Path  string `json:"path"` // and where it is
+	Count uint64 `json:"count"`
+}
+
+func (w *blockedWatch) blockedApps(most int) (apps []appCount, cloaked uint64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for path, n := range w.apps {
+		apps = append(apps, appCount{App: programName(path), Path: path, Count: n})
+	}
+	sort.Slice(apps, func(i, j int) bool {
+		if apps[i].Count != apps[j].Count {
+			return apps[i].Count > apps[j].Count
+		}
+		return apps[i].Path < apps[j].Path
+	})
+	if len(apps) > most {
+		apps = apps[:most]
+	}
+	return apps, w.cloaked
 }
 
 // notice: the line to say for a log `message` (sing-box's, formatted), or "".
@@ -151,7 +192,12 @@ func (w *blockedWatch) notice(message string, now time.Time) string {
 		return ""
 	}
 	name := w.asked[id]
-	w.count(category(text), name, now)
+	w.count(category(text), name, "", false, now)
+	return w.say(name, now)
+}
+
+// say: the notice for a blocked `name`, or "" when it was said lately; w.mu is held.
+func (w *blockedWatch) say(name string, now time.Time) string {
 	if name == "" {
 		return ""
 	}

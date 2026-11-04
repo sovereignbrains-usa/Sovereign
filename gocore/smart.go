@@ -94,8 +94,10 @@ func coreContext(ctx context.Context) context.Context {
 	smartLiveMu.Unlock()
 	outbounds := include.OutboundRegistry()
 	registerSmart(outbounds)
+	transports := include.DNSTransportRegistry()
+	registerGuard(transports)
 	return box.Context(ctx, include.InboundRegistry(), outbounds, include.EndpointRegistry(),
-		include.DNSTransportRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry())
+		transports, include.ServiceRegistry(), include.CertificateProviderRegistry())
 }
 
 type smartOutbound struct {

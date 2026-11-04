@@ -80,7 +80,7 @@ func box_start(configJSON *C.char) *C.char {
 		smartMemo.open(path, time.Now()) // what the last run learned (once)
 	}
 	var options option.Options
-	if err := singjson.UnmarshalContext(ctx, []byte(C.GoString(configJSON)), &options); err != nil {
+	if err := singjson.UnmarshalContext(ctx, prepareBlocker([]byte(C.GoString(configJSON))), &options); err != nil {
 		return C.CString(fmt.Sprintf("parse config: %s", err))
 	}
 	// Source rule-sets read as compiled binaries (ruleset_cache.go).

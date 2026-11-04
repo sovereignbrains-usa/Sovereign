@@ -234,6 +234,32 @@ std::map<std::string, std::uint64_t> GoCore::BlockedCounts() {
   return out;
 }
 
+BlockedWho GoCore::BlockedByWho() {
+  // The same answer: "cloaked":n and "apps":[{"app","path","count"}]; an entry of the wrong shape is skipped.
+  BlockedWho out;
+  if (boxBlocked_ == nullptr) {
+    return out;
+  }
+  const auto json = nlohmann::json::parse(TakeOwnedString(boxBlocked_()), nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object()) {
+    return out;
+  }
+  if (const auto it = json.find("cloaked"); it != json.end() && it->is_number_unsigned()) {
+    out.cloaked = it->get<std::uint64_t>();
+  }
+  if (const auto it = json.find("apps"); it != json.end() && it->is_array()) {
+    for (const auto& entry : *it) {
+      if (!entry.is_object() || !entry.value("app", nlohmann::json()).is_string() ||
+          !entry.value("count", nlohmann::json()).is_number_unsigned()) {
+        continue;
+      }
+      out.apps.push_back({entry["app"].get<std::string>(), entry.value("path", std::string()),
+                          entry["count"].get<std::uint64_t>()});
+    }
+  }
+  return out;
+}
+
 std::optional<RouteSeen> GoCore::RouteOf(const std::vector<std::string>& targets) {
   // gocore/route.go writes it: {"route":{"outbound","type","chain","rule"}},
   // or {} - none kept; a field of the wrong type is left empty.

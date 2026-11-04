@@ -256,6 +256,18 @@ std::vector<SmartSeen> ParseSmartAnswer(std::string_view response);
 // The box_blocked answer: what each block category ("ads", "trackers", "cookies",
 // "malware") has refused; a wrong shape is empty.
 std::map<std::string, std::uint64_t> ParseBlockedAnswer(std::string_view response);
+// The same answer's other half: the programs that asked for what was refused (most first)
+// and how many refusals were a name behind a CNAME. A wrong shape is empty.
+struct BlockedProgram {
+  std::string app;   // the file name
+  std::string path;  // where it is; empty when the engine didn't know
+  std::uint64_t count = 0;
+};
+struct BlockedPrograms {
+  std::uint64_t cloaked = 0;
+  std::vector<BlockedProgram> apps;
+};
+BlockedPrograms ParseBlockedPrograms(std::string_view response);
 // A check of the lists as it goes (the tray's UpdateRuleSets): one download
 // a poll, each list tried once a round - one that fails isn't fetched again
 // every second, nor does it hold back the ones after it - and the box gets

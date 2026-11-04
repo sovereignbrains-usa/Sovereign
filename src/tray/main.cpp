@@ -288,6 +288,7 @@ struct View {
   std::vector<std::string> rulesFrom;  // the configurations with rules the user hasn't taken yet (ids)
   std::vector<std::string> blockedAds;  // what the ads lists blocked lately, newest first
   std::map<std::string, std::uint64_t> blockCounts;  // what each block category refused (box_blocked)
+  sovereign::tray::BlockedPrograms blockWho;          // and for which programs, the CNAME ones (box_blocked)
   std::size_t listsReady = 0;             // the routing's lists downloaded
   std::size_t listsNeeded = 0;
   std::int64_t listsUpdated = 0;          // unix seconds of the last one downloaded
@@ -2525,6 +2526,7 @@ class Worker {
     const auto& r = settings_.routing;
     if (!stats || !stats->running || !(r.blockAds || r.trackers || r.cookieWindows || r.malware)) {
       blockCounts_.clear();
+      blockWho_ = {};
       blockCountsAsked_.reset();
       return;
     }
@@ -2534,6 +2536,7 @@ class Worker {
     blockCountsAsked_ = now;
     if (const auto response = sovereign::tray::RequestService(R"({"cmd":"box_blocked"})")) {
       blockCounts_ = sovereign::tray::ParseBlockedAnswer(*response);
+      blockWho_ = sovereign::tray::ParseBlockedPrograms(*response);
     }
   }
 
@@ -2868,6 +2871,7 @@ class Worker {
       v.warpDirect = warpDirect_;
       v.smartLearned = smartLearned_;
       v.blockCounts = blockCounts_;
+    v.blockWho = blockWho_;
       v.quicBlocked = quicBlocked_;
       v.rulesFrom = rulesFrom_;
       v.blockedAds = {blocked_.begin(), blocked_.end()};
@@ -3040,6 +3044,7 @@ class Worker {
   std::vector<sovereign::tray::SmartSeen> smartLearned_;  // View::smartLearned
   std::optional<TrayModel::Clock::time_point> smartAsked_;
   std::map<std::string, std::uint64_t> blockCounts_;  // View::blockCounts
+  sovereign::tray::BlockedPrograms blockWho_;         // View::blockWho
   std::optional<TrayModel::Clock::time_point> blockCountsAsked_;
   std::deque<std::string> blocked_;  // WatchBlocked's: what the ads lists blocked, newest first
   bool quicBlocked_ = true;  // View::quicBlocked
@@ -5394,6 +5399,23 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       }
       break;
     }
+    case UiCommand::BlockedApps: {
+      // Who the refusals were for: the programs that asked most, and the names that hid
+      // behind a CNAME. Information only - the menu has nothing to pick.
+      std::vector<std::wstring> items;
+      for (const auto& program : view.blockWho.apps) {
+        items.push_back(Widen(program.app) + L" — " + std::to_wstring(program.count));
+      }
+      if (items.empty()) {
+        items.emplace_back(L"Пока никто не спрашивал заблокированное");
+      }
+      if (view.blockWho.cloaked > 0) {
+        items.emplace_back(L"");
+        items.push_back(L"За CNAME спрятано: " + std::to_wstring(view.blockWho.cloaked));
+      }
+      PickFromMenu(owner, args.anchor, items, -1, {}, {});
+      break;
+    }
     case UiCommand::ChooseRemoteDns: {
       using RemoteDns = sovereign::tray::RoutingSettings::RemoteDns;
       static constexpr std::array kChoices = {RemoteDns::Auto, RemoteDns::Cloudflare, RemoteDns::Google, RemoteDns::Quad9,
@@ -5956,6 +5978,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::ToggleTrackers:
     case UiCommand::ToggleMalware:
     case UiCommand::BlockedMenu:
+    case UiCommand::BlockedApps:
     case UiCommand::AddWarpSite:
     case UiCommand::AddWarpSiteText:
     case UiCommand::ChooseRemoteDns:

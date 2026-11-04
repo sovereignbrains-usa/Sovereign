@@ -53,6 +53,16 @@ struct FlowTotal {
 // Where the newest connection to an address went: the outbound it left by
 // (a server, "direct"), that outbound's type, the outbounds from it back to
 // the rule's one, and the rule (empty: none matched - the route's final).
+struct BlockedApp {
+  std::string app;   // the program's file name
+  std::string path;  // and where it is
+  std::uint64_t count = 0;
+};
+struct BlockedWho {
+  std::uint64_t cloaked = 0;  // refusals that were a name behind a CNAME
+  std::vector<BlockedApp> apps;  // the programs that asked most, most first
+};
+
 struct RouteSeen {
   std::string outbound;
   std::string type;
@@ -166,6 +176,11 @@ class ICore {
   // What each block category (ads, trackers, cookies, malware) has refused since the
   // engine loaded; empty from an engine without it (or an older DLL).
   virtual std::map<std::string, std::uint64_t> BlockedCounts() { return {}; }
+
+  // Who the refusals were for: the programs that asked most (the program's file name, its path,
+  // how many times), and how many of all refusals were a name behind a CNAME. The engine's own
+  // block (gocore/guard.go) says it; empty from an engine without it.
+  virtual BlockedWho BlockedByWho() { return {}; }
 
   // Starts a latency test in the background and returns at once: empty
   // string once it runs, otherwise why not (e.g. the engine isn't running).

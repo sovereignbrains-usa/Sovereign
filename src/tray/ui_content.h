@@ -375,6 +375,7 @@ enum class UiCommand : std::uint8_t {
   ToggleTrackers,       // the trackers' lists, on or off
   ToggleMalware,        // the malware and phishing lists, on or off
   BlockedMenu,        // anchor: what was blocked lately - a click lets one through
+  BlockedApps,        // anchor: which programs asked for what was blocked (information)
   ToggleWarp,         // on: registers a WARP device first if there's none
   AddWarpSite,        // starts typing over WARP's button
   AddWarpSiteText,    // text: sites (or subnets, programs) to send through WARP

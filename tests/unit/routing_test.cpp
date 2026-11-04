@@ -1306,6 +1306,17 @@ void TestBlockedAnswer() {
   CHECK(ParseBlockedAnswer(R"({"cmd":"box_blocked","counts":[]})").empty());
   const auto counts = ParseBlockedAnswer(R"({"cmd":"box_blocked","counts":{"ads":1204,"trackers":"x","malware":3}})");
   CHECK(counts.size() == 2 && counts.at("ads") == 1204 && counts.at("malware") == 3);
+
+  // The other half: the programs and the CNAME count; an entry of the wrong shape is skipped.
+  CHECK(ParseBlockedPrograms("not json").apps.empty());
+  CHECK(ParseBlockedPrograms(R"({"cmd":"box_smart","cloaked":5,"apps":[{"app":"a.exe","count":1}]})").apps.empty());
+  CHECK(ParseBlockedPrograms(R"({"cmd":"box_blocked","counts":{}})").cloaked == 0);
+  const auto who = ParseBlockedPrograms(
+      R"({"cmd":"box_blocked","counts":{},"cloaked":4,"apps":[{"app":"brave.exe","path":"C:\\B\\brave.exe","count":9},)"
+      R"({"app":7,"count":1},{"app":"svchost.exe","count":"x"},{"app":"svchost.exe","count":2}]})");
+  CHECK(who.cloaked == 4 && who.apps.size() == 2);
+  CHECK(who.apps[0].app == "brave.exe" && who.apps[0].count == 9 && who.apps[0].path == "C:\\B\\brave.exe");
+  CHECK(who.apps[1].app == "svchost.exe" && who.apps[1].path.empty() && who.apps[1].count == 2);
 }
 
 void TestRuleSetRound() {

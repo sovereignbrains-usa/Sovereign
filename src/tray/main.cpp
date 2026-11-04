@@ -4809,6 +4809,7 @@ UiContent ContentFrom(const View& v) {
       const std::wstring why = seen.why == "reset"    ? L"сброс соединения"
                                : seen.why == "silent" ? L"молчание"
                                : seen.why == "cut"    ? L"обрыв после рукопожатия"
+                               : seen.why == "slow"   ? L"замедление"
                                : seen.why == "dial"   ? L"не соединилось"
                                                       : L"не открылся";
       c.routing.learned.push_back(std::format(L"{} — {} ({})", name, way, why));

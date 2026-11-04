@@ -23,7 +23,9 @@ package main
 // and the address go to the next way; that connection is lost, the next goes
 // there (04.11.2026).
 //
-// Not yet: a slowdown, a site refusing the server's country; and the memory
+// A slowdown (records that come in drops: YouTube held to ~16 KB/s) is read
+// the same way, from the waits in the middle of records (cutConn, 04.11.2026).
+// Not yet: a site refusing the server's country; and the memory
 // is one for every network.
 
 /*
@@ -50,8 +52,8 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
-	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/control"
+	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -225,19 +227,29 @@ func (s *smartOutbound) watched(index int, key string, metadata *adapter.Inbound
 	if index < 0 || index+1 >= len(s.ways) {
 		return s.ways[max(index, 0)]
 	}
-	return &cutWatchDialer{Dialer: s.ways[index], stall: s.wait, onCut: s.onCut(index, key, metadata)}
+	return &cutWatchDialer{Dialer: s.ways[index], stall: s.wait, onCut: s.onCut(index, key, metadata), onSlow: s.onSlow(index, key, metadata)}
 }
 
 // onCut: what a cut on the index-th way does - the name and the address
 // remembered for the next way.
 func (s *smartOutbound) onCut(index int, key string, metadata *adapter.InboundContext) func() {
+	return s.stopped(index, key, metadata, "cut")
+}
+
+// onSlow: what a slowdown on the index-th way does - the same, remembered
+// as "slow".
+func (s *smartOutbound) onSlow(index int, key string, metadata *adapter.InboundContext) func() {
+	return s.stopped(index, key, metadata, "slow")
+}
+
+func (s *smartOutbound) stopped(index int, key string, metadata *adapter.InboundContext, why string) func() {
 	from, next := s.ways[index].Tag(), s.ways[index+1].Tag()
 	ip := smartIPKey(metadata)
 	return func() {
 		now := time.Now()
-		smartMemo.remember(key, next, "cut", now)
-		smartMemo.remember(ip, next, "cut", now)
-		s.logger.Info("smart: ", key, " ", ip, " cut after the handshake on ", from, ", now via ", next)
+		smartMemo.remember(key, next, why, now)
+		smartMemo.remember(ip, next, why, now)
+		s.logger.Info("smart: ", key, " ", ip, " ", why, " after the handshake on ", from, ", now via ", next)
 	}
 }
 
@@ -318,7 +330,7 @@ func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metada
 	}
 	won := result.conn
 	if result.index+1 < len(s.ways) {
-		won = watchCut(won, s.wait, s.onCut(result.index, key, &metadata))
+		won = watchSlow(won, s.wait, s.onCut(result.index, key, &metadata), s.onSlow(result.index, key, &metadata))
 	}
 	s.connections.NewConnection(ctx, &preDialed{conn: won}, conn, metadata, onClose)
 }
@@ -376,8 +388,9 @@ func (d *fallbackDialer) ListenPacket(ctx context.Context, destination M.Socksad
 // cutWatchDialer: a way whose connections are watched for the cut.
 type cutWatchDialer struct {
 	N.Dialer
-	stall time.Duration
-	onCut func()
+	stall  time.Duration
+	onCut  func()
+	onSlow func()
 }
 
 func (d *cutWatchDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
@@ -385,7 +398,7 @@ func (d *cutWatchDialer) DialContext(ctx context.Context, network string, destin
 	if err != nil || N.NetworkName(network) != N.NetworkTCP {
 		return conn, err
 	}
-	return watchCut(conn, d.stall, d.onCut), nil
+	return watchSlow(conn, d.stall, d.onCut, d.onSlow), nil
 }
 
 // cutConn: a server's connection whose first smartWatchMax bytes are read as
@@ -408,10 +421,33 @@ type cutConn struct {
 	left    int // the current record's bytes still to come
 	reading bool
 	since   time.Time // the Read waiting began
+
+	// The slowdown (a record that comes, but in drops - YouTube held to
+	// ~16 KB/s): only the Reads begun in the middle of a record count, the
+	// time they waited and the bytes they brought. A connection idle between
+	// records (keep-alive) waits for nothing the server owes it.
+	onSlow   func() // nil: the slowdown isn't looked for
+	waitMid  time.Duration
+	bytesMid int
 }
 
+// The slowdown: at least smartSlowWindow of waiting in the middle of records,
+// at least smartSlowMin bytes in it, less than smartSlowRate bytes a second.
+// Var, not const: the tests shorten the window.
+var (
+	smartSlowWindow = 4 * time.Second
+	smartSlowMin    = 4096
+	smartSlowRate   = 16.0 * 1024
+)
+
 func watchCut(conn net.Conn, stall time.Duration, onCut func()) net.Conn {
-	c := &cutConn{Conn: conn, stall: stall, onCut: onCut}
+	return watchSlow(conn, stall, onCut, nil)
+}
+
+// watchSlow: watchCut that also calls onSlow (once, the connection closed)
+// on a slowdown; nil onSlow looks for the cut only.
+func watchSlow(conn net.Conn, stall time.Duration, onCut, onSlow func()) net.Conn {
+	c := &cutConn{Conn: conn, stall: stall, onCut: onCut, onSlow: onSlow}
 	c.timer = time.AfterFunc(time.Hour, c.check)
 	c.timer.Stop()
 	return c
@@ -420,9 +456,11 @@ func watchCut(conn net.Conn, stall time.Duration, onCut func()) net.Conn {
 func (c *cutConn) Read(p []byte) (int, error) {
 	c.mu.Lock()
 	watching := !c.done
+	mid := false
 	if watching {
 		c.reading = true
 		c.since = time.Now()
+		mid = c.left > 0 || c.headN > 0
 		c.timer.Reset(c.stall)
 	}
 	c.mu.Unlock()
@@ -433,14 +471,32 @@ func (c *cutConn) Read(p []byte) (int, error) {
 	c.mu.Lock()
 	c.reading = false
 	c.timer.Stop()
+	slow := false
 	if !c.done {
+		if mid && c.onSlow != nil {
+			c.waitMid += time.Since(c.since)
+			c.bytesMid += n
+		}
 		c.feed(p[:n])
 		if err != nil || c.total > smartWatchMax {
 			c.done = true
+		} else if c.slowNow() {
+			c.done = true
+			slow = true
 		}
 	}
 	c.mu.Unlock()
+	if slow {
+		c.onSlow()
+		_ = c.Conn.Close() // what came is given; the next Read ends
+	}
 	return n, err
+}
+
+// slowNow: the record stream is held down. The lock is held.
+func (c *cutConn) slowNow() bool {
+	return c.onSlow != nil && !c.done && c.waitMid >= smartSlowWindow && c.bytesMid >= smartSlowMin &&
+		float64(c.bytesMid) < smartSlowRate*c.waitMid.Seconds()
 }
 
 // feed: the record state after `b` from the server.

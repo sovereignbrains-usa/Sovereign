@@ -49,6 +49,14 @@ std::vector<LogEntry> LogRing::Since(std::uint64_t afterSeq) const {
   return result;
 }
 
+LogLevel EffectiveLevel(LogLevel level, std::string_view message) {
+  if (level == LogLevel::Error && message.find("canceled by remote with error code 0") != std::string_view::npos &&
+      message.find("closed: stream ") != std::string_view::npos) {
+    return LogLevel::Debug;
+  }
+  return level;
+}
+
 std::uint64_t LogRing::LastSeq() const {
   const std::scoped_lock lock(mutex_);
   return lastSeq_;

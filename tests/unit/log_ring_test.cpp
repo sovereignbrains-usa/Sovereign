@@ -27,6 +27,19 @@ void TestTruncateUtf8() {
   CHECK(TruncateUtf8("", 0).empty());
 }
 
+void TestEffectiveLevel() {
+  using sovereign::service::EffectiveLevel;
+  const std::string closed =
+      "ERROR[10857] [733181642 1m9s] connection: connection upload closed: stream 548 canceled by remote with error code 0";
+  CHECK(EffectiveLevel(LogLevel::Error, closed) == LogLevel::Debug);
+  // A real code stays an error, and only errors are moved.
+  CHECK(EffectiveLevel(LogLevel::Error, "connection upload closed: stream 5 canceled by remote with error code 268") ==
+        LogLevel::Error);
+  CHECK(EffectiveLevel(LogLevel::Warn, closed) == LogLevel::Warn);
+  CHECK(EffectiveLevel(LogLevel::Error, "outbound/anytls[A]: failed to create session: EOF") == LogLevel::Error);
+  CHECK(EffectiveLevel(LogLevel::Error, "network: missing default interface") == LogLevel::Error);
+}
+
 void TestAppendAndSince() {
   LogRing ring(3);
   CHECK(ring.LastSeq() == 0);
@@ -106,6 +119,7 @@ void TestConcurrentAppend() {
 int main() {  // NOLINT(bugprone-exception-escape) — see the catch below
   try {
     TestTruncateUtf8();
+    TestEffectiveLevel();
     TestAppendAndSince();
     TestLongLineIsCut();
     TestConcurrentAppend();

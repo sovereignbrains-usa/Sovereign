@@ -90,7 +90,8 @@ void TryLoadCore(ServiceState& state) {
         sovereign::service::ResolveGoCoreDllPath());
     // The ring feeds the tray (box_logs); ETW keeps them after the fact.
     state.core->SetLogSink(
-        [&log = state.coreLog](sovereign::service::LogLevel level, std::string_view message) {
+        [&log = state.coreLog](sovereign::service::LogLevel reported, std::string_view message) {
+          const auto level = sovereign::service::EffectiveLevel(reported, message);
           log.Append(level, message);
           trace::CoreLog(level, message);
         });

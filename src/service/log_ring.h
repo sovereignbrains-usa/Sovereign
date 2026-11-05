@@ -48,6 +48,13 @@ class LogRing {
   std::uint64_t lastSeq_ = 0;
 };
 
+// The level a core line is kept under. sing-box logs some ordinary endings of
+// a connection as ERROR: a QUIC/HTTP/3 stream the other side closed with code
+// 0 ("connection upload closed: stream 548 canceled by remote with error code
+// 0") - code 0 is "no error" - made 95 of 136 error lines in a day's log and
+// hid the real ones. Those are kept as debug; everything else as it came.
+LogLevel EffectiveLevel(LogLevel level, std::string_view message);
+
 // Longest prefix of `text` that is at most maxBytes long and does not end in
 // the middle of a UTF-8 sequence.
 std::string_view TruncateUtf8(std::string_view text, std::size_t maxBytes);

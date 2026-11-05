@@ -1,0 +1,1305 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sovereign — нативная графика: пространство возможностей</title>
+<style>
+@font-face{font-family:"Geist";src:url("../../assets/fonts/Geist.ttf") format("truetype");font-weight:100 900;font-display:swap}
+:root{--bg:rgb(14,14,15);--card:rgb(20,20,22);--line:rgb(38,39,43);--text:rgb(242,244,248);--muted:rgb(156,158,164);--vpn:rgb(76,146,255);--warp:rgb(232,134,66);--direct:rgb(160,165,176);--block:rgb(240,96,96);--ok:rgb(64,196,140);--amber:rgb(240,196,64);--lit:rgb(226,229,235)}
+*{box-sizing:border-box}
+html{background:var(--bg);color:var(--text)}
+body{margin:0;font:400 15.8px/1.6 "Geist","Segoe UI",system-ui,sans-serif}
+main{max-width:880px;margin:0 auto;padding:48px 28px 160px}
+h1{font-weight:600;font-size:32px;line-height:1.2;margin:0 0 10px;letter-spacing:-.01em}
+h2{font-weight:600;font-size:25.3px;line-height:1.3;margin:72px 0 10px;padding-top:28px;border-top:1px solid var(--line)}
+h3{font-weight:600;font-size:20px;line-height:1.35;margin:28px 0 8px}
+.idea h3{margin:0}
+p{margin:0 0 12px}
+b{font-weight:600}
+.lead{color:var(--muted);margin-bottom:24px}
+a{color:var(--vpn);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font:13.5px/1.4 Consolas,"Cascadia Mono",monospace;color:var(--lit);background:rgb(27,27,30);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+dd ol,dd ul{margin:0}
+.muted{color:var(--muted)}
+.toc{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 18px;margin:8px 0 18px;font-size:14.5px}
+.toc a{color:var(--text)}
+.toc a span{color:var(--muted);display:inline-block;min-width:2.6em}
+.idea{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px 22px;margin:20px 0}
+.idea header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;margin-bottom:14px}
+.code{font-weight:600;color:var(--muted);font-size:14px;min-width:2.4em}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;width:100%}
+.tags span,.v{font-size:12.5px;line-height:1.6;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 8px;white-space:nowrap}
+.do{color:var(--ok)!important;border-color:rgba(64,196,140,.45)!important}
+.try{color:var(--amber)!important;border-color:rgba(240,196,64,.45)!important}
+.later{color:var(--direct)!important}
+.no{color:var(--block)!important;border-color:rgba(240,96,96,.45)!important}
+dl{display:grid;grid-template-columns:10.5em 1fr;gap:9px 18px;margin:0}
+dt{color:var(--muted);font-size:13.5px;padding-top:2px}
+dd{margin:0;min-width:0}
+@media (max-width:640px){dl{grid-template-columns:1fr;gap:2px}dt{padding-top:10px}}
+.note{border-left:3px solid var(--line);padding:2px 0 2px 16px;margin:16px 0;color:var(--muted)}
+canvas.sketch{display:block;width:100%;height:170px;margin:10px 0 4px;background:rgb(11,11,12);border:1px solid var(--line);border-radius:6px}
+.cap{font-size:13px;color:var(--muted)}
+.num{font-feature-settings:"tnum" 1}
+.dim{color:var(--muted)}
+.pick{counter-reset:p;list-style:none;padding:0}
+.pick>li{counter-increment:p;position:relative;padding-left:2.2em;margin:10px 0}
+.pick>li::before{content:counter(p);position:absolute;left:0;top:0;color:var(--muted);font-weight:600;font-feature-settings:"tnum" 1}
+</style>
+</head>
+<body>
+<main>
+
+<h1>Нативная графика Sovereign</h1>
+<p class="lead">Что можно построить, когда каждый пиксель окна — наш: C++23, Direct2D, DirectWrite, DirectComposition, Direct3D 11, DXGI, DWM, Win32. Исследование 05.11.2026. Исходный код и действующий дизайн не менялись: это карта возможностей, а не план переделки.</p>
+
+<h3>Как читать</h3>
+<ul>
+<li><b>42 идеи</b> в четырёх категориях. <b>A</b> — практически недоступно Web UI (уровень рендеринга). <b>B</b> — возможно в Web, но естественнее нативно. <b>C</b> — уникально для Windows (система вокруг окна). <b>D</b> — экспериментальная графика.</li>
+<li>У каждой идеи семь полей из задания: что, как выглядит, как работает, технологии, сложность, отличие от Web, ценность. И ещё три. <b>Реализуемость</b> — только техника: версии Windows, GPU, риски. <b>Целесообразность</b> — только дизайн: сходится ли с <code>law.md</code>, есть ли неподвижная форма, вердикт. <b>Путь</b> — шаги на нашем стеке, с файлами.</li>
+<li>Сложность: 1 — вечер, 2 — несколько дней, 3 — неделя-две, 4 — месяц и больше, 5 — исследование с неизвестным исходом.</li>
+<li>Вердикты: <span class="v do">делать</span> <span class="v try">попробовать</span> — сначала макет или проба; <span class="v later">потом</span> — ждёт условия; <span class="v no">нет</span> — технически можно, дизайнерски нельзя, оставлено как граница.</li>
+<li><b>«Web UI»</b> здесь — то, что Chromium/WebView2 даёт странице без нативных модулей: DOM, CSS, Canvas 2D, WebGL/WebGPU в песочнице. Electron с нативными аддонами — уже не Web UI, а наш стек с лишним слоем.</li>
+</ul>
+
+<h3>Содержание</h3>
+<div class="toc">
+<a href="#layer0"><span>0</span>Слой 0 — основа</a>
+<a href="#a1"><span>A1</span>HDR-лампы</a>
+<a href="#a2"><span>A2</span>Единая модель света</a>
+<a href="#a3"><span>A3</span>Страж контраста</a>
+<a href="#a4"><span>A4</span>Текст в движении</a>
+<a href="#a5"><span>A5</span>Глифы как геометрия</a>
+<a href="#a6"><span>A6</span>Окно как предмет</a>
+<a href="#b1"><span>B1</span>Частицы по программам</a>
+<a href="#b2"><span>B2</span>Длинная выдержка</a>
+<a href="#b3"><span>B3</span>Изменение от причины</a>
+<a href="#b4"><span>B4</span>Честные цифры</a>
+<a href="#b5"><span>B5</span>Анатомия домена</a>
+<a href="#b6"><span>B6</span>Вещь ↔ состояние</a>
+<a href="#b7"><span>B7</span>Ввод и физика системы</a>
+<a href="#b8"><span>B8</span>Защитная крышка</a>
+<a href="#b9"><span>B9</span>Тёмное без ступенек</a>
+<a href="#b10"><span>B10</span>Размытие движения</a>
+<a href="#b11"><span>B11</span>Векторная лупа</a>
+<a href="#b12"><span>B12</span>Свой графический runtime</a>
+<a href="#c1"><span>C1</span>Судьба под курсором</a>
+<a href="#c2"><span>C2</span>Рентген маршрутов</a>
+<a href="#c3"><span>C3</span>Линия по краю экрана</a>
+<a href="#c4"><span>C4</span>Значок-прибор</a>
+<a href="#c5"><span>C5</span>Рамка окна</a>
+<a href="#c6"><span>C6</span>Шар состояния</a>
+<a href="#c7"><span>C7</span>Отрываемые чипы</a>
+<a href="#c8"><span>C8</span>Миниатюры окон</a>
+<a href="#c9"><span>C9</span>Панель задач</a>
+<a href="#c10"><span>C10</span>Палитра команд</a>
+<a href="#c11"><span>C11</span>Секреты вне снимков</a>
+<a href="#c12"><span>C12</span>Печать Windows Hello</a>
+<a href="#c13"><span>C13</span>Знание обстановки</a>
+<a href="#d1"><span>D1</span>Гильош ключа</a>
+<a href="#d2"><span>D2</span>Микротекст</a>
+<a href="#d3"><span>D3</span>Гравюрная штриховка</a>
+<a href="#d4"><span>D4</span>Кубик-призма</a>
+<a href="#d5"><span>D5</span>Коса цепочки</a>
+<a href="#d6"><span>D6</span>Фосфорный след</a>
+<a href="#d7"><span>D7</span>Огибающая дрожания</a>
+<a href="#d8"><span>D8</span>Верёвка</a>
+<a href="#d9"><span>D9</span>Реакция-диффузия</a>
+<a href="#d10"><span>D10</span>Рэймарчинг-кубик</a>
+<a href="#d11"><span>D11</span>Субпиксельная геометрия</a>
+<a href="#rejected"><span>✕</span>Отвергнуто</a>
+<a href="#final"><span>★</span>Отбор и система</a>
+</div>
+
+<h3>Исходные факты</h3>
+<ul>
+<li><b>Сейчас.</b>
+  <ul>
+  <li>Окно рисует <code>ID2D1HwndRenderTarget</code>; фабрика D2D — <code>main_window.cpp:967</code>.</li>
+  <li>Текст — DirectWrite с Geist из памяти, ClearType.</li>
+  <li>SVG-значки — через <code>ID2D1DeviceContext5</code>, полученный у той же цели (<code>icons.cpp</code>).</li>
+  <li>Своя шапка — через <code>WM_NCCALCSIZE</code>.</li>
+  <li>Кадры — по vsync в <code>EndDraw</code>.</li>
+  <li>Частицы — на CPU через <code>FillEllipse</code>: до 600 штук, у каждой 3 «призрака» и ореол. Они уже от данных: три потока (VPN, WARP, напрямую), частота и размер растут с байтами в секунду. Кружат вокруг кубика-переключателя (<code>cube.h</code>).</li>
+  <li>Снимки — программная WIC-цель, около <code>main_window.cpp:6874</code>.</li>
+  <li>В линковке нет <code>d3d11</code>, <code>dxgi</code>, <code>dcomp</code>.</li>
+  </ul>
+</li>
+<li><b>Анимации Windows у него выключены.</b> <code>Motion()</code> читает <code>SPI_GETCLIENTAREAANIMATION</code> и возвращает false. Значит, идеи без неподвижной формы для него не существуют. Это стало критерием: в «Целесообразности» у каждой идеи сказано, как она выглядит без движения.</li>
+<li><b>Видеокарта</b> — GTX 750 Ti. Direct3D feature level 11_0, вычислительные шейдеры cs_5_0 есть. HDR-вывода почти наверняка нет (HDMI 1.4), так что HDR-идеи у него не проверить.</li>
+<li><b>PangoBright</b> затемняет экран ×0,557. Цвета на снимках поэтому не истина. А ступеньки в тёмных переходах у него видны сильнее, чем у других.</li>
+<li><b>Версии.</b> Windows 10 LTSC 2021 — это сборка 19044.
+  <ul>
+  <li>Только Windows 11: всё, что в SDK 10.0.26100 спрятано под <code>NTDDI_WIN10_CO</code>, <code>…_CU</code> или <code>…_NI</code>. Например, <code>ID2D1DeviceContext7</code>, <code>IDWritePaintReader</code>, статистика композитора DComp.</li>
+  <li>Есть и в LTSC 2021 всё нужное основным идеям: <code>ID2D1DeviceContext3</code> (1511), <code>ID2D1DeviceContext6</code> (1709), <code>IDWriteTextLayout4</code> и <code>IDWriteFactory6</code> (1709), D2D-эффекты HDR (1809). Проверено по заголовкам.</li>
+  </ul>
+</li>
+<li><b>Закон</b> (<code>docs/design/law.md</code>) — фильтр целесообразности.
+  <ul>
+  <li>Цвет = судьба потока: VPN 76,146,255, WARP 232,134,66, напрямую 160,165,176, блок 240,96,96.</li>
+  <li>Рука пользователя — белая. Вердикты — зелёный и янтарный.</li>
+  <li>Судьба — линия, а не плоскость: рельс 3 DIP, кромка 1 DIP. Прозрачность не несёт смысла.</li>
+  <li>Круг — состояние, прямоугольник — вещь.</li>
+  <li>Geist только 400 и 600.</li>
+  <li>Движение только показывает поток или изменение: 90, 160 или 240 мс.</li>
+  <li>Нет градиентов, теней, стекла и свечения без состояния.</li>
+  <li>Контраст текста ≥4,5, графики ≥3,0, ΔE между судьбами ≥30.</li>
+  </ul>
+</li>
+</ul>
+
+<h2 id="layer0">Слой 0 — что сделать один раз</h2>
+<p>Большинство идей упирается не в эффект, а в то, на чём рисуем. Ступеней три, и каждая не ломает предыдущую.</p>
+
+<h3>0a — тот же HWND, другой интерфейс</h3>
+<p>У существующей цели запрашиваем <code>ID2D1DeviceContext</code> через <code>QueryInterface</code>: <code>icons.cpp</code> уже так получает <code>ID2D1DeviceContext5</code>. Окно, ClearType, шапка и дочерний EDIT не меняются. Что открывается:</p>
+<ul>
+<li><b>Встроенные эффекты D2D:</b> размытие, морфология, цветовые матрицы, композиция, освещение (<code>PointSpecular</code>, <code>SpotDiffuse</code>…), турбулентность, перспектива.</li>
+<li><b>Свои эффекты на HLSL:</b> <code>ID2D1Factory1::RegisterEffectFromString</code> плюс <code>ID2D1EffectImpl</code>/<code>ID2D1DrawTransform</code>. Шейдеры — DXBC от <code>fxc</code> (ps_4_0/ps_5_0): D2D стоит на D3D11, DXIL от <code>dxc</code> он не возьмёт.</li>
+<li><b><code>ID2D1SpriteBatch</code></b> (DC3, Windows 10 1511): тысячи спрайтов одним вызовом.</li>
+<li><b><code>BlendImage</code></b> (DC6, 1709): режимы наложения.</li>
+<li><b><code>SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_ADD)</code>:</b> сложение света.</li>
+<li><b>Битмапы FP16 вне экрана:</b> <code>D2D1_BITMAP_OPTIONS_TARGET</code> + <code>DXGI_FORMAT_R16G16B16A16_FLOAT</code>. Поддержку проверяет <code>IsBufferPrecisionSupported(D2D1_BUFFER_PRECISION_16BPC_FLOAT)</code>.</li>
+<li><b><code>ID2D1CommandList</code>:</b> записанный кадр, который можно перерисовать в другом масштабе.</li>
+</ul>
+<p>Чего 0a не даёт: HDR и 10-битного вывода, прозрачного окна, слоёв композитора.</p>
+
+<h3>0b — своя цепочка обмена</h3>
+<p>Как устроено:</p>
+<ul>
+<li><code>D3D11CreateDevice</code> с <code>D3D11_CREATE_DEVICE_BGRA_SUPPORT</code>, откат — WARP.</li>
+<li>Swap chain в flip-модели: <code>CreateSwapChainForHwnd</code>, <code>DXGI_SWAP_EFFECT_FLIP_DISCARD</code>.</li>
+<li><code>ID2D1Device</code> → <code>ID2D1DeviceContext</code> на заднем буфере.</li>
+<li>В линковку добавить <code>d3d11 dxgi</code>.</li>
+</ul>
+<p>Что даёт:</p>
+<ul>
+<li>FP16/scRGB при включённом расширенном цвете;</li>
+<li>ожидание кадра (<code>FRAME_LATENCY_WAITABLE_OBJECT</code>);</li>
+<li><code>Present1</code> с грязными прямоугольниками;</li>
+<li>общее D3D11-устройство для вычислительных шейдеров.</li>
+</ul>
+<p><b>Главный риск — дочерний EDIT</b> (<code>main_window.cpp:6245</code>). С <code>WS_EX_NOREDIRECTIONBITMAP</code> у окна нет поверхности перенаправления, и GDI-ребёнка не видно. А flip-цепочка поверх окна с GDI-детьми официально не гарантирует, что ребёнок останется сверху. Три выхода, по возрастанию цены:</p>
+<ol>
+<li><code>CreateSwapChainForHwnd</code> без <code>NOREDIRECTIONBITMAP</code> — и проверить на месте, что EDIT виден и не мерцает. Начинать с этого.</li>
+<li>EDIT в собственном безрамочном всплывающем окне-владельце над полем ввода; оно двигается вместе с окном.</li>
+<li>Свой ввод текста — дороже всего: IME через TSF, выделение, буфер обмена, UI Automation.</li>
+</ol>
+
+<h3>0c — окна-спутники на DirectComposition</h3>
+<p>Всё новое верхнеуровневое — шар, линия по краю экрана, наложения, прицел, оторванные чипы — сразу делается на DComp:</p>
+<ul>
+<li><code>WS_EX_NOREDIRECTIONBITMAP</code>;</li>
+<li>общее D3D11-устройство → <code>DCompositionCreateDevice</code> → <code>CreateTargetForHwnd</code>;</li>
+<li>поверхность <code>IDCompositionSurface</code> с premultiplied alpha, D2D рисует внутри <code>BeginDraw</code>.</li>
+</ul>
+<p>Получаем прозрачность по пикселю без <code>UpdateLayeredWindow</code>, а анимации крутит композитор, а не наш поток. Главное окно эта ступень не трогает. Общий модуль — <code>src/tray/gfx/dcomp_window.{h,cpp}</code>; в линковку добавить <code>d3d11 dxgi dcomp</code>.</p>
+
+<h3>Правила для всех ступеней</h3>
+<ul>
+<li><b>Главное окно остаётся непрозрачным.</b> ClearType живёт только на непрозрачной цели; на цели с premultiplied alpha D2D переходит на серое сглаживание. В спутниках текст будет серым — для коротких надписей это допустимо.</li>
+<li><b>Плавные слои считаются в FP16 отдельно</b> — ореолы, свет, выдержка. Текст и кромки рисуются прямо в цель, чтобы ClearType не страдал.</li>
+<li><b>Снимки.</b> Проверить, считает ли программная WIC-цель (<code>main_window.cpp:6874</code>) наши эффекты. Если нет — путь D3D11 WARP → <code>ID2D1DeviceContext</code> → битмап → WIC. Это же основа эталонных снимков для тестов (B12).</li>
+<li><b>Модальный диалог.</b> Пока он открыт (<code>Blocked()</code>), наши кадры стоят; анимации композитора DComp при этом идут.</li>
+<li><b>Новые интерфейсы.</b> Всё, что под <code>NTDDI_WIN10_CO</code> и новее, подключать по факту наличия (<code>QueryInterface</code>/<code>GetProcAddress</code>), а не по номеру версии ОС.</li>
+</ul>
+
+<h2 id="cat-a">A — практически недоступно для Web UI</h2>
+<p class="lead">Уровень рендеринга: яркость сверх белого, общая световая сцена, маски из глифов, режим хинтинга по кадрам, контуры глифов из системного шейпера, знание о движении окна. В браузере это либо закрыто, либо доступно, только если отказаться от DOM и перенести весь интерфейс в один холст.</p>
+
+<article class="idea" id="a1">
+<header><span class="code">A1</span><h3>HDR-лампы: состояние светит ярче бумаги</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0b</span><span>сложность 4/5</span><span class="later">потом</span></p></header>
+<dl>
+<dt>Что</dt><dd>На мониторе с включённым HDR лампы и рельсы судьбы выводятся ярче белого текста — в 1,3–1,6 раза от уровня SDR-белого. Всё остальное остаётся ровно в SDR-белом. Свет перестаёт быть нарисованным ореолом и становится светом. На обычном мониторе ничего не меняется.</dd>
+<dt>Как выглядит</dt><dd>Текст, кромки и карточки — «бумага» той же яркости, что у всех окон. Ядро лампы VPN заметно ярче самого белого на экране. Глаз читает его как источник, а не как краску, и находит периферийным зрением. Ореол .12 можно сделать тоньше: светит само ядро.</dd>
+<dt>Как работает</dt><dd><ul>
+<li>Swap chain <code>R16G16B16A16_FLOAT</code> + <code>SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709)</code>: scRGB, линейный, 1,0 = 80 нит.</li>
+<li>Интерфейс рисуется в SDR и проходит эффект <code>WhiteLevelAdjustment</code> — до SDR-белого пользователя. Уровень берётся из <code>DisplayConfigGetDeviceInfo</code> с <code>DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL</code>.</li>
+<li>Лампы получают множитель сверх этого уровня.</li>
+<li>В конце — <code>HdrToneMap</code> к максимуму экрана из <code>IDXGIOutput6::GetDesc1</code>.</li>
+<li>Включён ли HDR, видно по <code>DXGI_OUTPUT_DESC1::ColorSpace</code> (<code>…G2084…P2020</code>). Перепроверять при <code>WM_DISPLAYCHANGE</code> и при переезде окна на другой монитор.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DXGI 1.6, D2D 1.1 на FP16, эффекты <code>CLSID_D2D1WhiteLevelAdjustment</code> и <code>CLSID_D2D1HdrToneMap</code> (<code>d2d1effects_2.h</code>, под <code>NTDDI_WIN10_RS5</code>), DisplayConfig.</dd>
+<dt>Сложность</dt><dd>4/5. Сам вывод — пара дней. Трудно другое: переключение SDR↔HDR на лету (окно между двумя мониторами; HDR включили при открытом окне) и поведение ClearType на FP16-цели — вероятно, станет серым, надо проверить.</dd>
+<dt>Отличие от Web</dt><dd>Элементу DOM нельзя задать яркость выше белого. В Chromium это есть только у HDR-картинок и видео и у WebGPU-холста с <code>toneMapping: "extended"</code>. Пришлось бы весь интерфейс перенести в холст.</dd>
+<dt>Ценность</dt><dd>Иерархия по физической яркости, а не по насыщенности: цвет остаётся только для смысла. Но увидят это лишь владельцы HDR-мониторов, а их немного.</dd>
+<dt>Реализуемость</dt><dd>Эффекты есть с 1809, то есть в LTSC 2021 и в 11. Windows 11 24H2 даёт ещё <code>…GET_ADVANCED_COLOR_INFO_2</code>. Нужна ступень 0b с её риском для EDIT. У него HDR-вывода нет: проверять на другой машине или по FP16-снимкам через WARP.</dd>
+<dt>Целесообразность</dt><dd>Закон («свечение только у состояния») соблюдён: ярче только лампы. Риск — слепящее ядро на тёмном фоне, поэтому потолок 1,6× и только у ламп и рельс, не у текста. Неподвижная форма у идеи и так есть. Вердикт: потом. Но FP16-путь из A2/B9 строить так, чтобы HDR включался одним флагом.</dd>
+<dt>Путь</dt><dd><ol>
+<li>После 0b выбирать формат цепочки по <code>GetDesc1().ColorSpace</code>.</li>
+<li>Сцену считать в FP16 линейно. SDR-часть пропускать через <code>WhiteLevelAdjustment</code>; лампам — множитель <code>kLampHdrGain</code> в <code>ui_style.h</code>.</li>
+<li><code>HdrToneMap</code>: на входе наш максимум, на выходе <code>MaxLuminance</code> монитора.</li>
+<li>На <code>WM_DISPLAYCHANGE</code> и <code>WM_WINDOWPOSCHANGED</code> + <code>MonitorFromWindow</code> — пересоздать цепочку.</li>
+<li>Проверка без HDR-монитора: WARP + FP16 → JPEG XR через WIC (<code>GUID_ContainerFormatWmp</code> хранит float); сверить значения ламп.</li>
+</ol></dd>
+</dl></article>
+
+<article class="idea" id="a2">
+<header><span class="code">A2</span><h3>Единая модель света в линейном FP16</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 3/5</span><span class="try">попробовать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Вместо отдельного ореола у каждой лампы — одна световая карта сцены. Излучатели (лампы, рельсы, частицы) пишут свет в линейный FP16-буфер. Приёмники берут из него освещённость: кромки 1 DIP, края карточек, ободки. Свет не красит плоскости — он ложится только на кромки рядом с источником.</dd>
+<dt>Как выглядит</dt><dd>Ничего не светится «просто так». Кромка карточки рядом с синим рельсом чуть подсвечена синим с ближней стороны, дальняя сторона нейтральна. Поток ушёл на WARP — отсвет на соседних кромках стал оранжевым. Интерфейс сам показывает, какие элементы под каким маршрутом. Вклад частиц усредняется во времени, поэтому кромки не мерцают.</dd>
+<dt>Как работает</dt><dd><ol>
+<li><b>Излучатели.</b> Лампы, рельсы и частицы рисуются в FP16-битмап с разрешением в 1/4 и <code>ADD</code>.</li>
+<li><b>Поле.</b> Каскад уменьшений и размытие дают поле освещённости.</li>
+<li><b>Маска приёмников.</b> Те же <code>DrawRoundedRectangle</code> кромок рисуются в A8-битмап, кеш до смены раскладки.</li>
+<li><b>Сборка.</b> Свет умножается на маску (<code>ArithmeticComposite</code>) и ложится на кадр через <code>BlendImage(LINEAR_DODGE)</code>.</li>
+<li><b>Блик (по желанию).</b> Альфа кромки, размытая на 1 DIP, служит картой высот для <code>PointSpecular</code> с источником в координатах лампы. Получается блик на ближней грани, как в тиснении.</li>
+</ol></dd>
+<dt>Технологии</dt><dd><code>ID2D1DeviceContext</code> (0a), FP16-битмапы, <code>GaussianBlur</code>, <code>ArithmeticComposite</code>, <code>BlendImage</code>, <code>PointSpecular</code>. Позже — свой HLSL-эффект «свет × маска» одним проходом.</dd>
+<dt>Сложность</dt><dd>3/5. Техника известная — отложенное освещение в 2D. Трудна калибровка: чтобы свет не превратился в неоновую вывеску.</dd>
+<dt>Отличие от Web</dt><dd>В CSS нет поля освещённости, которое знает о соседних элементах. <code>box-shadow</code> у каждого элемента — это нарисованный ореол: он не складывается между источниками и не маскируется приёмниками. В WebGL можно всё, но тогда весь интерфейс уходит в холст, а текст теряет системный рендер и доступность.</dd>
+<dt>Ценность</dt><dd>Судьба потока видна не только на рельсе, но и на всём, что рядом: сцена связная. Свет становится носителем смысла.</dd>
+<dt>Реализуемость</dt><dd>Хватает 0a, окно не меняется. <code>BlendImage</code> — с 1709, иначе <code>Composite</code> (Windows 8+). GTX 750 Ti в 1/4 разрешения справится с запасом. Работают ли эффекты на WIC-цели снимков — проверить.</dd>
+<dt>Целесообразность</dt><dd>На грани закона. «Свечение только у состояния» соблюдено. «Свет не красит плоскость» держится на маске приёмников. Опасность — эстетика игрового RGB. Без анимаций свет статичен: его дают лампы и рельсы, а частицы — через выдержку B2. Вердикт: попробовать в макете и оставить, только если отсвет на кромке читается как информация.</dd>
+<dt>Путь</dt><dd><ol>
+<li><code>src/tray/gfx/light_field.{h,cpp}</code>: <code>LightField::Resize(size, dpi)</code>, <code>BeginEmit()</code>, <code>EmitLamp(pt, color, power)</code>, <code>EmitRail(geometry, color)</code>, <code>EndEmit()</code>, <code>Apply(dc, receivers)</code>.</li>
+<li>В <code>Paint</code> излучатели брать из тех же данных, что рисуют лампы (цвета судеб — <code>ui_style.h</code>).</li>
+<li>Маску приёмников строить при смене раскладки.</li>
+<li>Коэффициенты <code>kLightGain</code> и <code>kLightRadius</code> держать в <code>ui_style.h</code>, чтобы их правил дизайн, а не код.</li>
+</ol></dd>
+</dl></article>
+
+<article class="idea" id="a3">
+<header><span class="code">A3</span><h3>Страж контраста: фон гаснет под текстом</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Частицы, отсветы и любые живые слои не опускают контраст текста ниже 4,5. Под каждым глифом лежит маска — контур текста, расширенный морфологией, — и в ней фоновая графика приглушается. Это рантайм-гарантия ворот контраста из закона, а не надежда, что частица не пройдёт под цифрой.</dd>
+<dt>Как выглядит</dt><dd>Частица под словом не исчезает рывком. Она уходит в узкий «зазор» вокруг букв: в 2 DIP от контура глифа её яркость плавно гаснет. Текст читается одинаково и на пустом фоне, и на плотном потоке. Так картографы выбивают фон вокруг подписей на карте.</dd>
+<dt>Как работает</dt><dd><ol>
+<li>Текст рисуется в A8-маску (кеш по раскладке).</li>
+<li><code>Morphology</code> (<code>DILATE</code>, ~2 DIP) и <code>GaussianBlur</code> на 1 DIP дают мягкий ореол-маску.</li>
+<li>Живые слои рисуются отдельно, маска вычитается из них: <code>Composite</code> с <code>DESTINATION_OUT</code>.</li>
+<li>Точная версия — свой эффект. Он считает яркость фона под маской и ограничивает её так, чтобы контраст к цвету текста по формуле WCAG не упал ниже 4,5.</li>
+</ol></dd>
+<dt>Технологии</dt><dd>Эффекты D2D <code>Morphology</code>, <code>GaussianBlur</code>, <code>Composite</code> (0a); свой эффект — для точного порога.</dd>
+<dt>Сложность</dt><dd>2/5 для маски, 3/5 для точного порога в шейдере.</dd>
+<dt>Отличие от Web</dt><dd>В CSS нет маски «из глифов соседнего слоя». <code>text-shadow</code> и <code>-webkit-text-stroke</code> рисуют поверх, а не вырезают фон. <code>mask-image</code> берёт картинку, а не текст элемента. В холсте можно, но тогда весь текст рисует само приложение.</dd>
+<dt>Ценность</dt><dd>Снимает целый класс ошибок: фон можно сделать живее, не нарушая ворот контраста. Это то, что делает A2 и B1 безопасными.</dd>
+<dt>Реализуемость</dt><dd>0a, эффекты есть с Windows 8. Маска пересчитывается только при смене текста.</dd>
+<dt>Целесообразность</dt><dd>Прямо исполняет закон (≥4,5). Без анимаций выглядит так же. Вердикт: делать вместе с B1/A2 — без него они рискованны.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/text_halo.{h,cpp}</code>: <code>TextHalo::Build(dc, layouts)</code> возвращает кешированный <code>ID2D1Image</code>. В <code>DrawLive</code> частицы рисуются в слой, затем <code>DESTINATION_OUT</code> с маской. <code>kHaloRadius = 2</code> — в <code>ui_style.h</code>.</dd>
+</dl></article>
+
+<article class="idea" id="a4">
+<header><span class="code">A4</span><h3>Текст в движении без дрожи и оптическая компенсация на тёмном</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="do">делать (а)</span><span class="try">попробовать (б)</span></p></header>
+<dl>
+<dt>Что</dt><dd>Две вещи про типографику, которых нет в CSS.
+<ul>
+<li><b>(а)</b> Пока текст движется (складка 240 мс, прокрутка), он не прыгает по пиксельной сетке: привязка к сетке выключена, позиционирование субпиксельное. В покое — снова ClearType с хинтингом, максимально резко.</li>
+<li><b>(б)</b> Светлый текст на тёмном выглядит жирнее тёмного на светлом (иррадиация). Компенсация: текст на тёмном получает вес ~385–390 по оси <code>wght</code> Geist. Подбирается вместе с гаммой и контрастом рендера.</li>
+</ul></dd>
+<dt>Как выглядит</dt><dd>(а) Заголовки при складке плывут без лесенки по одному пикселю. На последнем кадре, когда сдвиг меньше 0,5 px, текст «защёлкивается» в резкость без видимого скачка. (б) На глаз ничего не меняется — просто толщина правильная: текст на тёмной карточке и на светлом выделении выглядит одним весом.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><b>(а)</b> Во время движения — <code>D2D1_DRAW_TEXT_OPTIONS_NO_SNAP</code> и параметры рендера с <code>DWRITE_GRID_FIT_MODE_DISABLED</code> (<code>IDWriteFactory2::CreateCustomRenderingParams</code>, <code>SetTextRenderingParams</code>). В покое — по умолчанию.</li>
+<li><b>(б)</b> <code>IDWriteTextLayout4::SetFontAxisValues</code> с осью веса. Второй рычаг — <code>gamma</code> и <code>enhancedContrast</code> в параметрах рендера.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DirectWrite (<code>IDWriteRenderingParams2/3</code>, <code>IDWriteTextLayout4</code>, <code>IDWriteFontFace5::HasVariations</code>), D2D.</dd>
+<dt>Сложность</dt><dd>2/5 для каждой части, плюс время на подбор на глаз.</dd>
+<dt>Отличие от Web</dt><dd>Режим хинтинга и привязки к сетке странице недоступен. Во время CSS-трансформаций Chromium масштабирует текст как растровую текстуру (мыло) или перерастеризует скачками. Гамма и контраст ClearType берутся из системы. Ось <code>wght</code> в CSS есть, но включать её по фону придётся вручную.</dd>
+<dt>Ценность</dt><dd>Резкость в покое и гладкость в движении — то, что отличает нативное окно от «электронного». Вместе с B4 закрывает пункт 5 из <code>law-audit.md</code>.</dd>
+<dt>Реализуемость</dt><dd>(а) — Windows 8.1+, (б) — 1709+, то есть LTSC и 11. Нужно проверить, отдаёт ли наш загрузчик Geist (<code>IDWriteFontSetBuilder1</code>) вариативное лицо. Если нет — перейти на <code>IDWriteFontSetBuilder2</code> (1709). Geist вариативный, ось <code>wght</code> 100–900 — проверено по файлу.</dd>
+<dt>Целесообразность</dt><dd>(а) — да, без вопросов. Без анимаций движения нет, и (а) просто не включается. (б) меняет закон («только 400/600» превращается в «400 оптически»), решает дизайнер: сравнить снимки рядом. Вердикт: (а) делать, (б) попробовать.</dd>
+<dt>Путь</dt><dd><ul>
+<li><b>(а)</b> В анимации складки (<code>main_window.cpp:5120–5349</code>) поднимать флаг «в движении». По нему текст рисуется с <code>NO_SNAP</code> и параметрами без привязки; на последнем кадре — обычный режим.</li>
+<li><b>(б)</b> В <code>LoadFontCollection</code> (<code>1505–1574</code>) проверить <code>HasVariations</code>. Для layout'ов на тёмном фоне вызывать <code>SetFontAxisValues({wght, kDarkWeight})</code>; <code>kDarkWeight</code> — в <code>ui_style.h</code>.</li>
+</ul></dd>
+</dl></article>
+
+<article class="idea" id="a5">
+<header><span class="code">A5</span><h3>Глифы как геометрия</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2–3/5</span><span class="try">попробовать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Буквы становятся контурами, с которыми можно делать всё, что с геометрией. Три применения:
+<ul>
+<li>имя программы лежит вдоль рельса её маршрута;</li>
+<li>заблокированный домен показан пустотелым — только контур, без заливки;</li>
+<li>при блокировке имя разбирается на точки по контуру и уходит в поток.</li>
+</ul></dd>
+<dt>Как выглядит</dt><dd><ul>
+<li>Вдоль пологого участка синего рельса мелко написано «telegram.exe · 3 соединения». Каждая буква повёрнута по касательной.</li>
+<li>Заблокированное имя — красный контур 1 DIP без заливки: «пустое слово» читается как «не пускают». Это и неподвижная форма.</li>
+<li>С анимациями: в момент блокировки имя рассыпается на ~200 точек и застывает пустым контуром.</li>
+</ul></dd>
+<dt>Как работает</dt><dd><ul>
+<li><b>Контуры.</b> Свой <code>IDWriteTextRenderer</code> для готового layout. В <code>DrawGlyphRun</code> вызывается <code>IDWriteFontFace::GetGlyphRunOutline</code> в <code>ID2D1PathGeometry</code>. Кернинг и лигатуры сохраняются, потому что позиции уже сформованы.</li>
+<li><b>Текст по кривой.</b> <code>ID2D1Geometry::ComputePointAtLength</code> даёт точку и касательную для центра каждого глифа, глиф ставится трансформом.</li>
+<li><b>Точки.</b> <code>ComputeLength</code> + равномерная выборка по длине контура.</li>
+<li><b>Кеш.</b> <code>ID2D1GeometryRealization</code>.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DirectWrite (свой text renderer, <code>GetGlyphRunOutline</code>), геометрия D2D, <code>CreateStrokedGeometryRealization</code> (DC1, 8.1+).</dd>
+<dt>Сложность</dt><dd>2/5 для пустотелых имён. 3/5 для текста по кривой: на изгибах буквы налезают с внутренней стороны.</dd>
+<dt>Отличие от Web</dt><dd>SVG <code>&lt;textPath&gt;</code> кладёт текст на кривую — это в Web есть. А вот контуры глифов из своего шейпера браузер не отдаёт. «Разобрать слово на точки» можно, только разобрав шрифт заново в JS (opentype.js), и формовка будет другой.</dd>
+<dt>Ценность</dt><dd>Имя и маршрут связаны физически: имя лежит на своей линии, легенда не нужна. Блок получает форму, а не только цвет. Пустотелое имя — компактный и однозначный знак.</dd>
+<dt>Реализуемость</dt><dd>Все версии. У контура нет хинтинга: на 12,5 DIP контурный текст мутнее ClearType. Поэтому контуры — для пустотелых имён и текста ≥14 DIP, обычный текст остаётся <code>DrawTextLayout</code>.</dd>
+<dt>Целесообразность</dt><dd>«Судьба — линия»: текст на рельсе закону подходит. Пустотелое имя — новый знак, который дизайнеру надо принять. Рассыпание — движение, показывающее изменение; без анимаций сразу пустотелое имя. Вердикт: попробовать пустотелые имена (дёшево и сильно); текст по рельсу — в макете.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/glyph_geometry.{h,cpp}</code>:
+<ul>
+<li><code>OutlineOf(IDWriteTextLayout*, origin)</code> через свой text renderer;</li>
+<li><code>TextOnPath(path, layout, offset)</code> возвращает набор «геометрия + трансформ».</li>
+</ul>
+На странице «Блок» заблокированные имена рисуются <code>DrawGeometry(outline, kBlock, 1)</code> вместо <code>DrawTextLayout</code>.</dd>
+</dl></article>
+
+<article class="idea" id="a6">
+<header><span class="code">A6</span><h3>Окно как физический предмет</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="no">нет</span></p></header>
+<dl>
+<dt>Что</dt><dd>Содержимое знает, что окно — предмет, который двигают по экрану. Частицы потока хранят скорость в координатах экрана. Когда окно тащат, поток «плещется», как вода в стакане, и выравнивается.</dd>
+<dt>Как выглядит</dt><dd>Тащите окно влево — частицы на миг отстают к правому краю и за 200–300 мс снова текут ровно. Отпустили — тишина.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>WM_ENTERSIZEMOVE</code> / <code>WM_MOVING</code> / <code>WM_EXITSIZEMOVE</code> дают положение окна в модальном цикле перетаскивания; скорость окна = Δpos/Δt.</li>
+<li>В симуляции к скорости частиц добавляется −v<sub>окна</sub> с затуханием.</li>
+<li><code>WM_PAINT</code> приходит и внутри модального цикла, поэтому кадры не встают. Проверить на нашем цикле с vsync в <code>EndDraw</code>.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>Win32-сообщения перемещения, наша симуляция частиц.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Страница не получает событий перемещения окна (только опрос <code>screenX</code>) и не знает о модальном цикле. В WebView2 это можно пробросить из хоста, но это уже нативный код.</dd>
+<dt>Ценность</dt><dd>Ощущение, что поток — вещество, а не рисунок. Информации — ноль.</dd>
+<dt>Реализуемость</dt><dd>Любая Windows, дёшево.</dd>
+<dt>Целесообразность</dt><dd>Движение не показывает ни поток, ни изменение — только внешнюю силу. Без анимаций выключено целиком, у него невидимо. Вердикт: нет. Оставлено как пример «можно, но незачем».</dd>
+<dt>Путь</dt><dd>Если всё же понадобится: в <code>WndProc</code> обрабатывать <code>WM_MOVING</code> и хранить скорость окна; в обновлении частиц <code>LiveTraffic</code> (<code>main_window.cpp:488–602</code>) — <code>v -= k·vWindow</code> с затуханием.</dd>
+</dl></article>
+
+<h2 id="cat-b">B — возможно в Web, естественнее нативно</h2>
+<p class="lead">Это можно сделать и в браузере. Но там придётся бороться с DOM, песочницей или чужим циклом кадров, а у нас это прямой вызов. Отдельно помечено, где Web не хуже: честность важнее.</p>
+
+<article class="idea" id="b1">
+<header><span class="code">B1</span><h3>Частицы от реальных соединений: дорожки программ</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 3/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Развитие того, что уже есть. Сейчас <code>LiveTraffic</code> рождает точки по байтам в секунду трёх потоков: VPN, WARP, напрямую. Следующий шаг:
+<ul>
+<li>у каждой активной программы своя дорожка внутри потока;</li>
+<li>скорость точки обратно пропорциональна задержке маршрута (RTT);</li>
+<li>частота, как сейчас, — от байтов в секунду.</li>
+</ul>
+Рисование переходит с поштучного <code>FillEllipse</code> на спрайтовый пакет: тысячи точек за один вызов.</dd>
+<dt>Как выглядит</dt><dd><ul>
+<li>Вокруг кубика не три слитых потока, а пучок тонких дорожек.</li>
+<li>Telegram — редкие быстрые точки. Торрент-клиент — густая медленная река. Заблокированная программа — точки доходят до грани и гаснут красным.</li>
+<li>Наведение на дорожку подписывает программу (с A5 — прямо вдоль дорожки).</li>
+</ul></dd>
+<dt>Как работает</dt><dd><ul>
+<li><b>Данные.</b> Ядро (sing-box API соединений) уже знает процесс у соединения, если включён <code>find_process</code>: для блока это сделано в 0.5.107. Нужен агрегат «программа → байты/с, RTT маршрута».</li>
+<li><b>Атлас.</b> Спрайты ламп по судьбам и 4 размерам в одном <code>ID2D1Bitmap1</code>.</li>
+<li><b>Рисование.</b> <code>ID2D1SpriteBatch::AddSprites</code>: прямоугольник, исходник в атласе, цвет, трансформ. <code>DrawSpriteBatch</code> требует <code>D2D1_ANTIALIAS_MODE_ALIASED</code> на время вызова.</li>
+<li><b>Сложение.</b> Ореолы складываются через <code>SetPrimitiveBlend(ADD)</code>.</li>
+<li>Порядок формул <code>DotsPerSecond</code> / <code>DotSize</code> / <code>DotSpeed</code> сохраняется, к скорости добавляется множитель от RTT.</li>
+</ul></dd>
+<dt>Технологии</dt><dd><code>ID2D1DeviceContext3</code> (SpriteBatch, 1511+), атлас <code>ID2D1Bitmap1</code>, <code>SetPrimitiveBlend</code>, API ядра.</dd>
+<dt>Сложность</dt><dd>3/5. Рисование — 2/5. Агрегат по программам в ядре и раскладка дорожек, чтобы они не путались, — основная работа.</dd>
+<dt>Отличие от Web</dt><dd>Canvas 2D на тысячах точек упирается в CPU, WebGL — нет; это Web может. Не может он другое: знать, какой программе принадлежит соединение. Это знание ядра и ОС, а не графики. Нативно данные и рисунок живут в одном процессе без моста.</dd>
+<dt>Ценность</dt><dd>Поток становится картой: кто сколько тянет и по какому маршруту — без таблицы. Это главная «живая» идея, а B2 даёт ей неподвижную форму.</dd>
+<dt>Реализуемость</dt><dd>SpriteBatch — с 1511, есть везде. Лимит частиц можно поднять с 600 до нескольких тысяч, для 750 Ti это пустяк. Нагрузку на ядро от <code>find_process</code> проверить.</dd>
+<dt>Целесообразность</dt><dd>Движение показывает поток — закон это и разрешает. Без анимаций дорожки видны через B2 (длинная выдержка). Риск — каша из 40 дорожек: показывать 5–7 главных программ, остальное слить в «прочие». Вердикт: делать вместе с A3 и B2.</dd>
+<dt>Путь</dt><dd><ol>
+<li>Ядро: в <code>sov-block</code>/статистике — срез «программа → rate, route, rtt» раз в секунду.</li>
+<li><code>src/tray/gfx/sprite_atlas.{h,cpp}</code>: атлас ламп (ядро r3 + ореол .12 + кромка .40 — те же числа, что у ламп по закону).</li>
+<li><code>LiveTraffic</code>: частица получает индекс дорожки; <code>DotAt</code> берёт смещение дорожки.</li>
+<li><code>DrawLive</code> (<code>main_window.cpp:4686</code>): вместо цикла <code>FillEllipse</code> — один <code>DrawSpriteBatch</code>.</li>
+</ol></dd>
+</dl></article>
+
+<article class="idea" id="b2">
+<header><span class="code">B2</span><h3>Длинная выдержка: поток как фотография</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 2–3/5</span><span class="do">делать первым из живого</span></p></header>
+<dl>
+<dt>Что</dt><dd>Поток показывается так, как его сняла бы камера с выдержкой в несколько секунд: следы точек сливаются в светящиеся траектории. Яркость траектории — сколько данных по ней прошло за последние ~3 с. Это неподвижная форма для всего живого (B1, B3, D6, D7) и потому — главный режим для пользователя с выключенными анимациями.</dd>
+<dt>Как выглядит</dt><dd><ul>
+<li>Вокруг кубика — тонкие непрерывные линии судеб разной яркости: «нити света», как на ночном снимке шоссе.</li>
+<li>Толстая яркая синяя нить — основная нагрузка через VPN. Бледная оранжевая — немного через WARP. Красные обрывки у грани — блоки.</li>
+<li>Без анимаций картинка обновляется раз в 1–2 с, без переходов. Это не мерцание, а смена фотографии.</li>
+</ul></dd>
+<dt>Как работает</dt><dd>Два варианта.
+<ul>
+<li><b>Аналитический</b> (дешевле, работает и на WIC-цели). Траектория дорожки — геометрия; ширина и яркость — от интеграла пропускной способности за τ. Рисуется <code>DrawGeometry</code> один раз в цикл.</li>
+<li><b>Накопительный</b>. FP16-битмап, каждый кадр: <code>acc = acc·e<sup>−Δt/τ</sup> + новые точки</code>. Затухание — <code>ColorMatrix</code>, точки — с <code>ADD</code>. Затем тональная кривая в SDR, чтобы плотные места не выгорали в белое.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>FP16-битмапы, <code>ColorMatrix</code>, <code>SetPrimitiveBlend(ADD)</code>, тональная кривая (<code>TableTransfer</code> или свой эффект). Для аналитики — только геометрия D2D.</dd>
+<dt>Сложность</dt><dd>2/5 аналитический, 3/5 накопительный (калибровка τ и кривой).</dd>
+<dt>Отличие от Web</dt><dd>В WebGL накопитель делается, в Canvas 2D — только 8 бит, с полосами при затухании. Главное отличие не в возможности, а в том, что у нас это тот же кадр, что и остальной интерфейс, с тем же текстом и ClearType.</dd>
+<dt>Ценность</dt><dd>Отвечает на вопрос «куда шёл трафик последние секунды» одним взглядом, без графика. И делает живую часть интерфейса видимой ему.</dd>
+<dt>Реализуемость</dt><dd>0a, все версии. Накопитель — 1–2 МБ видеопамяти.</dd>
+<dt>Целесообразность</dt><dd>Полностью в законе: «судьба — линия», движение показывает поток, и есть неподвижная форма. Это не декор: яркость — данные. Вердикт: делать первым из «живого».</dd>
+<dt>Путь</dt><dd><ol>
+<li><code>src/tray/gfx/exposure.{h,cpp}</code>: <code>Exposure::Add(lanePath, color, bytes)</code>, <code>Exposure::Draw(dc, now)</code>.</li>
+<li>В <code>Paint</code>: если <code>!Motion()</code> — рисовать <code>Exposure</code> вместо частиц и обновлять по таймеру 1–2 с; если <code>Motion()</code> — выдержка тусклым слоем под частицами.</li>
+<li>τ — <code>kExposureTau = 3 s</code> в <code>ui_style.h</code>.</li>
+</ol></dd>
+</dl></article>
+
+<article class="idea" id="b3">
+<header><span class="code">B3</span><h3>Изменение расходится от причины</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Когда действие меняет много вещей сразу, перемены приходят не одновременно, а волной от места действия. Каждый затронутый элемент меняется с задержкой, пропорциональной расстоянию. Так глаз видит причину и границу следствий. Пример из жизни: «Microsoft → блок» закрыл и GitHub — волна дойдёт до GitHub, и это видно.</dd>
+<dt>Как выглядит</dt><dd><ul>
+<li>Пользователь переключил чип «Microsoft» в блок. Соседние строки краснеют одна за другой; дальняя строка GitHub — последней, через ~200 мс.</li>
+<li>С C4/C5 волна в конце касается значка в трее и рамки окна.</li>
+<li>Без анимаций всё меняется сразу. Затронутые элементы получают белую метку «сделано вами» (рука пользователя белая по закону) — до следующего действия.</li>
+</ul></dd>
+<dt>Как работает</dt><dd><ol>
+<li>До и после действия снимается модель: <code>Diff(old,new)</code> даёт список изменившихся элементов с прямоугольниками.</li>
+<li>Задержка = |центр − точка клика| / v, нормированная так, чтобы вся волна ≤ 240 мс (шаг «складки» из закона).</li>
+<li>Каждый элемент проходит свой переход 160 мс (шаг «состояние») со своим стартом.</li>
+</ol></dd>
+<dt>Технологии</dt><dd>Наша система анимаций (<code>main_window.cpp:5120–5349</code>), сравнение моделей. Ничего нового из ОС.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>В Web это делается (FLIP-анимации, <code>transition-delay</code>). Естественнее у нас потому, что один кадр и одна модель: волна выходит за окно — в трей и рамку, а странице это недоступно.</dd>
+<dt>Ценность</dt><dd>Показывает побочные эффекты правил — главную путаницу маршрутизации. Пользователь видит не только «что изменилось», но и «из-за чего».</dd>
+<dt>Реализуемость</dt><dd>Везде, без новых API.</dd>
+<dt>Целесообразность</dt><dd>Прямо по закону: движение показывает изменение, длительности из шкалы. Неподвижная форма — белая метка; её нужно согласовать с законом как новый знак. Вердикт: делать.</dd>
+<dt>Путь</dt><dd>В модели страницы — снимок «до» в обработчике клика. После применения — <code>Diff</code> и постановка переходов с <code>delay_i</code>. Скорость <code>kRippleSpeed</code> — в <code>ui_style.h</code>. Белая метка — флаг <code>changedByUser</code> у элемента, сбрасывается на следующем действии.</dd>
+</dl></article>
+
+<article class="idea" id="b4">
+<header><span class="code">B4</span><h3>Честные цифры: таблица, точность, выравнивание</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 1–2/5</span><span class="do">делать сразу</span></p></header>
+<dl>
+<dt>Что</dt><dd>Три правила для чисел.
+<ul>
+<li><b>Табличные цифры</b> (<code>tnum</code> в Geist): меняющиеся числа не дёргают соседний текст.</li>
+<li><b>Значимость:</b> незначащие разряды показаны вторичным цветом. Если отклик скачет ±20 мс, «143» читается как «14<span class="dim">3</span>».</li>
+<li><b>Десятичное выравнивание</b> в столбцах «Серверов».</li>
+</ul></dd>
+<dt>Как выглядит</dt><dd><p class="num" style="margin:6px 0">Отклик <b>14</b><span class="dim">3</span> мс · Скорость <b>87</b><span class="dim">.3</span> Мбит/с · Сбои <b>0</b></p>
+Скорость при замере меняется, а ширина строки — нет. Яркие разряды — то, чему можно верить. Столбцы выровнены по запятой, а не по краю.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>IDWriteTypography::AddFontFeature({DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1})</code> → <code>IDWriteTextLayout::SetTypography</code> на диапазон числа.</li>
+<li>Значимость: из истории замеров σ и n; разряды младше σ/√n — <code>SetDrawingEffect</code> с кистью <code>kSecondaryText</code>.</li>
+<li>Выравнивание: два layout'а — целая и дробная часть — и общая точка привязки.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DirectWrite (<code>IDWriteTypography</code>, drawing effects), Geist GSUB <code>tnum</code> (проверено в файле).</dd>
+<dt>Сложность</dt><dd>1/5 табличные цифры, 2/5 значимость и выравнивание.</dd>
+<dt>Отличие от Web</dt><dd>Web умеет: <code>font-variant-numeric: tabular-nums</code>, а значимость — через <code>&lt;span&gt;</code>. Отличия почти нет, честно. Нативно это просто вписывается в наш layout без DOM.</dd>
+<dt>Ценность</dt><dd>Закрывает пункт 5 из <code>law-audit.md</code> («выровняются ли цифры в D2D?»). Значимость — редкая в интерфейсах честность: не показывать точность, которой нет.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd><code>law.md:156</code> уже требует табличных цифр — это исполнение закона. Значимость вторичным цветом — новый приём, контраст вторичного текста ≥4,5 нужно сохранить. Вердикт: делать сразу.</dd>
+<dt>Путь</dt><dd>Хелпер <code>ApplyNumeric(layout, range)</code> рядом с созданием layout'ов в <code>main_window.cpp</code>; <code>SignificantDigits(value, sigma, n)</code> в <code>src/tray/numbers.h</code>. Кеш <code>IDWriteTypography</code> — один на процесс.</dd>
+</dl></article>
+
+<article class="idea" id="b5">
+<header><span class="code">B5</span><h3>Анатомия домена и подмена букв</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Домены в «Кто обращается», журнале блока и правилах показываются с разбором:
+<ul>
+<li>регистрируемая часть (eTLD+1) — основным цветом, поддомены — вторичным;</li>
+<li>буквы чужой письменности в латинском имени отмечены янтарным;</li>
+<li>рядом — punycode.</li>
+</ul>
+Фишинговое «аpple.com» с кириллической «а» видно сразу.</dd>
+<dt>Как выглядит</dt><dd><p style="margin:6px 0"><span class="dim">cdn.</span><b>telegram.org</b> &nbsp;·&nbsp; <b><span style="color:var(--amber)">а</span>pple.com</b> <span class="dim">xn--pple-43d.com</span></p>Янтарная «а» — вердикт «осторожно», а не красный: красный по закону — только блок.</dd>
+<dt>Как работает</dt><dd><ul>
+<li>eTLD+1 — от ядра: в Go уже есть <code>golang.org/x/net/publicsuffix</code>. Ядро отдаёт границу вместе с доменом, список суффиксов в клиент не тащим.</li>
+<li>Письменность — <code>IDWriteTextAnalyzer1::AnalyzeScript</code> + <code>GetScriptProperties</code> (<code>isoScriptCode</code>). Смешение в одной метке — сигнал.</li>
+<li>Punycode — <code>IdnToAscii</code>/<code>IdnToUnicode</code>.</li>
+<li>Цвета — <code>SetDrawingEffect</code> по диапазонам.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DirectWrite text analyzer, Win32 IDN, данные ядра.</dd>
+<dt>Сложность</dt><dd>2/5. В нативном меню «Кто обращается» цветов нет: нужно owner-draw (<code>MFT_OWNERDRAW</code>, <code>WM_DRAWITEM</code>) или punycode в скобках как запасной вариант.</dd>
+<dt>Отличие от Web</dt><dd>Браузер сам показывает punycode в адресной строке, но странице анализатор письменностей не даёт: <code>Intl.Segmenter</code> не о письменностях, нужны Unicode-таблицы в JS. Нативно — системный анализатор, тот же, что формует текст.</dd>
+<dt>Ценность</dt><dd>Защитная функция, нарисованная типографикой. Для VPN-клиента — по профилю: пользователь видит, кому на самом деле отказал или кого пустил.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>В законе: янтарь — вердикт, вторичный цвет для менее важного. Вердикт: делать.</dd>
+<dt>Путь</dt><dd><code>src/tray/domain_view.{h,cpp}</code>: <code>DomainParts{sub, registrable, mixedScriptRanges, puny}</code> и <code>ApplyDomainStyle(layout, parts)</code>. Ядро: поле <code>etld1_offset</code> в ответах блока/соединений. Меню «Кто обращается» — owner-draw.</dd>
+</dl></article>
+
+<article class="idea" id="b6">
+<header><span class="code">B6</span><h3>Вещь становится состоянием: морфинг прямоугольника в круг</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0 / 0a</span><span>сложность 2–3/5</span><span class="try">при случае</span></p></header>
+<dl>
+<dt>Что</dt><dd>По закону круг — состояние, прямоугольник — вещь. Когда вещь становится состоянием (сервер выбран и стал «активным»), её форма непрерывно перетекает из скруглённого прямоугольника в круг-лампу. А чип, присоединённый к рельсу, сливается с ним гладким швом, а не налезает.</dd>
+<dt>Как выглядит</dt><dd>Карточка сервера при выборе сжимается в лампу за 240 мс; лампа встаёт на рельс. Шов чипа с рельсом — плавная перемычка, как капля, касающаяся поверхности. Без анимаций — сразу конечная форма.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><b>Морфинг.</b> D2D сам рисует скруглённый прямоугольник с радиусом до половины стороны — это круг. Анимируются ширина, высота и радиус. Ничего больше не нужно.</li>
+<li><b>Гладкий шов.</b> Свой эффект на полях расстояний (SDF): поле прямоугольника и поле рельса объединяются через smooth-min, порог даёт контур со сглаживанием по <code>fwidth</code>.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>D2D геометрия; для шва — свой пиксельный эффект (0a).</dd>
+<dt>Сложность</dt><dd>1/5 морфинг. 3/5 SDF-шов: интеграция эффекта, сглаживание с учётом DPI.</dd>
+<dt>Отличие от Web</dt><dd>Морфинг в CSS — <code>border-radius</code>, тоже просто. SDF-слияние в DOM невозможно (только «метаболы» через blur + contrast — грубо, портит текст). В WebGL — да, но в холсте.</dd>
+<dt>Ценность</dt><dd>Закон «круг/прямоугольник» становится видимым процессом: смена роли показана формой.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Морфинг прямо иллюстрирует закон. Шов — эстетика на грани: красиво, но смысла меньше. Вердикт: морфинг делать при случае, SDF — эксперимент.</dd>
+<dt>Путь</dt><dd>Морфинг — в существующей анимации: интерполировать <code>D2D1_ROUNDED_RECT</code>. SDF — <code>src/tray/gfx/sdf_effect.{h,cpp,hlsl}</code>, ps_4_0, параметры фигур в constant buffer.</dd>
+</dl></article>
+
+<article class="idea" id="b7">
+<header><span class="code">B7</span><h3>Прокрутка и инерция как у системы</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0 / 0c</span><span>сложность 3/5</span><span class="later">когда будут длинные списки</span></p></header>
+<dl>
+<dt>Что</dt><dd>Прокрутка тачпадом, пером и сенсором — с той же инерцией, упругим краем и рукой «к пальцу», что у системных окон. Для этого нужен DirectManipulation. Плюс анимации композитора, которые не останавливаются под модальным окном.</dd>
+<dt>Как выглядит</dt><dd>Список «Серверов» или журнал блока едет за двумя пальцами без задержки, отпущенный — плавно тормозит, на краю слегка упирается. Колесо мыши — шагами, как сейчас.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>IDirectManipulationManager</code> → viewport → <code>SetViewportOptions(MANUALUPDATE)</code>.</li>
+<li><code>DIRECTMANIPULATION_POINTER</code> с <code>WM_POINTERDOWN</code>: <code>SetContact</code>.</li>
+<li>Своя реализация <code>IDirectManipulationViewportEventHandler</code> читает трансформ в <code>OnContentUpdated</code>; каждый кадр — <code>Update()</code>.</li>
+<li>Прецизионный тачпад приходит как <code>DM_POINTERHITTEST</code>.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DirectManipulation (Windows 8+), Pointer API; позже — DComp-визуалы.</dd>
+<dt>Сложность</dt><dd>3/5: API капризный, документации мало.</dd>
+<dt>Отличие от Web</dt><dd>Тут Web <b>лучше</b> нас сейчас: Chromium сам использует DirectManipulation, и любая страница прокручивается по-системному. Нативно это надо сделать руками, иначе отстаём от Web.</dd>
+<dt>Ценность</dt><dd>Убирает признак «самодельного» окна на ноутбуках. На ПК с мышью у него — почти ноль.</dd>
+<dt>Реализуемость</dt><dd>Везде. Нужны длинные списки, которых пока мало.</dd>
+<dt>Целесообразность</dt><dd>Физика ввода — не декор, закон её не касается. Инерция — движение по жесту, даже при выключенных анимациях (система сама так делает). Вердикт: делать, когда появятся длинные прокручиваемые списки.</dd>
+<dt>Путь</dt><dd><code>src/tray/input/dmanip.{h,cpp}</code>: <code>ScrollSurface::Attach(hwnd)</code>, <code>OnPointerDown</code>, <code>Tick()</code> → смещение в модель страницы.</dd>
+</dl></article>
+
+<article class="idea" id="b8">
+<header><span class="code">B8</span><h3>Защитная крышка для опасных действий</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0 / 0a</span><span>сложность 2/5</span><span class="try">попробовать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Как крышка над тумблером в кабине самолёта. Над 2–3 опасными действиями — откинуть, затем нажать:
+<ul>
+<li>выключить kill switch;</li>
+<li>«Сломалось только что — пропустить всё за 2 мин»;</li>
+<li>удалить подписку.</li>
+</ul>
+Не диалог «вы уверены?», а предмет.</dd>
+<dt>Как выглядит</dt><dd>Над кнопкой — штрихованная (D3) прямоугольная крышка. Нажатие с удержанием 400 мс поднимает её с перспективой, кнопка становится доступной. Через 5 с без действия крышка закрывается сама. Без анимаций — крышка просто исчезает и появляется.</dd>
+<dt>Как работает</dt><dd>Состояние «закрыто/открыто/таймер». Перспектива — <code>DrawBitmap</code> с <code>D2D1_MATRIX_4X4_F</code> (DC1) или эффект <code>3DPerspectiveTransform</code>. Доступность: UI Automation — <code>ExpandCollapse</code> или <code>Invoke</code> с понятным именем.</dd>
+<dt>Технологии</dt><dd>D2D (3D-трансформ битмапа), наш таймер, UIA.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>В Web это тоже можно (<code>perspective</code>, <code>rotateX</code>). Отличие небольшое.</dd>
+<dt>Ценность</dt><dd>Защищает от случайного клика, не превращаясь в спам подтверждений. Опасность показана формой.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Перспектива на грани закона («без 3D»): поворот — движение изменения, но в покое крышка плоская. Вердикт: попробовать в макете на kill switch.</dd>
+<dt>Путь</dt><dd>Компонент <code>GuardCover</code> рядом с отрисовкой кнопок; три точки применения. Таймер — <code>SetTimer</code> на 5 с.</dd>
+</dl></article>
+
+<article class="idea" id="b9">
+<header><span class="code">B9</span><h3>Тёмное без ступенек и точные цвета</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a (+0b для 10 бит)</span><span>сложность 3/5</span><span class="do">дизеринг и привязка</span><span class="try">цветоуправление</span></p></header>
+<dl>
+<dt>Что</dt><dd>Три технические вещи для честной картинки на тёмном фоне.
+<ul>
+<li><b>Дизеринг</b> всех плавных слоёв (ореолы, выдержка, свет) синим шумом. Ступеньки в тёмных переходах исчезают, хотя градиентов в законе нет: плавность есть у ореолов ламп.</li>
+<li><b>Кромки 1 DIP, привязанные к физическим пикселям</b> на 125% и 150%: резкие, а не размазанные на два пикселя.</li>
+<li><b>Цветоуправление</b> на широкоохватных мониторах без системного ACM. VPN-синий остаётся тем же синим, и ворота ΔE ≥30 между судьбами выполняются на любом экране.</li>
+</ul></dd>
+<dt>Как выглядит</dt><dd>Ореол лампы гаснет без колец. Кромки карточек одинаково тонкие на любом масштабе. Синий и серый различимы и на дешёвом, и на широкоохватном мониторе. Пользователь ничего не «замечает» — просто чисто.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><b>Дизеринг.</b> Свой эффект: + (шум − 0,5)/255 перед квантованием. Синий шум — текстура 64×64 или IGN (interleaved gradient noise) по формуле.</li>
+<li><b>Привязка.</b> Координаты кромок округляются до <code>(round(x·dpi/96)+0,5)·96/dpi</code>.</li>
+<li><b>Цвет.</b> Эффект <code>ColorManagement</code>, профиль монитора из <code>GetICMProfileW</code>/WCS.</li>
+<li><b>10 бит</b> — только после 0b и только где DWM действительно выводит 10 бит.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>Свой D2D-эффект, <code>CLSID_D2D1ColorManagement</code>, <code>ID2D1ColorContext</code>, DPI-математика.</dd>
+<dt>Сложность</dt><dd>2/5 дизеринг и привязка, 3/5 цветоуправление (проверки на разных экранах).</dd>
+<dt>Отличие от Web</dt><dd>Chromium цветоуправляет картинки и CSS-цвета, это Web может. Но дизеринга собственных слоёв нет, а привязку кромок к физическим пикселям DOM на дробных масштабах не гарантирует.</dd>
+<dt>Ценность</dt><dd>Качество, которое видно на хороших экранах и не мешает на плохих. У него PangoBright усиливает ступеньки — дизеринг полезен прямо ему.</dd>
+<dt>Реализуемость</dt><dd>0a. Цветоуправление — Windows 8+; на Windows 11 с включённым Auto Color Management системой — не нужно.</dd>
+<dt>Целесообразность</dt><dd>Невидимая работа на закон (ворота ΔE и контраста). Вердикт: дизеринг и привязку делать, цветоуправление — проверить на широкоохватном мониторе.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/dither_effect.{h,cpp,hlsl}</code>; <code>SnapStroke(rect, dpi)</code> в <code>ui_style.h</code>; цвет — флаг в настройках JSON.</dd>
+</dl></article>
+
+<article class="idea" id="b10">
+<header><span class="code">B10</span><h3>Размытие движения по частоте экрана</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 1–2/5</span><span class="do">делать с B1</span></p></header>
+<dl>
+<dt>Что</dt><dd>Каждая движущаяся точка рисуется как короткая капсула вдоль скорости, длиной v·T, где T — реальный период кадра этого монитора. Заменяет три «призрака» на точку: на 60 Гц капсула длиннее, на 144 Гц короче. Движение одинаково гладкое на любом экране.</dd>
+<dt>Как выглядит</dt><dd>Быстрые точки — чёрточки, медленные — круги. Нет «стробоскопа» трёх отдельных копий.</dd>
+<dt>Как работает</dt><dd>T из <code>DwmGetCompositionTimingInfo</code> (<code>qpcRefreshPeriod</code>). Спрайт капсулы в атласе B1, растянутый трансформом спрайта по направлению скорости.</dd>
+<dt>Технологии</dt><dd>DWM timing, SpriteBatch.</dd>
+<dt>Сложность</dt><dd>1–2/5.</dd>
+<dt>Отличие от Web</dt><dd>Странице частота экрана известна только косвенно (по <code>requestAnimationFrame</code>), а при простое — никак.</dd>
+<dt>Ценность</dt><dd>Гладкость плюс экономия: одна капсула дешевле трёх призраков с ореолами.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Движение потока — в законе. Без анимаций не рисуется. Вердикт: делать вместе с B1.</dd>
+<dt>Путь</dt><dd>В <code>sprite_atlas</code> добавить капсулу. В <code>DrawLive</code> трансформ спрайта = поворот(v) × масштаб(1 + |v|·T/size).</dd>
+</dl></article>
+
+<article class="idea" id="b11">
+<header><span class="code">B11</span><h3>Векторная лупа</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 2/5</span><span class="later">только с D1/D2</span></p></header>
+<dl>
+<dt>Что</dt><dd>Средняя кнопка мыши с удержанием открывает прямоугольную лупу ×4. Она не увеличивает пиксели, а перерисовывает кадр в большем масштабе: гильош ключа (D1) и микротекст (D2) раскрываются в деталях.</dd>
+<dt>Как выглядит</dt><dd>Прямоугольное (по закону: лупа — вещь) окно 160×100 DIP у курсора с кромкой 1 DIP. Внутри — резкие тонкие линии и читаемый микротекст.</dd>
+<dt>Как работает</dt><dd>Кадр записывается в <code>ID2D1CommandList</code>. Лупа — слой с клипом, внутри <code>DrawImage(commandList)</code> с трансформом ×4 вокруг курсора. Нужен рефакторинг: <code>Paint(ID2D1DeviceContext*)</code> рисует в любую цель.</dd>
+<dt>Технологии</dt><dd><code>ID2D1CommandList</code>, слои D2D.</dd>
+<dt>Сложность</dt><dd>2/5 (рефакторинг <code>Paint</code> — основное).</dd>
+<dt>Отличие от Web</dt><dd>В Web можно отрисовать DOM второй раз с <code>transform: scale</code>, но не «тот же кадр как запись». Средняя кнопка в браузере занята автопрокруткой.</dd>
+<dt>Ценность</dt><dd>Без D1/D2 — почти ноль: интерфейс и так крупный.</dd>
+<dt>Реализуемость</dt><dd>Везде. Alt не годится — он открывает системное меню.</dd>
+<dt>Целесообразность</dt><dd>Сама по себе — игрушка. Вместе с D1 — способ сверить отпечаток ключа «как на банкноте». Вердикт: только вместе с D1/D2.</dd>
+<dt>Путь</dt><dd>Рефакторинг <code>Paint</code> (<code>main_window.cpp:~6735</code>) на <code>Paint(dc)</code>. <code>src/tray/gfx/loupe.{h,cpp}</code>; <code>WM_MBUTTONDOWN</code>/<code>UP</code>.</dd>
+</dl></article>
+
+<article class="idea" id="b12">
+<header><span class="code">B12</span><h3>Свой графический runtime: часы, эталонные снимки, перемотка</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>все слои</span><span>сложность 4/5</span><span class="do">по частям</span></p></header>
+<dl>
+<dt>Что</dt><dd>Не эффект, а инфраструктура, без которой остальные идеи не проверить.
+<ul>
+<li><b>Детерминированные часы:</b> анимации считаются от нашего времени, а не от системного.</li>
+<li><b>Эталонные снимки через WARP</b> в <code>ctest</code>: любой кадр в любой момент анимации сравнивается с образцом.</li>
+<li><b>Горячая перезагрузка HLSL</b> в отладочной сборке.</li>
+<li><b>Слои с разной частотой</b> и <code>Present1</code> с грязными прямоугольниками.</li>
+<li><b>Перемотка времени:</b> он может посмотреть анимацию, которую при выключенных анимациях не видит.</li>
+</ul></dd>
+<dt>Как выглядит</dt><dd>Для пользователя — никак. Для разработки: окно отладки с ползунком времени, кадр 0…240 мс складки по шагам; отчёт тестов с картинками-разницами.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>gfx::Clock</code> — источник времени (реальный, фиксированный шаг, ручной).</li>
+<li>Снимки: D3D11 WARP → <code>ID2D1DeviceContext</code> → <code>ID2D1Bitmap1</code> CPU_READ → PNG через WIC. Сравнение с допуском (ClearType даёт разницу между драйверами, поэтому в тестах — grayscale AA).</li>
+<li>HLSL: <code>D3DCompileFromFile</code> в отладке, <code>.cso</code> от <code>fxc</code> в релизе.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>D3D11 WARP, WIC, <code>d3dcompiler_47</code> (только в отладке), CMake/ctest.</dd>
+<dt>Сложность</dt><dd>4/5 целиком; часы и снимки — 2/5.</dd>
+<dt>Отличие от Web</dt><dd>У Web есть Playwright-снимки и DevTools-замедление анимаций. Отличие в контроле: у нас детерминированный рендер на WARP, одинаковый на любой машине.</dd>
+<dt>Ценность</dt><dd>Без этого A2/B2/D3 калибруются на глаз и ломаются незаметно. Перемотка — единственный способ для него видеть движение.</dd>
+<dt>Реализуемость</dt><dd>Везде. Основа — уже существующая WIC-цель снимков (<code>main_window.cpp:~6874</code>).</dd>
+<dt>Целесообразность</dt><dd>Вне дизайна, нужна для него. Вердикт: делать по частям — сначала часы и WARP-снимки.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/clock.h</code>, <code>src/tray/gfx/snapshot.{h,cpp}</code>, <code>tests/visual/</code> с эталонами в git LFS или PNG малого размера.</dd>
+</dl></article>
+
+<h2 id="cat-c">C — уникально для Windows</h2>
+<p class="lead">Окно — не весь интерфейс. Sovereign управляет трафиком всей системы, и интерфейс может жить там, где живут программы: на их окнах, в трее, на краю экрана, на панели задач. Браузерная страница за пределы своего прямоугольника не выходит.</p>
+
+<article class="idea" id="c1">
+<header><span class="code">C1</span><h3>Судьба под курсором: указать на окно — задать маршрут</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0c</span><span>сложность 2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Вместо поиска «telegram.exe» в списке пользователь тащит прицел из Sovereign на любое окно. Окно обводится рамкой цвета его текущей судьбы, а отпускание открывает выбор: VPN / WARP / напрямую / блок. Второй способ — бросить ярлык или exe на окно Sovereign.</dd>
+<dt>Как выглядит</dt><dd>Прицел — белый (рука пользователя). Под курсором окно Telegram обведено синей рамкой 2 DIP с подписью «Telegram · VPN». Отпустил — у курсора четыре чипа судеб. Выбор — рамка мгновенно меняет цвет (с B3 — волной).</dd>
+<dt>Как работает</dt><dd><ul>
+<li>Захват мыши (<code>SetCapture</code>) с курсора-прицела.</li>
+<li><code>WindowFromPoint</code> → <code>GetAncestor(GA_ROOT)</code> → <code>GetWindowThreadProcessId</code> → <code>OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)</code> → <code>QueryFullProcessImageNameW</code>.</li>
+<li>UWP: верхнее окно — <code>ApplicationFrameHost</code>; настоящий процесс — у дочернего <code>Windows.UI.Core.CoreWindow</code>.</li>
+<li>Рамка — по <code>DWMWA_EXTENDED_FRAME_BOUNDS</code> (без невидимых полей ресайза) на прозрачном окне-наложении (0c).</li>
+<li>Бросок — <code>IDropTarget</code> с <code>CF_HDROP</code>; ярлык разворачивается <code>IShellLinkW::GetPath</code>. UIPI не даёт бросать из обычного процесса в повышенный — у нас трей не повышенный, проверить.</li>
+<li>Правило — по пути exe: дочерние процессы Chrome имеют тот же путь, правило их покроет.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>Win32 (окна, процессы, захват мыши, OLE drag-drop), DWM, DComp-наложение.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: страница не видит чужих окон и процессов.</dd>
+<dt>Ценность</dt><dd>Главная. Маршрутизация по программам — суть клиента, а сейчас она требует знать имя exe. «Укажи и выбери» снимает барьер полностью.</dd>
+<dt>Реализуемость</dt><dd>Везде. Окна от имени администратора без повышения не прочитать — для них подпись «нужны права администратора».</dd>
+<dt>Целесообразность</dt><dd>Белый прицел — рука; рамка — линия судьбы; без анимаций работает целиком. Вердикт: делать, одна из лучших.</dd>
+<dt>Путь</dt><dd><ol>
+<li><code>src/tray/pick/window_picker.{h,cpp}</code>: <code>PickResult{hwnd, pid, exePath, title}</code>.</li>
+<li><code>src/tray/overlay/frame_overlay.{h,cpp}</code> на <code>dcomp_window</code>.</li>
+<li>Кнопка-прицел на странице «Маршруты» и <code>IDropTarget</code> на главном окне.</li>
+<li>Результат — то же правило, что из редактора JSON.</li>
+</ol></dd>
+</dl></article>
+
+<article class="idea" id="c2">
+<header><span class="code">C2</span><h3>Рентген маршрутов: весь экран в цветах судеб</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0c</span><span>сложность 3/5</span><span class="do">делать после C1</span></p></header>
+<dl>
+<dt>Что</dt><dd>Удержание глобальной клавиши — и все окна на экране получают рамки цвета их маршрута. Видно сразу: Telegram через VPN, браузер напрямую, игра через WARP, а вот эта программа заблокирована. Отпустил — всё исчезло.</dd>
+<dt>Как выглядит</dt><dd>Рамки 2 DIP по видимым частям окон — перекрытые окна обведены только там, где видны. На каждом — табличка «Telegram · VPN · 3 соед.». Заблокированные — красная рамка и счётчик отказов из sov-block. Неактивные программы — серые.<canvas class="sketch" data-sketch="xray"></canvas><p class="cap">Окна нарисованы сзади вперёд, поэтому рамки перекрытых окон видны только там, где видны сами окна.</p></dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>RegisterHotKey</code> + опрос <code>GetAsyncKeyState</code> для отпускания.</li>
+<li><code>EnumWindows</code> в z-порядке, фильтр: видимые, не свёрнутые, <code>DWMWA_CLOAKED</code> = 0 (скрытые на других рабочих столах).</li>
+<li>Видимая область — вычитание прямоугольников вышележащих окон.</li>
+<li>Наложение без кликов (<code>WS_EX_TRANSPARENT | WS_EX_LAYERED</code> + DComp) — по одному на монитор.</li>
+<li>Судьба — по пути exe из таблицы соединений ядра.</li>
+<li>Слежение во время удержания — <code>SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE)</code>.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>Win32 (хоткеи, перечисление окон, WinEvent), DWM, DComp, данные ядра.</dd>
+<dt>Сложность</dt><dd>3/5: многомониторность, DPI каждого монитора, перекрытия.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно.</dd>
+<dt>Ценность</dt><dd>Отвечает на вопрос «что у меня сейчас идёт мимо VPN?» за секунду. Это и проверка доверия к kill switch, и диагностика «почему не работает».</dd>
+<dt>Реализуемость</dt><dd>Везде. PangoBright тоже рисует поверх — проверить порядок окон.</dd>
+<dt>Целесообразность</dt><dd>Линии судьбы на чужих окнах — продолжение закона за пределы окна. Без анимаций — то же самое. Вердикт: делать после C1 (общие наложение и поиск процесса).</dd>
+<dt>Путь</dt><dd><code>src/tray/overlay/xray.{h,cpp}</code>; хоткей регистрировать в <code>main.cpp</code> (поток трея); клавиша в настройках JSON (по умолчанию Win+Shift+V или свободная).</dd>
+</dl></article>
+
+<article class="idea" id="c3">
+<header><span class="code">C3</span><h3>Линия судьбы по краю экрана</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0c</span><span>сложность 2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Когда клиент сам меняет маршрут, без пользователя, по краю рабочей области на миг проходит линия цвета новой судьбы. Повод — kill switch сработал, откат на WARP, smart-режим перевёл сайт. Не уведомление с текстом, а знак на периферии зрения.</dd>
+<dt>Как выглядит</dt><dd>Тонкая (3 DIP, как рельс) оранжевая линия вдоль верхнего края рабочей области. Без анимаций — появляется целиком на 1,5 с и исчезает. С анимациями — пробегает от угла к углу.</dd>
+<dt>Как работает</dt><dd><ul>
+<li>Наложение без кликов по <code>rcWork</code> монитора с окном Sovereign (или основного).</li>
+<li>Глушится в полном экране и «не беспокоить»: <code>SHQueryUserNotificationState</code> — <code>QUNS_BUSY</code>, <code>QUNS_RUNNING_D3D_FULL_SCREEN</code>, <code>QUNS_PRESENTATION_MODE</code>, <code>QUNS_QUIET_TIME</code>.</li>
+<li>DComp-анимация не нагружает наш поток.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DComp, Win32 (монитор, состояние уведомлений).</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: страница не рисует вне окна. Web Notifications — только системная карточка.</dd>
+<dt>Ценность</dt><dd>Честность клиента: всё, что он решил сам, видно сразу, а не только в отчёте «Клиент решил сам».</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Линия — форма судьбы по закону. 1,5 с не входит в шкалу 90/160/240 — это показ, а не переход; отметить в законе. Риск — раздражение: только для изменений, которые сделал не пользователь, и не чаще раза в 10 с. Вердикт: делать.</dd>
+<dt>Путь</dt><dd><code>src/tray/overlay/edge_line.{h,cpp}</code>; источник событий — тот же, что пишет «Клиент решил сам».</dd>
+</dl></article>
+
+<article class="idea" id="c4">
+<header><span class="code">C4</span><h3>Значок в трее как прибор и окно, растущее из него</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0 / 0c</span><span>сложность 2–3/5</span><span class="do">значок</span><span class="try">рост окна</span></p></header>
+<dl>
+<dt>Что</dt><dd>Значок в трее рисуется на лету тем же D2D, что и окно: лампа текущей судьбы плюс тонкая полоска скорости. Второе: окно открывается не из ниоткуда, а вырастает из значка.</dd>
+<dt>Как выглядит</dt><dd>16×16 (или 20/24 на высоком DPI): круг-лампа синего цвета, под ним полоска 2 px длиной по скорости, квантованная на 4 ступени. Kill switch держит — лампа становится красным кольцом. Окно при открытии разворачивается из точки значка за 240 мс; без анимаций — просто появляется.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><b>Значок.</b> Размер — <code>GetSystemMetricsForDpi(SM_CXSMICON)</code>. D2D рисует в WIC-битмап → <code>CreateIconIndirect</code> → <code>Shell_NotifyIconW(NIM_MODIFY)</code>. Обновлять только при смене ступени, с гистерезисом, чтобы полоска не дрожала.</li>
+<li><b>Рост.</b> <code>Shell_NotifyIconGetRect</code> даёт прямоугольник значка. Снимок первого кадра окна ставится на DComp-наложение и анимируется от прямоугольника значка к окну; затем показывается настоящее окно.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>D2D → WIC → HICON, Shell_NotifyIcon, DComp.</dd>
+<dt>Сложность</dt><dd>2/5 значок, 3/5 рост.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: у страницы нет значка в трее. Фавикон можно рисовать, но это не системная область.</dd>
+<dt>Ценность</dt><dd>Состояние без открытия окна — то, ради чего клиент живёт в трее. Рост окна показывает связь «значок = это окно».</dd>
+<dt>Реализуемость</dt><dd>Везде. На Windows 11 новые значки по умолчанию спрятаны в переполнение — подсказать при первом запуске.</dd>
+<dt>Целесообразность</dt><dd>Круг-лампа — состояние по закону. Полоска скорости — данные; если дрожит — убрать. Рост — движение изменения, в законе. Вердикт: значок делать, рост попробовать.</dd>
+<dt>Путь</dt><dd><code>src/tray/tray_icon_render.{h,cpp}</code>: <code>RenderTrayIcon(state, rateStep, dpi) → HICON</code>; вызов из <code>TrayIcon</code> в <code>main.cpp</code>. Рост — на <code>dcomp_window</code>.</dd>
+</dl></article>
+
+<article class="idea" id="c5">
+<header><span class="code">C5</span><h3>Рамка окна цвета судьбы</h3>
+<p class="tags"><span>LTSC 2021 — игнорируется</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 1/5</span><span class="do">делать сразу</span></p></header>
+<dl>
+<dt>Что</dt><dd>Системная рамка окна Sovereign окрашивается в цвет основной судьбы: синий при VPN, оранжевый при WARP, серый при «напрямую», красный, пока держит kill switch.</dd>
+<dt>Как выглядит</dt><dd>Тонкая системная кромка 1 px со скруглением Windows 11 — синяя. Видна даже краем глаза, когда окно не в фокусе.</dd>
+<dt>Как работает</dt><dd><code>DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &amp;colorref, sizeof)</code>. Вызывается при смене состояния. На Windows 10 атрибут отвергается — ничего не происходит.</dd>
+<dt>Технологии</dt><dd>DWM (Windows 11 22000+).</dd>
+<dt>Сложность</dt><dd>1/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: рамка окна браузера — не страницы.</dd>
+<dt>Ценность</dt><dd>Максимум эффекта за минимум кода. Окно говорит своё состояние самой формой.</dd>
+<dt>Реализуемость</dt><dd>Только Windows 11. Проверить, что рамка видна с нашим <code>WM_NCCALCSIZE</code> (у окна есть <code>WS_THICKFRAME</code>, должна).</dd>
+<dt>Целесообразность</dt><dd>Судьба — линия; рамка — линия. Без анимаций то же. Вердикт: делать сразу.</dd>
+<dt>Путь</dt><dd><code>ApplyFateBorder(hwnd, fate)</code> рядом с вызовом <code>DWMWA_USE_IMMERSIVE_DARK_MODE</code>; цвета из <code>ui_style.h</code>.</dd>
+</dl></article>
+
+<article class="idea" id="c6">
+<header><span class="code">C6</span><h3>Шар состояния на рабочем столе</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0c</span><span>сложность 2/5</span><span class="try">как опция</span></p></header>
+<dl>
+<dt>Что</dt><dd>Маленькое круглое окно-лампа (по закону: круг — состояние) поверх всего, прижатое к краю экрана. Для тех, у кого значок трея спрятан. Клик — главное окно, правый клик — судьбы.</dd>
+<dt>Как выглядит</dt><dd>Круг 20 DIP: ядро лампы цвета судьбы, кромка .40. Прозрачен по пикселям, вне круга клики проходят насквозь. Тащится, прилипает к краю рабочей области.</dd>
+<dt>Как работает</dt><dd>DComp-окно с альфой. Сквозные клики — <code>SetWindowRgn</code> по кругу: <code>HTTRANSPARENT</code> работает только для окон своего потока, чужим окнам клик не отдаст. Прилипание — к <code>rcWork</code>. DPI — per-monitor v2.</dd>
+<dt>Технологии</dt><dd>DComp, Win32 (регион окна, DPI).</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: Document PiP — прямоугольное окно с рамкой браузера.</dd>
+<dt>Ценность</dt><dd>Средняя: дублирует трей. Нужен тем, кто прячет трей или работает в полном экране на втором мониторе.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Форма в законе. Риск — навязчивость, поэтому только опция в JSON, по умолчанию выключено. Вердикт: попробовать как опцию.</dd>
+<dt>Путь</dt><dd><code>src/tray/overlay/orb.{h,cpp}</code> на <code>dcomp_window</code>; положение в настройках.</dd>
+</dl></article>
+
+<article class="idea" id="c7">
+<header><span class="code">C7</span><h3>Отрываемые чипы</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0c</span><span>сложность 3/5</span><span class="later">потом</span></p></header>
+<dl>
+<dt>Что</dt><dd>Любой чип (сервер, правило, счётчик блока) вытаскивается из окна на рабочий стол и живёт там отдельным маленьким окном. Перетащил на другой чип — сделал действие; бросил обратно — вернул.</dd>
+<dt>Как выглядит</dt><dd>Чип «Нидерланды · 43 мс» висит у края второго монитора, живой. Бросил на кубик — подключился.</dd>
+<dt>Как работает</dt><dd>Захват при выходе курсора за окно → DComp-окно с отрисовкой чипа; положение — за курсором; бросок — по <code>WindowFromPoint</code>.</dd>
+<dt>Технологии</dt><dd>DComp, Win32.</dd>
+<dt>Сложность</dt><dd>3/5.</dd>
+<dt>Отличие от Web</dt><dd>Document PiP даёт одно окно на вкладку; HTML drag-drop не выводит элемент в отдельное окно.</dd>
+<dt>Ценность</dt><dd>Пока чипов, которые хочется держать на виду, мало.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Прямоугольник — вещь, её можно носить. Без анимаций — без изменений. Вердикт: потом.</dd>
+<dt>Путь</dt><dd>После 0c: <code>src/tray/overlay/torn_chip.{h,cpp}</code>.</dd>
+</dl></article>
+
+<article class="idea" id="c8">
+<header><span class="code">C8</span><h3>Живые миниатюры окон рядом с «Кто обращается»</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="try">попробовать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Наведение на программу в меню «Кто обращается» показывает рядом живую миниатюру её окна. «firefox.exe» — абстракция, а миниатюра сразу говорит, какая это вкладка и какое приложение.</dd>
+<dt>Как выглядит</dt><dd>Справа от меню — прямоугольник 200×120 с живой картинкой окна в рамке цвета его судьбы. Чужие цвета — только по наведению, в своей рамке.</dd>
+<dt>Как работает</dt><dd>Отдельное всплывающее окно, управляемое <code>WM_MENUSELECT</code>; положение — <code>GetMenuItemRect</code>. Окно программы — по PID через <code>EnumWindows</code>. <code>DwmRegisterThumbnail</code> + <code>DwmUpdateThumbnailProperties</code> — DWM сам кладёт живую картинку, мы не копируем пиксели.</dd>
+<dt>Технологии</dt><dd>DWM thumbnails, Win32 menus.</dd>
+<dt>Сложность</dt><dd>2/5. Свёрнутые окна дают последнюю картинку или ничего — проверить.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно (Screen Capture API требует выбор пользователя каждый раз).</dd>
+<dt>Ценность</dt><dd>Опознание программы за долю секунды.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Чужие цвета в нашем окне — против тишины интерфейса, но на миг и в рамке судьбы. Вердикт: попробовать.</dd>
+<dt>Путь</dt><dd><code>src/tray/thumb_popup.{h,cpp}</code>; хук в обработчике меню (<code>main_window.cpp:5857/6107</code>).</dd>
+</dl></article>
+
+<article class="idea" id="c9">
+<header><span class="code">C9</span><h3>Панель задач: карточка-миниатюра, кнопки, прогресс</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="do">карточка и прогресс</span><span class="later">Jump List</span></p></header>
+<dl>
+<dt>Что</dt><dd>При наведении на кнопку Sovereign в панели задач — не уменьшенная копия окна, а собственная карточка: судьба, сервер, скорость. Под ней — кнопки «VPN / WARP / пауза». Прогресс в кнопке показывает обновление и замер скорости. Значок-наложение — состояние.</dd>
+<dt>Как выглядит</dt><dd>Карточка 200×110 в стиле окна: лампа, «Нидерланды», «87 Мбит/с» табличными цифрами. Под ней 3 кнопки-значка. При замере — полоска прогресса прямо в кнопке панели задач.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>DWMWA_FORCE_ICONIC_REPRESENTATION</code> + <code>DWMWA_HAS_ICONIC_BITMAP</code>; на <code>WM_DWMSENDICONICTHUMBNAIL</code> — D2D в DIB → <code>DwmSetIconicThumbnail</code>. Живой предпросмотр — <code>DwmSetIconicLivePreviewBitmap</code>.</li>
+<li><code>ITaskbarList3::ThumbBarAddButtons</code> после сообщения <code>TaskbarButtonCreated</code>.</li>
+<li><code>SetOverlayIcon</code>, <code>SetProgressState</code>/<code>SetProgressValue</code>. Системные цвета прогресса: зелёный, жёлтый, красный — совпадают с вердиктами и блоком.</li>
+<li>Jump List — <code>ICustomDestinationList</code>, нужен ярлык с AUMID.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>DWM iconic thumbnails, <code>ITaskbarList3</code>, <code>ICustomDestinationList</code>.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: у PWA есть badging и ярлыки, но не своя миниатюра и не кнопки.</dd>
+<dt>Ценность</dt><dd>Средняя: кнопка в панели задач есть только пока окно открыто. Но карточка — бесплатный «виджет».</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Карточка — уменьшенный язык окна. Вердикт: карточку и прогресс делать, Jump List — потом.</dd>
+<dt>Путь</dt><dd><code>src/tray/taskbar.{h,cpp}</code>: <code>Taskbar::OnCreated</code>, <code>SetProgress</code>, <code>RenderIconic(size)</code>; рисует тем же <code>Paint</code>-кодом после рефакторинга B11.</dd>
+</dl></article>
+
+<article class="idea" id="c10">
+<header><span class="code">C10</span><h3>Палитра по глобальной клавише: судьба для текущего окна</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0 / 0c</span><span>сложность 2/5</span><span class="do">делать после C1</span></p></header>
+<dl>
+<dt>Что</dt><dd>Глобальная клавиша открывает маленькую палитру над текущим окном. Одна буква — действие для программы этого окна: V — VPN, W — WARP, B — блок, S — пропустить, T — замер. Без мыши и без поиска.</dd>
+<dt>Как выглядит</dt><dd>Полоса шириной 560 (максимум страницы по закону) по центру активного монитора: «Telegram — сейчас VPN», ниже пять букв-чипов. Нажал W — палитра закрылась, рамка C5/C2 мигнула оранжевым.</dd>
+<dt>Как работает</dt><dd><code>RegisterHotKey</code>; <b>до</b> показа палитры — <code>GetForegroundWindow</code> и PID (иначе активным станет наша палитра). Дальше — путь C1. Палитра без поля ввода — нет проблем с EDIT и IME.</dd>
+<dt>Технологии</dt><dd>Win32 хоткеи, путь процесса из C1, наше окно.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: страница не получает глобальных клавиш и не знает активное окно.</dd>
+<dt>Ценность</dt><dd>Высокая для тех, кто живёт с клавиатурой: «эта программа не работает → W».</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Белые буквы — рука, чипы — судьбы. Без анимаций то же. Вердикт: делать после C1.</dd>
+<dt>Путь</dt><dd><code>src/tray/palette.{h,cpp}</code>; хоткей в <code>main.cpp</code>; клавиша в JSON.</dd>
+</dl></article>
+
+<article class="idea" id="c11">
+<header><span class="code">C11</span><h3>Секреты, которых нет на снимках экрана</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 1–2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Окно с секретами — ссылкой подписки, ключами, QR для телефона — исключено из снимков экрана, записи и трансляций. На скриншоте, в Zoom и OBS на его месте пусто. Честная подпись в окне: «не попадает в снимки экрана».</dd>
+<dt>Как выглядит</dt><dd>Для пользователя — обычное окно с маленькой подписью. На снимке — чёрный или прозрачный прямоугольник.</dd>
+<dt>Как работает</dt><dd><code>SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)</code> (Windows 10 2004+), запасной — <code>WDA_MONITOR</code> (чёрный прямоугольник). Работает только для верхнеуровневых окон, поэтому секреты — в своём окне, не на странице главного.</dd>
+<dt>Технологии</dt><dd>Win32/DWM.</dd>
+<dt>Сложность</dt><dd>1–2/5 (основное — вынести показ секретов в отдельное окно).</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: DRM-видео исключается из захвата, а обычный DOM — нет.</dd>
+<dt>Ценность</dt><dd>Высокая и прямо по профилю: ссылки подписки утекают через скриншоты в чаты поддержки.</dd>
+<dt>Реализуемость</dt><dd>LTSC 2021 (19044) ≥ 2004 — работает. Не защищает от фотографии телефоном — в подписи не обещать больше.</dd>
+<dt>Целесообразность</dt><dd>Вне визуального закона; подпись — вторичный текст. Вердикт: делать.</dd>
+<dt>Путь</dt><dd><code>src/tray/secret_window.{h,cpp}</code>: окно с QR и ссылкой, affinity в <code>WM_CREATE</code>.</dd>
+</dl></article>
+
+<article class="idea" id="c12">
+<header><span class="code">C12</span><h3>Печать Windows Hello</h3>
+<p class="tags"><span>LTSC 2021 ✓ (если есть Hello)</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="try">попробовать с C11</span></p></header>
+<dl>
+<dt>Что</dt><dd>Показ секретов (C11) и опасные действия (B8) требуют подтверждения присутствия: лицо, палец или PIN Windows Hello. Системный диалог поверх нашего окна.</dd>
+<dt>Как выглядит</dt><dd>Нажал «показать ссылку подписки» — системное окно Hello. Подтвердил — окно секретов открылось.</dd>
+<dt>Как работает</dt><dd><code>IUserConsentVerifierInterop::RequestVerificationForWindowAsync(hwnd, message)</code> через C++/WinRT; заранее <code>CheckAvailabilityAsync</code>. Без Hello — <code>CredUIPromptForWindowsCredentialsW</code> с паролем учётной записи.</dd>
+<dt>Технологии</dt><dd>WinRT (<code>Windows.Security.Credentials.UI</code>), C++/WinRT, CredUI.</dd>
+<dt>Сложность</dt><dd>2/5 (подключить C++/WinRT в сборку).</dd>
+<dt>Отличие от Web</dt><dd>WebAuthn даёт Hello, но через регистрацию ключа на сайте, а не «просто подтвердить, что это ты».</dd>
+<dt>Ценность</dt><dd>Средняя: защита от соседа за компьютером. Это проверка присутствия, а не шифрование — для хранения секретов нужен DPAPI или <code>KeyCredentialManager</code>.</dd>
+<dt>Реализуемость</dt><dd>Минимальная версия ОС для interop-метода не проверена — нужен запасной путь.</dd>
+<dt>Целесообразность</dt><dd>Вне визуального закона. Вердикт: попробовать вместе с C11.</dd>
+<dt>Путь</dt><dd><code>src/tray/hello_seal.{h,cpp}</code>: <code>bool RequirePresence(hwnd, reason)</code> — синхронная обёртка над async.</dd>
+</dl></article>
+
+<article class="idea" id="c13">
+<header><span class="code">C13</span><h3>Графика, которая знает обстановку</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 1–2/5</span><span class="do">делать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Единый «бюджет графики» от состояния системы.
+<ul>
+<li>На батарее и в режиме экономии — выдержка B2 вместо частиц, 15 кадров в секунду.</li>
+<li>Окно перекрыто или удалённый сеанс — кадры стоят.</li>
+<li>Полный экран или презентация — никаких наложений C3/C6.</li>
+</ul></dd>
+<dt>Как выглядит</dt><dd>Почти никак — в этом смысл. Ноутбук не греется от кубика, RDP не тормозит от частиц.</dd>
+<dt>Как работает</dt><dd><ul>
+<li><code>RegisterPowerSettingNotification</code>: <code>GUID_POWER_SAVING_STATUS</code>, <code>GUID_ACDC_POWER_SOURCE</code>; на Windows 11 — <code>GUID_ENERGY_SAVER_STATUS</code>.</li>
+<li><code>SHQueryUserNotificationState</code>.</li>
+<li>Перекрытие — <code>DXGI_STATUS_OCCLUDED</code>/<code>CheckWindowState</code> после 0b, сейчас <code>D2DERR_WINDOW_OCCLUDED</code> не приходит — проверить <code>IsIconic</code> и видимость.</li>
+<li><code>GetSystemMetrics(SM_REMOTESESSION)</code> + <code>WTSRegisterSessionNotification</code>.</li>
+</ul></dd>
+<dt>Технологии</dt><dd>Win32 power и сессии, Shell.</dd>
+<dt>Сложность</dt><dd>1–2/5.</dd>
+<dt>Отличие от Web</dt><dd>Web знает видимость вкладки и (частично) батарею; удалённый сеанс, режим экономии и полный экран чужой игры — нет.</dd>
+<dt>Ценность</dt><dd>Делает живую графику безопасной для ноутбуков и RDP.</dd>
+<dt>Реализуемость</dt><dd>Везде, Energy Saver — только 11.</dd>
+<dt>Целесообразность</dt><dd>Вне закона. Вердикт: делать.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/situation.{h,cpp}</code> → <code>GraphicsBudget{fps, particles, overlays}</code>; читают <code>DrawLive</code>, таймер кубика (<code>kCubeFrameMs</code>, <code>kCubeIdleFrameMs</code>) и наложения.</dd>
+</dl></article>
+
+<h2 id="cat-d">D — экспериментальная графика</h2>
+<p class="lead">Здесь ищется собственный визуальный язык. Многие идеи взяты из защитной печати (гильош, микротекст, гравюра), из фотографии и из приборов: у них общий корень — данные, нарисованные линией. Плюс две идеи, оставленные как граница «нет».</p>
+
+<article class="idea" id="d1">
+<header><span class="code">D1</span><h3>Гильош ключа: отпечаток сервера как защитная сетка</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2–3/5</span><span class="do">делать — ядро языка</span></p></header>
+<dl>
+<dt>Что</dt><dd>У каждого сервера — розетка из тонких переплетённых кривых, как на банкноте. Её форма однозначно выводится из публичного ключа сервера. Ключ сменился (переустановка сервера, подмена) — розетка стала другой, и это видно глазом без сравнения 64 символов hex. Отпечаток SSH, но человеческий.</dd>
+<dt>Как выглядит</dt><dd><canvas class="sketch" data-sketch="guilloche"></canvas><p class="cap">Слева — ключ A, справа — ключ A′, отличающийся одним битом. В эскизе — простой хеш JS; в клиенте — SHA-256.</p>Розетка ~48 DIP в карточке сервера: 3–5 гипотрохоид линиями 0,5–0,75 DIP, нейтрально-серые. Это идентичность, а не судьба, поэтому не цветные.</dd>
+<dt>Как работает</dt><dd><ol>
+<li>SHA-256 (BCrypt, <code>bcrypt.lib</code>) от <b>только публичного материала</b>: публичный ключ Reality или SPKI сертификата. <b>Никогда</b> не UUID и не пароли: UUID vless — это учётные данные.</li>
+<li>Байты хеша → параметры: R, r, d гипотрохоид, фазы, число витков, плотность.</li>
+<li>Геометрия — <code>ID2D1PathGeometry</code> по ~2000 точкам; кеш в <code>ID2D1GeometryRealization</code> (рисуется дёшево каждый кадр).</li>
+</ol></dd>
+<dt>Технологии</dt><dd>BCrypt, геометрия D2D, <code>CreateStrokedGeometryRealization</code>.</dd>
+<dt>Сложность</dt><dd>2/5 рисунок. 3/5 — подбор пространства параметров, чтобы близкие хеши давали далёкие картинки и любая картинка была красивой.</dd>
+<dt>Отличие от Web</dt><dd>Технически в SVG/Canvas можно. Отличие в качестве: тонкие линии 0,5 DIP с аналитическим сглаживанием D2D против пересэмплирования Canvas, и кеш реализаций. И ключ сервера в процессе, а не в JS.</dd>
+<dt>Ценность</dt><dd>Безопасность, ставшая образом: подмена сервера заметна. И знак, который больше никто не делает — основа своего языка.</dd>
+<dt>Реализуемость</dt><dd>Везде. Тонкие линии на 100% масштабе сливаются — минимум 0,75 DIP при 96 dpi.</dd>
+<dt>Целесообразность</dt><dd>Линия, без заливки, без цвета — в законе. Без анимаций — то же. Вердикт: делать, это ядро языка.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/guilloche.{h,cpp}</code>: <code>GuillocheParams FromKey(span&lt;const byte&gt; pub)</code>, <code>Build(factory, params, size)</code> → realization. Ключ — из конфигурации outbound (поле <code>public_key</code> в Reality).</dd>
+</dl></article>
+
+<article class="idea" id="d2">
+<header><span class="code">D2</span><h3>Микротекст в линиях судьбы</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="try">эксперимент с B11</span></p></header>
+<dl>
+<dt>Что</dt><dd>Рельс судьбы при обычном масштабе — сплошная линия. При увеличении (B11 или масштаб ≥200%) это строка микротекста: «VPN · nl-kerkrade · 43 ms · reality · …». Как микропечать на банкноте.</dd>
+<dt>Как выглядит</dt><dd>В лупе синий рельс оказывается мелкой синей надписью, повторяющей маршрут.</dd>
+<dt>Как работает</dt><dd>LOD: при малом масштабе — <code>DrawGeometry</code>, при большом — текст вдоль пути (A5). Микротекст на 100% даёт муар и шум, поэтому только при увеличении.</dd>
+<dt>Технологии</dt><dd>A5 (текст по пути), B11.</dd>
+<dt>Сложность</dt><dd>2/5 после A5.</dd>
+<dt>Отличие от Web</dt><dd>SVG textPath умеет; LOD по масштабу — руками.</dd>
+<dt>Ценность</dt><dd>Низкая как информация (её проще показать подписью). «Скрытое изображение» — ещё ниже.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Линия остаётся линией — в законе. Вердикт: эксперимент, только с лупой.</dd>
+<dt>Путь</dt><dd>В <code>glyph_geometry</code>: <code>MicroTextAlong(path, text, sizeDip)</code>; выбор LOD — по масштабу трансформа.</dd>
+</dl></article>
+
+<article class="idea" id="d3">
+<header><span class="code">D3</span><h3>Гравюрная штриховка вместо заливок</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 3/5</span><span class="try">попробовать в макете</span></p></header>
+<dl>
+<dt>Что</dt><dd>Там, где нужен тон — область под графиком, неактивная зона, крышка B8, — вместо заливки и градиента параллельные штрихи. Тон задаёт толщина штриха, как в гравюре. Это способ показать «плотность» без запрещённого градиента.</dd>
+<dt>Как выглядит</dt><dd><canvas class="sketch" data-sketch="hatch"></canvas><p class="cap">Площадь под кривой задержки: штрих толще там, где значение больше.</p></dd>
+<dt>Как работает</dt><dd>Свой пиксельный эффект: расстояние до ближайшей линии сетки под углом, порог = тон; сглаживание аналитическое (<code>fwidth</code>). Шаг сетки — целое число физических пикселей, иначе муар (и проверить под PangoBright).</dd>
+<dt>Технологии</dt><dd>Свой D2D-эффект (0a).</dd>
+<dt>Сложность</dt><dd>3/5 (муар, DPI).</dd>
+<dt>Отличие от Web</dt><dd><code>repeating-linear-gradient</code> даёт штрихи постоянной толщины; переменную — только в шейдере WebGL.</dd>
+<dt>Ценность</dt><dd>Своя фактура, отличная от всех «плоских» интерфейсов. И это линия, а не плоскость.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>«Судьба — линия» доведена до тона. Риск — визуальный шум. Вердикт: попробовать в макете.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/hatch_effect.{h,cpp,hlsl}</code>: вход — тон-маска (A8), параметры — угол, шаг, мин/макс толщина.</dd>
+</dl></article>
+
+<article class="idea" id="d4">
+<header><span class="code">D4</span><h3>Кубик как призма</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="try">попробовать в макете — сильная</span></p></header>
+<dl>
+<dt>Что</dt><dd>Кубик-переключатель получает роль призмы. С одной стороны входит белый пучок — весь трафик пользователя (рука белая). С другой выходят нити цветов судеб. Доля маршрута — <b>число</b> нитей, а не толщина. Заблокированное — красные нити, обрывающиеся у грани.</dd>
+<dt>Как выглядит</dt><dd><canvas class="sketch" data-sketch="prism"></canvas><p class="cap">12 нитей: 8 VPN, 2 WARP, 1 напрямую, 1 блок (обрывается у грани).</p></dd>
+<dt>Как работает</dt><dd>Доли из тех же счётчиков, что питают <code>LiveTraffic</code>. Число нитей N=12, распределение — метод наибольшего остатка (Гамильтона), чтобы сумма всегда была 12. Нити — <code>DrawGeometry</code> 1 DIP, Безье от грани. Смена доли — нить перекрашивается (без анимаций — сразу).</dd>
+<dt>Технологии</dt><dd>Геометрия D2D.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Делается и в SVG. Отличие в том, что кубик и данные у нас в одном кадре.</dd>
+<dt>Ценность</dt><dd>Высокая: соотношение маршрутов читается с первого взгляда, без диаграммы. И образ «Sovereign разделяет поток» — точная метафора продукта.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Линии, цвета судеб, белая рука — всё по закону. Без анимаций — неподвижная картинка. Вердикт: попробовать в макете, сильная.</dd>
+<dt>Путь</dt><dd>В <code>cube.h</code> добавить <code>PrismStrands(shares) → array&lt;Fate,12&gt;</code>; рисовать в <code>DrawLive</code> под частицами.</dd>
+</dl></article>
+
+<article class="idea" id="d5">
+<header><span class="code">D5</span><h3>Цепочка как коса</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="later">потом — когда будут цепочки</span></p></header>
+<dl>
+<dt>Что</dt><dd>Многоскачковый маршрут (вход в РФ → Германия) рисуется как коса из нитей одной судьбы. На скачке нити перекрещиваются; длина участка пропорциональна задержке этого скачка.</dd>
+<dt>Как выглядит</dt><dd>Синяя коса из трёх нитей, два перекрестья; второй участок длиннее — там основная задержка. Верх/низ на перекрестье — разрывом нижней нити, без теней.</dd>
+<dt>Как работает</dt><dd>Задержки по скачкам — из замеров ядра. Нити — синусоиды со сдвигом фаз; разрывы — вычитанием маски.</dd>
+<dt>Технологии</dt><dd>Геометрия D2D.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Можно и в SVG.</dd>
+<dt>Ценность</dt><dd>Есть, когда появятся цепочки.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Линии — в законе. Вердикт: потом.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/braid.{h,cpp}</code>.</dd>
+</dl></article>
+
+<article class="idea" id="d6">
+<header><span class="code">D6</span><h3>Фосфорный след на графиках</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 2/5</span><span class="try">попробовать</span></p></header>
+<dl>
+<dt>Что</dt><dd>Графики проверок и задержки ведут себя как экран аналогового осциллографа: каждая новая кривая накладывается, старые тускнеют. Где кривые совпадают — ярко, где разбегаются — тускло. Стабильность видна как плотность.</dd>
+<dt>Как выглядит</dt><dd><canvas class="sketch" data-sketch="phosphor"></canvas><p class="cap">40 замеров задержки поверх друг друга: яркий пучок — типичное значение, бледные выбросы — редкие.</p></dd>
+<dt>Как работает</dt><dd>Общий FP16-накопитель с B2: кривая рисуется с <code>ADD</code>, затухание — <code>ColorMatrix</code>. Без анимаций — пересчёт раз в замер.</dd>
+<dt>Технологии</dt><dd>0a, FP16.</dd>
+<dt>Сложность</dt><dd>2/5 после B2.</dd>
+<dt>Отличие от Web</dt><dd>В Canvas 2D <code>'lighter'</code> есть, но 8 бит — полосы на затухании.</dd>
+<dt>Ценность</dt><dd>Распределение вместо среднего — честнее одной цифры.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Линия, данные. Вердикт: попробовать на страницах проверок и серверов.</dd>
+<dt>Путь</dt><dd>В <code>gfx/exposure</code> — режим «графики»; страницы проверок и «Серверы».</dd>
+</dl></article>
+
+<article class="idea" id="d7">
+<header><span class="code">D7</span><h3>Огибающая дрожания: стабильный сервер — тонкая струна</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 1/5</span><span class="try">попробовать</span></p></header>
+<dl>
+<dt>Что</dt><dd>В строке сервера — маленькая «струна» 48×12 DIP. Её толщина в середине — разброс задержки (σ): стабильный сервер — тонкая натянутая линия, дёрганый — раздутая линза.</dd>
+<dt>Как выглядит</dt><dd><canvas class="sketch" data-sketch="envelope"></canvas><p class="cap">Три сервера: σ = 2, 9 и 24 мс.</p></dd>
+<dt>Как работает</dt><dd>Контур линзы ±σ·sin(πx/L); масштаб σ — логарифмический. Заливки нет: два контура 1 DIP цвета судьбы.</dd>
+<dt>Технологии</dt><dd>Геометрия D2D.</dd>
+<dt>Сложность</dt><dd>1/5.</dd>
+<dt>Отличие от Web</dt><dd>SVG тоже может.</dd>
+<dt>Ценность</dt><dd>Стабильность считывается без столбца цифр. Дополняет столбцы «отклик/сбои».</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Линия, неподвижна. Вердикт: попробовать в «Серверах».</dd>
+<dt>Путь</dt><dd>Хелпер <code>DrawJitterLens(dc, rect, sigmaMs, fate)</code> в отрисовке строки сервера; σ — из истории замеров (уже есть для «отклик/сбои»).</dd>
+</dl></article>
+
+<article class="idea" id="d8">
+<header><span class="code">D8</span><h3>Верёвка Верле: провисание — нет трафика</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>без слоя 0</span><span>сложность 2/5</span><span class="later">потом</span></p></header>
+<dl>
+<dt>Что</dt><dd>Рельс маршрута — физическая верёвка (интегрирование Верле): под нагрузкой натянута, без трафика провисает. Затухание сильное, без колебаний.</dd>
+<dt>Как выглядит</dt><dd>VPN-рельс прямой, WARP-рельс без трафика слегка провис.</dd>
+<dt>Как работает</dt><dd>20 узлов, Верле + ограничения длины; натяжение — от байтов в секунду.</dd>
+<dt>Технологии</dt><dd>CPU, D2D.</dd>
+<dt>Сложность</dt><dd>2/5.</dd>
+<dt>Отличие от Web</dt><dd>Можно и в Web.</dd>
+<dt>Ценность</dt><dd>Невысокая: то же показывает B2.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>На грани декора; неподвижная форма есть (провис). Вердикт: потом.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/rope.{h,cpp}</code>.</dd>
+</dl></article>
+
+<article class="idea" id="d9">
+<header><span class="code">D9</span><h3>Реакция-диффузия как память блока</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a/0b</span><span>сложность 3/5</span><span class="no">нет</span></p></header>
+<dl>
+<dt>Что</dt><dd>Фон страницы «Блок» — узор Грея–Скотта, который растёт с каждым отказом: «память» о заблокированном.</dd>
+<dt>Как выглядит</dt><dd>Красноватые органические пятна разрастаются по фону.</dd>
+<dt>Как работает</dt><dd>Вычислительный шейдер или ping-pong двух FP16-битмапов.</dd>
+<dt>Технологии</dt><dd>D3D11 CS или эффекты D2D.</dd>
+<dt>Сложность</dt><dd>3/5.</dd>
+<dt>Отличие от Web</dt><dd>WebGL тоже может.</dd>
+<dt>Ценность</dt><dd>Красиво, но информации нет: число отказов лучше сказать числом.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Плоскость, а не линия; декор. Вердикт: нет. Оставлено как граница декора.</dd>
+<dt>Путь</dt><dd>—</dd>
+</dl></article>
+
+<article class="idea" id="d10">
+<header><span class="code">D10</span><h3>Рэймарчинг-кубик</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0b</span><span>сложность 3/5</span><span class="no">нет</span></p></header>
+<dl>
+<dt>Что</dt><dd>Кубик рисуется пиксельным шейдером как настоящее 3D-тело с преломлением и бликами.</dd>
+<dt>Как выглядит</dt><dd>Стеклянный кубик, сквозь который видны частицы.</dd>
+<dt>Как работает</dt><dd>SDF-рэймарчинг в пиксельном шейдере.</dd>
+<dt>Технологии</dt><dd>D3D11 или эффект D2D.</dd>
+<dt>Сложность</dt><dd>3/5.</dd>
+<dt>Отличие от Web</dt><dd>WebGL тоже может.</dd>
+<dt>Ценность</dt><dd>Эффектно, но 3D он уже отвергал.</dd>
+<dt>Реализуемость</dt><dd>Везде.</dd>
+<dt>Целесообразность</dt><dd>Стекло, блики, тени — против закона. Вердикт: нет.</dd>
+<dt>Путь</dt><dd>—</dd>
+</dl></article>
+
+<article class="idea" id="d11">
+<header><span class="code">D11</span><h3>Субпиксельная геометрия: ClearType для линий</h3>
+<p class="tags"><span>LTSC 2021 ✓</span><span>Windows 11 ✓</span><span>слой 0a</span><span>сложность 4/5</span><span class="try">эксперимент для D1/D3</span></p></header>
+<dl>
+<dt>Что</dt><dd>Тонкие линии гильоша и штриховки рендерятся с субпиксельным разрешением — как ClearType делает с текстом. Втрое больше горизонтальной детализации на обычном ЖК.</dd>
+<dt>Как выглядит</dt><dd>Гильош 0,5 DIP резче и тоньше, чем при серой антиалиасинг. Возможна цветная бахрома на краях.</dd>
+<dt>Как работает</dt><dd>Покрытие при 3× горизонтальном разрешении, FIR-фильтр (как у ClearType), раскладка по R/G/B. Работает только на известном однородном фоне. Порядок субпикселей монитора — <code>IDWriteFactory::CreateMonitorRenderingParams</code> → <code>GetPixelGeometry</code>; включено ли сглаживание — <code>SPI_GETFONTSMOOTHINGTYPE</code>.</dd>
+<dt>Технологии</dt><dd>Свой эффект, DirectWrite (параметры монитора).</dd>
+<dt>Сложность</dt><dd>4/5.</dd>
+<dt>Отличие от Web</dt><dd>Невозможно: браузер не говорит странице порядок субпикселей.</dd>
+<dt>Ценность</dt><dd>Только для D1/D3.</dd>
+<dt>Реализуемость</dt><dd>Выключать на OLED, повёрнутых экранах, RDP и HDR.</dd>
+<dt>Целесообразность</dt><dd>Цветная бахрома спорна по закону (цвет = смысл). Вердикт: эксперимент только для D1/D3.</dd>
+<dt>Путь</dt><dd><code>src/tray/gfx/subpixel_effect.{h,cpp,hlsl}</code>.</dd>
+</dl></article>
+
+<h2 id="rejected">Отвергнуто — и почему</h2>
+<ul>
+<li><b>Против закона.</b>
+  <ul>
+  <li>Акцент системы или обоев как цвет интерфейса: цвет занят смыслом.</li>
+  <li>Mica, Acrylic, стекло.</li>
+  <li>Reveal: подсветка под курсором — свечение без состояния.</li>
+  <li>Глитч, хроматическая аберрация.</li>
+  <li>Декоративная «погода».</li>
+  <li>Эхо «луковой кожицы» через прозрачность: прозрачность без смысла. Заменено на B2.</li>
+  <li>Пульсирующие лампы.</li>
+  <li>Тепловое марево, каустика, преломление, божественные лучи.</li>
+  </ul>
+</li>
+<li><b>Ниша.</b>
+  <ul>
+  <li>MPO-плоскости и <code>SetTargetTime</code> — для видео и игр.</li>
+  <li><code>SceneVisual</code> — 3D.</li>
+  <li>COLRv1-значки: только Windows 11, а градиенты запрещены.</li>
+  </ul>
+</li>
+</ul>
+
+<h2 id="final">Финальная селекция</h2>
+
+<h3>10 самых перспективных</h3>
+<p class="muted">Критерий: польза × соответствие закону × видно ли ему (анимации выключены) ÷ цена. У каждой — первый шаг, который можно сделать отдельно.</p>
+<ol class="pick">
+<li><a href="#c1"><b>C1 Судьба под курсором</b></a> — снимает главный барьер маршрутизации по программам. Первый шаг: прицел → путь exe → готовое правило, без рамки-наложения.</li>
+<li><a href="#b2"><b>B2 Длинная выдержка</b></a> — делает поток видимым ему и превращает частицы в данные. Первый шаг: аналитический вариант по трём существующим потокам, только при <code>!Motion()</code>.</li>
+<li><a href="#b4"><b>B4 Честные цифры</b></a> — исполнение закона и закрытие пункта 5 аудита. Первый шаг: <code>tnum</code> на всех меняющихся числах.</li>
+<li><a href="#c4"><b>C4 Значок-прибор</b></a> — состояние без открытия окна. Первый шаг: лампа судьбы в значке, без полоски скорости.</li>
+<li><a href="#d1"><b>D1 Гильош ключа</b></a> — безопасность как образ, ядро языка. Первый шаг: розетка в карточке сервера из <code>public_key</code> Reality; подобрать параметры на 50 ключах.</li>
+<li><a href="#b3"><b>B3 Изменение от причины</b></a> — побочные эффекты правил становятся видимыми. Первый шаг: волна на каталогах «Блока» (случай «Microsoft → GitHub»).</li>
+<li><a href="#c2"><b>C2 Рентген маршрутов</b></a> — «что идёт мимо VPN» за секунду. Первый шаг: один монитор, снимок на нажатие, без слежения за движением.</li>
+<li><a href="#d4"><b>D4 Кубик-призма</b></a> — соотношение маршрутов без диаграммы. Первый шаг: неподвижный кадр в HTML-макете, затем в <code>cube.h</code>.</li>
+<li><a href="#c3"><b>C3 Линия по краю экрана</b></a> — честность автоматических решений. Первый шаг: только на событие «kill switch сработал».</li>
+<li><a href="#c11"><b>C11 Секреты вне снимков</b></a> — прямая защита от утечки подписки. Первый шаг: отдельное окно с QR и ссылкой.</li>
+</ol>
+
+<h3>5 самых необычных</h3>
+<ol class="pick">
+<li><a href="#c2"><b>C2 Рентген маршрутов</b></a> — интерфейс VPN, нарисованный на чужих окнах. Такого нет ни у одного клиента.</li>
+<li><a href="#d1"><b>D1 Гильош ключа</b></a> — защитная печать как отпечаток криптографического ключа.</li>
+<li><a href="#d4"><b>D4 Кубик-призма</b></a> — белый трафик пользователя, разложенный на спектр судеб.</li>
+<li><a href="#d7"><b>D7 Огибающая дрожания</b></a> — стабильность как натяжение струны.</li>
+<li><a href="#d11"><b>D11 Субпиксельная геометрия</b></a> — ClearType не для текста, а для линий.</li>
+</ol>
+<p class="muted">Следующий — <a href="#a3">A3</a>: маска «вокруг глифов», вырезающая фон, как на картах.</p>
+
+<h3>5 с максимальным эффектом при разумной цене</h3>
+<ol class="pick">
+<li><a href="#c5"><b>C5 Рамка окна</b></a> — 1/5. Один вызов DWM, а окно говорит состояние формой.</li>
+<li><a href="#b4"><b>B4 Честные цифры</b></a> — 1–2/5. Цифры перестают дрожать, точность видна.</li>
+<li><a href="#c4"><b>C4 Значок-прибор</b></a> — 2/5. Состояние всегда на виду.</li>
+<li><a href="#d4"><b>D4 Кубик-призма</b></a> — 2/5. Самый сильный образ из дешёвых.</li>
+<li><a href="#d7"><b>D7 Огибающая дрожания</b></a> — 1/5. Новый знак в строке сервера за вечер.</li>
+</ol>
+<p class="muted">Следующие — <a href="#b3">B3</a> и пустотелые имена из <a href="#a5">A5</a>.</p>
+
+<h3 id="system">Единая графическая система: «Линия судьбы»</h3>
+<p>Общий корень идей, прошедших отбор: <b>данные нарисованы линией</b>. Так в приборах, гравюре и защитной печати. Это продолжает закон («судьба — линия, а не плоскость») и отличает Sovereign от «плоских» и «стеклянных» интерфейсов. Четыре слоя.</p>
+<ol>
+<li><b>Свет и поток.</b>
+  <ul>
+  <li><a href="#b1">B1</a> дорожки программ + <a href="#b10">B10</a> размытие движения + <a href="#b2">B2</a> выдержка + <a href="#d6">D6</a> фосфор;</li>
+  <li><a href="#a3">A3</a> страж контраста и <a href="#b9">B9</a> дизеринг как гарантии;</li>
+  <li><a href="#a2">A2</a> — если пройдёт макет; <a href="#a1">A1</a> — потом.</li>
+  </ul>
+  Общее: один FP16-накопитель, один атлас спрайтов, модуль <code>src/tray/gfx/flow/</code>. Неподвижная форма всего слоя — выдержка.</li>
+<li><b>Защитная печать.</b>
+  <ul>
+  <li><a href="#d1">D1</a> гильош, <a href="#d3">D3</a> штриховка, <a href="#d2">D2</a> микротекст с <a href="#b11">B11</a> лупой;</li>
+  <li><a href="#a5">A5</a> пустотелые имена, <a href="#b5">B5</a> анатомия домена;</li>
+  <li><a href="#c11">C11</a>/<a href="#c12">C12</a> — секреты и печать Hello;</li>
+  <li>(+<a href="#d11">D11</a> для резкости линий).</li>
+  </ul>
+  Общее: тонкие нейтральные линии для идентичности и доверия; цвет остаётся только у судеб.</li>
+<li><b>Судьба по всей Windows.</b>
+  <ul>
+  <li><a href="#c1">C1</a> прицел, <a href="#c2">C2</a> рентген, <a href="#c3">C3</a> край экрана;</li>
+  <li><a href="#c4">C4</a> значок, <a href="#c5">C5</a> рамка, <a href="#c9">C9</a> панель задач, <a href="#c10">C10</a> палитра.</li>
+  </ul>
+  Волна <a href="#b3">B3</a> доходит до значка и рамки, то есть изменение видно и вне окна. Общее: <code>dcomp_window</code>, поиск процесса по окну, источник событий «Клиент решил сам».</li>
+<li><b>Общая основа.</b> Слой 0 (0a → 0c → 0b), <a href="#b12">B12</a> часы и эталонные снимки, <a href="#c13">C13</a> бюджет графики. Правило системы: <b>у каждой идеи есть неподвижная форма</b>, и она проверяется снимком.</li>
+</ol>
+
+<h3>Порядок работ</h3>
+<ol>
+<li><b>Без инфраструктуры:</b> <a href="#b4">B4</a>, <a href="#c5">C5</a>, <a href="#d7">D7</a>, <a href="#b3">B3</a>, пустотелые имена <a href="#a5">A5</a>, <a href="#d4">D4</a> в макете.</li>
+<li><b>Ступень 0a:</b> <a href="#b2">B2</a>, <a href="#a3">A3</a>, <a href="#b9">B9</a>, <a href="#d1">D1</a>, <a href="#b1">B1</a>+<a href="#b10">B10</a>. Сюда же часы и WARP-снимки <a href="#b12">B12</a>.</li>
+<li><b>Ступень 0c:</b> <a href="#c3">C3</a>, <a href="#c1">C1</a>, <a href="#c2">C2</a>, рост окна <a href="#c4">C4</a>, <a href="#c6">C6</a>.</li>
+<li><b>Система вокруг:</b> <a href="#c9">C9</a>, <a href="#c10">C10</a>, <a href="#c11">C11</a>/<a href="#c12">C12</a>, <a href="#c13">C13</a>.</li>
+<li><b>Ступень 0b</b> (после решения про EDIT): <a href="#a1">A1</a>, <a href="#b7">B7</a>, 10 бит.</li>
+<li><b>Эксперименты:</b> <a href="#d2">D2</a>+<a href="#b11">B11</a>, <a href="#d3">D3</a>, <a href="#d11">D11</a>, <a href="#a2">A2</a>.</li>
+</ol>
+
+<h3>Windows 10 LTSC 2021 и Windows 11</h3>
+<ul>
+<li>Всё, кроме трёх пунктов, работает на обеих: нужные интерфейсы — 1511, 1709 и 1809, а <code>WDA_EXCLUDEFROMCAPTURE</code> — с 2004. LTSC 2021 — 21H2 (19044).</li>
+<li><a href="#c5">C5</a> — на Windows 10 атрибут игнорируется: окно остаётся с обычной рамкой, без ошибки.</li>
+<li><a href="#c13">C13</a> — режим Energy Saver есть только в Windows 11; на 10 — обычная «экономия батареи».</li>
+<li><a href="#a1">A1</a> — расширенная информация о цвете (<code>…ADVANCED_COLOR_INFO_2</code>) только в 11 24H2; на 10 — старый путь, тоже рабочий.</li>
+<li><a href="#c12">C12</a> — минимальная версия interop-метода не проверена; запасной путь — CredUI.</li>
+</ul>
+
+<h3>Реализуемость против целесообразности</h3>
+<ul>
+<li><b>Просто и ясно</b> — делать первыми: <a href="#c5">C5</a>, <a href="#b4">B4</a>, <a href="#d7">D7</a>, <a href="#d4">D4</a>, <a href="#c11">C11</a>, <a href="#c4">C4</a>.</li>
+<li><b>Трудно, но ясно</b> — стоят своей цены: <a href="#c2">C2</a>, <a href="#a1">A1</a>, <a href="#b7">B7</a>, <a href="#b12">B12</a>, <a href="#b1">B1</a>.</li>
+<li><b>Просто, но спорно</b> — решает дизайн, не код: <a href="#a2">A2</a>, <a href="#a6">A6</a>, <a href="#d9">D9</a>, <a href="#d10">D10</a>, <a href="#d2">D2</a>, вес 385 из <a href="#a4">A4</a>.</li>
+<li><b>Трудно и спорно</b> — только как эксперимент: <a href="#d11">D11</a>, SDF-шов из <a href="#b6">B6</a>.</li>
+</ul>
+
+<p class="note">Эскизы на этой странице нарисованы в браузерном canvas только для иллюстрации формы. В клиенте те же вещи рисует D2D, с другими сглаживанием и толщинами.</p>
+
+<script>
+(function(){
+const C={vpn:'rgb(76,146,255)',warp:'rgb(232,134,66)',direct:'rgb(160,165,176)',block:'rgb(240,96,96)',lit:'rgb(226,229,235)',muted:'rgb(156,158,164)',line:'rgb(38,39,43)',panel:'rgb(20,20,22)'};
+function rng(seed){let s=seed>>>0||1;return()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return s/4294967296;};}
+function hashBytes(str){const out=[];for(let k=0;k<32;k++){let h=(2166136261^k)>>>0;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}h^=h>>>15;h=Math.imul(h,2246822507)>>>0;h^=h>>>13;out.push(h&255);}return out;}
+function gcd(a,b){while(b){[a,b]=[b,a%b];}return a;}
+function setup(cv){const dpr=window.devicePixelRatio||1;const w=cv.clientWidth,h=cv.clientHeight;cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);g.font='12px Geist, Segoe UI, sans-serif';return [g,w,h];}
+
+function rosette(g,cx,cy,rad,bytes){
+  for(let c=0;c<4;c++){
+    const b=bytes.slice(c*6,c*6+6);
+    const a=7+(b[0]%9), r=2+(b[1]%4), d=(0.35+b[2]/255*0.65)*r, ph=b[3]/255*Math.PI*2;
+    const R=a, k=(R-r)/r, period=2*Math.PI*r/gcd(R,r);
+    const scale=rad/(R-r+d)*(0.62+c*0.12);
+    g.beginPath();
+    const N=2400;
+    for(let i=0;i<=N;i++){const t=i/N*period;const x=(R-r)*Math.cos(t)+d*Math.cos(k*t);const y=(R-r)*Math.sin(t)-d*Math.sin(k*t);
+      const xr=x*Math.cos(ph)-y*Math.sin(ph), yr=x*Math.sin(ph)+y*Math.cos(ph);
+      const px=cx+xr*scale, py=cy+yr*scale; i?g.lineTo(px,py):g.moveTo(px,py);}
+    g.strokeStyle='rgba(200,203,210,'+(0.55+c*0.1)+')';g.lineWidth=0.6;g.stroke();
+  }
+}
+const sketches={
+  guilloche(g,w,h){
+    const keyA='reality-pbk:Qx3fN8vT2mK9pL4sW7yB1cZ6dH0jR5gE';
+    const flip=String.fromCharCode(keyA.charCodeAt(20)^1);
+    const keyB=keyA.slice(0,20)+flip+keyA.slice(21);
+    const rad=h*0.42;
+    rosette(g,w*0.27,h/2,rad,hashBytes(keyA));
+    rosette(g,w*0.73,h/2,rad,hashBytes(keyB));
+    g.fillStyle=C.muted;g.fillText('A',12,20);g.fillText('A′ (1 бит)',w/2+12,20);
+    g.strokeStyle=C.line;g.beginPath();g.moveTo(w/2,12);g.lineTo(w/2,h-12);g.stroke();
+  },
+  prism(g,w,h){
+    const s=Math.min(70,h*0.42), cx=w*0.42, cy=h/2, x0=cx-s/2, x1=cx+s/2;
+    g.lineWidth=1;g.strokeStyle=C.lit;
+    for(let i=0;i<7;i++){const y=cy-s*0.25+i*s*0.5/6;g.beginPath();g.moveTo(24,cy+(i-3)*9);g.bezierCurveTo(x0-80,cy+(i-3)*9,x0-40,y,x0,y);g.stroke();}
+    const shares=[[C.vpn,0.66],[C.warp,0.17],[C.direct,0.09],[C.block,0.08]];
+    const N=12;let base=shares.map(([c,p])=>[c,Math.floor(p*N),p*N-Math.floor(p*N)]);
+    let left=N-base.reduce((a,b)=>a+b[1],0);base.slice().sort((a,b)=>b[2]-a[2]).slice(0,left).forEach(e=>e[1]++);
+    const strands=[];base.forEach(([c,n])=>{for(let i=0;i<n;i++)strands.push(c);});
+    strands.forEach((c,i)=>{const ys=cy-s*0.38+i*s*0.76/(N-1);const ye=14+i*(h-28)/(N-1);
+      g.strokeStyle=c;g.lineWidth=1.2;g.beginPath();g.moveTo(x1,ys);
+      if(c===C.block){g.lineTo(x1+16,ys);g.stroke();g.beginPath();g.moveTo(x1+16,ys-4);g.lineTo(x1+16,ys+4);g.stroke();}
+      else{g.bezierCurveTo(x1+70,ys,w-160,ye,w-24,ye);g.stroke();}});
+    g.fillStyle=C.panel;g.fillRect(x0,cy-s/2,s,s);g.strokeStyle='rgba(226,229,235,.4)';g.lineWidth=1;g.strokeRect(x0+.5,cy-s/2+.5,s-1,s-1);
+    g.fillStyle=C.muted;g.fillText('весь трафик',24,cy-36);g.fillText('8 VPN · 2 WARP · 1 напрямую · 1 блок',w-250,h-6);
+  },
+  envelope(g,w,h){
+    const rows=[2,9,24],L=Math.min(260,w-160),x0=120;
+    rows.forEach((sig,i)=>{const cy=(i+0.5)*h/3;const a=Math.min(h/6-3,1.6*Math.log2(1+sig)*1.5);
+      g.fillStyle=C.muted;g.fillText('σ '+sig+' мс',20,cy+4);
+      g.strokeStyle=C.vpn;g.lineWidth=1;
+      [1,-1].forEach(sgn=>{g.beginPath();for(let k=0;k<=80;k++){const x=x0+k/80*L;const y=cy+sgn*a*Math.sin(Math.PI*k/80);k?g.lineTo(x,y):g.moveTo(x,y);}g.stroke();});
+      g.fillStyle=C.lit;[x0,x0+L].forEach(x=>{g.beginPath();g.arc(x,cy,1.5,0,7);g.fill();});});
+  },
+  hatch(g,w,h){
+    const r=rng(7),base=h-18,x0=20,x1=w-20;const pts=[];let v=0.4;
+    for(let x=x0;x<=x1;x+=4){v+= (r()-0.5)*0.12;v=Math.max(0.1,Math.min(0.95,v));pts.push([x,v]);}
+    const step=6;
+    for(let x=x0;x<=x1;x+=step){const i=Math.min(pts.length-1,Math.round((x-x0)/4));const val=pts[i][1];const y=base-val*(h-36);
+      g.strokeStyle=C.direct;g.lineWidth=0.5+val*3.2;g.beginPath();g.moveTo(x,base);g.lineTo(x,y);g.stroke();}
+    g.strokeStyle=C.vpn;g.lineWidth=1.5;g.beginPath();pts.forEach(([x,val],i)=>{const y=base-val*(h-36);i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();
+    g.strokeStyle=C.line;g.lineWidth=1;g.beginPath();g.moveTo(x0,base+.5);g.lineTo(x1,base+.5);g.stroke();
+  },
+  phosphor(g,w,h){
+    const r=rng(42),x0=20,x1=w-20;g.globalCompositeOperation='lighter';
+    for(let n=0;n<40;n++){const out=r()<0.12;g.strokeStyle=out?'rgba(76,146,255,.22)':'rgba(76,146,255,.11)';g.lineWidth=1;g.beginPath();
+      for(let k=0;k<=60;k++){const t=k/60;const x=x0+t*(x1-x0);let y=h*0.6-Math.sin(t*3.2)*h*0.18+(r()-0.5)*8;
+        if(out&&t>0.4&&t<0.7)y-=h*0.25*Math.sin((t-0.4)/0.3*Math.PI);k?g.lineTo(x,y):g.moveTo(x,y);}g.stroke();}
+    g.globalCompositeOperation='source-over';
+  },
+  xray(g,w,h){
+    g.strokeStyle=C.line;g.strokeRect(.5,.5,w-1,h-1);
+    const wins=[
+      {x:.06,y:.12,w:.42,h:.72,c:C.direct,t:'Браузер · напрямую · 14 соед.'},
+      {x:.36,y:.22,w:.30,h:.62,c:C.vpn,t:'Telegram · VPN · 3 соед.'},
+      {x:.60,y:.08,w:.34,h:.50,c:C.warp,t:'Игра · WARP · 2 соед.'},
+      {x:.58,y:.55,w:.30,h:.36,c:C.block,t:'updater.exe · блок · 14 отказов'}];
+    wins.forEach(o=>{const X=o.x*w,Y=o.y*h,W=o.w*w,H=o.h*h;g.fillStyle=C.panel;g.fillRect(X,Y,W,H);g.strokeStyle=o.c;g.lineWidth=2;g.strokeRect(X+1,Y+1,W-2,H-2);
+      g.fillStyle=o.c;g.fillText(o.t,X+8,Y+18);});
+  }
+};
+function drawAll(){document.querySelectorAll('canvas.sketch').forEach(cv=>{const f=sketches[cv.dataset.sketch];if(!f)return;const [g,w,h]=setup(cv);f(g,w,h);});}
+(document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(drawAll);
+let t;window.addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(drawAll,120);});
+})();
+</script>
+
+</main>
+</body>
+</html>

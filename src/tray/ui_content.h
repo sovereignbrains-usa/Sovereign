@@ -488,8 +488,8 @@ inline int DelayDimDigits(const UiDelay& delay) {
   if (delay.state != UiDelay::State::Ok || delay.jitter <= 0) {
     return 0;
   }
-  const double error = delay.jitter / std::sqrt(static_cast<double>(std::max(delay.samples, 1)));
-  const int digits = static_cast<int>(std::to_wstring(std::max(delay.ms, 0)).size());
+  const double error = delay.jitter / std::sqrt(static_cast<double>((std::max)(delay.samples, 1)));
+  const int digits = static_cast<int>(std::to_wstring((std::max)(delay.ms, 0)).size());
   int dim = 0;
   double place = 1;
   while (dim < digits - 1 && place < error) {

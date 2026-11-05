@@ -400,6 +400,9 @@ void TestCloseDoh() {
   unfiltered.blockAds = unfiltered.trackers = unfiltered.malware = unfiltered.cookieWindows = false;
   const Seen bare = seen(apply(unfiltered));
   CHECK(!bare.names && !bare.addresses && !bare.dot && !bare.canary);
+  // The block names the program it refused for: sing-box looks programs up.
+  CHECK(apply(s)["route"].value("find_process", false));
+  CHECK(!apply(unfiltered)["route"].value("find_process", false));
 
   // The client's own DNS through Google: dns.google stays open.
   RoutingSettings custom;

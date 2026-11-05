@@ -1551,6 +1551,12 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   for (const Json& sets : blockSets) {
     rules.push_back(Json{{"rule_set", sets}, {"action", "reject"}});
   }
+  // "Кто обращается" names the program a refused name was asked by, and
+  // sing-box looks a connection's program up only when some rule needs one:
+  // with no service of programs chosen the list stayed empty (05.11.2026).
+  if (settings.blockAds || settings.cookieWindows || settings.trackers || settings.malware) {
+    route["find_process"] = true;
+  }
   // A browser's own secure DNS would ask past the lists above: its resolvers
   // refused, by name and by address on 443, and DNS over TLS/QUIC on 853 -
   // the browser falls back to the system's DNS, which is ours (05.11.2026).

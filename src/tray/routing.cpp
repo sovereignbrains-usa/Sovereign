@@ -1361,6 +1361,17 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
       o["tls"].erase("insecure");
     }
   }
+  // Naive carries no UDP of its own: without UDP over TCP the core refuses
+  // every UDP connection ("UDP is not supported unless UDP over TCP is
+  // enabled") - WARP's WireGuard, QUIC, DNS over UDP - and with Naive as the
+  // only way they failed by the hundred. A sing-box server's naive inbound
+  // takes UoT as it is; a server that does not just refuses it, where the core
+  // refused before. What a configuration says of it itself stays.
+  for (Json& o : outbounds) {
+    if (o.is_object() && Str(o, "type") == "naive" && !o.contains("udp_over_tcp")) {
+      o["udp_over_tcp"] = Json{{"enabled", true}};
+    }
+  }
   // Hysteria 2 at the line's speed (RoutingSettings::hysteriaMbps): Brutal.
   if (settings.hysteriaMbps > 0) {
     for (Json& o : outbounds) {

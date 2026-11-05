@@ -802,9 +802,22 @@ void TestNaiveInsecure() {
       found = true;
       CHECK(!o["tls"].contains("insecure"));
       CHECK(o["tls"].value("server_name", "") == "cloud.example.com");
+      // UDP over TCP on: Naive has no UDP otherwise (WARP, QUIC, DNS).
+      CHECK(o.contains("udp_over_tcp") && o["udp_over_tcp"].value("enabled", false));
     }
   }
   CHECK(found);
+  // What the configuration itself says of UDP over TCP is kept.
+  json off = json::parse(naive);
+  off["outbounds"].push_back(json::parse(
+      R"({"type":"naive","tag":"Naive","server":"cloud.example.com","server_port":443,"username":"u","password":"p",)"
+      R"("udp_over_tcp":{"enabled":false},"tls":{"enabled":true,"server_name":"cloud.example.com"}})"));
+  const auto keptCombined = CombineConfigs({{"ключи", off.dump(), {}}}, OwnFrame(s));
+  for (const json& o : json::parse(ApplyRouting(keptCombined.config.value_or("{}"), s, Files()))["outbounds"]) {
+    if (o.value("type", "") == "naive") {
+      CHECK(!o["udp_over_tcp"].value("enabled", true));
+    }
+  }
 }
 
 // WARP: its endpoint over the proxy, rules "через WARP" to it and nothing

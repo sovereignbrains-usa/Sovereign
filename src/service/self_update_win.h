@@ -24,6 +24,10 @@ class SelfUpdate final : public IUpdateRunner {
   // Clears the installers an update before left in `directory`.
   SelfUpdate(tray::Version current, std::wstring directory, std::wstring userAgent);
   std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) override;
+  // A file `held` in `directory` (the installer leaves the folder alone):
+  // the time in seconds since 1970.
+  std::optional<std::chrono::system_clock::time_point> HeldSince() override;
+  void Hold(bool on) override;
 
  private:
   const tray::Version current_;

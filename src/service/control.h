@@ -93,6 +93,11 @@ class ControlHandler {
 
   // update_install's limit on the installer's path.
   static constexpr std::size_t kMaxInstallerPathBytes = 2048;
+  // update_install with the VPN on and the kill switch off holds the kill
+  // switch on - nothing goes out by the real address while the service is
+  // replaced - and the next service keeps it (IUpdateRunner::HeldSince) till
+  // its box is up, or this long.
+  static constexpr std::chrono::minutes kUpdateHold{3};
 
   std::string Handle(const std::string& request);
 
@@ -144,7 +149,11 @@ class ControlHandler {
   KillSwitchSettings killSettings_;  // as last applied
   bool killActive_ = false;          // filters in place
   bool bootDone_ = false;            // StartAtBoot started it, or the tray took over
-  // Guards lastConfig_, killSettings_, killActive_, bootDone_, the boot store
+  // The kill switch held for an update (kUpdateHold), and whether a box has
+  // started since.
+  std::optional<std::chrono::system_clock::time_point> heldSince_;
+  bool heldBoxUp_ = false;
+  // Guards lastConfig_, killSettings_, killActive_, bootDone_, heldSince_, the boot store
   // and the core's start/stop sequence - between Handle(), ResumeAfterSleep()
   // and StartAtBoot() (see the constructor).
   std::mutex stateMutex_;

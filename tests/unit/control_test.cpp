@@ -139,8 +139,21 @@ class FakeUpdates final : public sovereign::service::IUpdateRunner {
  public:
   std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) override {
     asked = {version, installer, session};
+    // What the service had done before the installer ran.
+    heldAtInstall = held.has_value();
     return error;
   }
+  std::optional<std::chrono::system_clock::time_point> HeldSince() override { return held; }
+  void Hold(bool on) override {
+    if (on) {
+      held = std::chrono::system_clock::now();
+    } else {
+      held.reset();
+    }
+  }
+
+  std::optional<std::chrono::system_clock::time_point> held;
+  bool heldAtInstall = false;
 
   struct Asked {
     std::string version;
@@ -514,7 +527,7 @@ void TestKillSwitch() {
 
   // On: the rules go in, without a tunnel yet (no config ran).
   json answer = Send(handler, R"({"cmd":"kill_switch","enabled":true})");
-  CHECK(answer == json::parse(R"({"cmd":"kill_switch","active":true,"allow_lan":true,"lan_closed":false})"));
+  CHECK(answer == json::parse(R"({"cmd":"kill_switch","held":false,"active":true,"allow_lan":true,"lan_closed":false})"));
   CHECK(killSwitch.applied == 1 && !killSwitch.last.empty());
   CHECK(std::none_of(killSwitch.last.begin(), killSwitch.last.end(), [](const auto& r) { return !r.localPrefixes.empty(); }));
   // The same again: nothing to do.
@@ -872,6 +885,98 @@ void TestUpdateInstall() {
                 "updates unavailable"));
 }
 
+// The VPN on, the kill switch off: an update holds it on till the new
+// service's box is up - nothing goes out by the real address meanwhile.
+void TestUpdateHoldsKillSwitch() {
+  LogRing log(10);
+  const std::string install = R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1})";
+  const std::string start = R"({"cmd":"box_start","config":{"inbounds":[{"type":"tun","address":["172.19.0.1/30"]}]}})";
+  const std::string off = R"({"cmd":"kill_switch","enabled":false})";
+
+  // The box stopped: nothing to hold (the real address is what the user chose).
+  {
+    std::optional<std::string> lastConfig;
+    FakeCore core;
+    FakeKillSwitch killSwitch;
+    FakeUpdates updates;
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    CHECK(Send(handler, install).value("held", true) == false);
+    CHECK(killSwitch.applied == 0 && !updates.held && !updates.heldAtInstall);
+  }
+  // The kill switch already on: nothing more to do either.
+  {
+    std::optional<std::string> lastConfig;
+    FakeCore core;
+    FakeKillSwitch killSwitch;
+    FakeUpdates updates;
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    Send(handler, start);
+    Send(handler, R"({"cmd":"kill_switch","enabled":true})");
+    const int applied = killSwitch.applied;
+    CHECK(Send(handler, install).value("held", true) == false);
+    CHECK(killSwitch.applied == applied && !updates.held);
+  }
+  // The installer refused: the filters go, as they were.
+  {
+    std::optional<std::string> lastConfig;
+    FakeCore core;
+    FakeKillSwitch killSwitch;
+    FakeUpdates updates;
+    updates.error = "установщик не запустился";
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    Send(handler, start);
+    CHECK(IsError(Send(handler, install), updates.error));
+    CHECK(updates.heldAtInstall && !updates.held && !killSwitch.active);
+    CHECK(Send(handler, R"({"cmd":"box_stats"})").value("kill_switch", true) == false);
+  }
+
+  // Held: on before the installer runs.
+  std::optional<std::string> lastConfig;
+  FakeCore core;
+  FakeKillSwitch killSwitch;
+  FakeUpdates updates;
+  {
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    Send(handler, start);
+    CHECK(Send(handler, install).value("held", false) == true);
+    CHECK(updates.heldAtInstall && updates.held && killSwitch.active);
+    CHECK(Send(handler, R"({"cmd":"box_stats"})").value("kill_switch", false) == true);
+    // The old tray, not killed yet, asks it off: the box running is the old
+    // one, about to stop - still held.
+    const json answer = Send(handler, off);
+    CHECK(answer.value("held", false) == true && answer.value("active", false) == true && killSwitch.active);
+  }
+
+  // The installer's service: filters and the mark found, no box yet.
+  lastConfig.reset();
+  {
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    CHECK(Send(handler, off).value("held", false) == true && killSwitch.active && updates.held);
+    // The new box up: the next ask lets go, and the mark goes with it.
+    core.running = false;  // the old service's box went with it
+    CHECK(Send(handler, start).value("cmd", "") == "box_started");
+    const json answer = Send(handler, off);
+    CHECK(answer.value("held", true) == false && answer.value("active", true) == false);
+    CHECK(!killSwitch.active && !updates.held);
+  }
+
+  // The box never came back: after kUpdateHold it lets go anyway.
+  lastConfig.reset();
+  killSwitch.active = true;
+  updates.held = std::chrono::system_clock::now() - ControlHandler::kUpdateHold - std::chrono::seconds(1);
+  {
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    CHECK(Send(handler, off).value("held", true) == false && !killSwitch.active && !updates.held);
+  }
+
+  // A mark without filters (someone lifted them, --unblock) is left over: cleared.
+  updates.Hold(true);
+  {
+    ControlHandler handler(&core, log, lastConfig, {}, &killSwitch, nullptr, &updates);
+    CHECK(!updates.held);
+  }
+}
+
 }  // namespace
 
 int main() {  // NOLINT(bugprone-exception-escape) — see the catch below
@@ -897,6 +1002,7 @@ int main() {  // NOLINT(bugprone-exception-escape) — see the catch below
     TestResumeAfterSleep();
     TestResumeKeepsKillSwitch();
     TestUpdateInstall();
+    TestUpdateHoldsKillSwitch();
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;

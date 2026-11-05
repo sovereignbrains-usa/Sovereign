@@ -1,6 +1,8 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace sovereign::service {
@@ -24,6 +26,13 @@ class IUpdateRunner {
   // back in `session`. "" once the installer runs (it stops this service
   // next), or why not.
   virtual std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) = 0;
+
+  // The kill switch held on for an update (control.h's update_install): a
+  // mark that outlives this service - the next one, the installer's, finds
+  // it and keeps the filters till its own box is up. Since when, if set.
+  virtual std::optional<std::chrono::system_clock::time_point> HeldSince() = 0;
+  // Set (now) or cleared.
+  virtual void Hold(bool on) = 0;
 };
 
 }  // namespace sovereign::service

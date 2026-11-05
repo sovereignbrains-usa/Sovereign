@@ -119,6 +119,16 @@ ControlHandler::ControlHandler(ICore* core, const LogRing& coreLog,
       updates_(updates),
       killActive_(killSwitch != nullptr && killSwitch->Active()) {
   killSettings_.enabled = killActive_;
+  // An update's hold (update_install): kept while its filters are; a mark
+  // without them is left over.
+  if (updates_ != nullptr) {
+    if (killActive_) {
+      heldSince_ = updates_->HeldSince();
+    }
+    if (!heldSince_) {
+      updates_->Hold(false);
+    }
+  }
 }
 
 std::string ControlHandler::ApplyKillSwitch(const KillSwitchSettings& settings) {
@@ -161,6 +171,7 @@ ControlHandler::BootOutcome ControlHandler::StartAtBoot() {
   outcome.error = core_->Start(*config);
   if (outcome.error.empty()) {
     lastConfig_ = *config;  // replayed after sleep, reported by box_stats - as if the tray had started it
+    heldBoxUp_ = heldSince_.has_value();
     bootDone_ = true;
   }
   return outcome;
@@ -255,6 +266,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
       return fail(error);
     }
     lastConfig_ = configJson;
+    heldBoxUp_ = heldSince_.has_value();
     Json response;
     response["cmd"] = "box_started";
     // Kept for the next boot, or dropped. Failing to keep it doesn't undo the
@@ -343,14 +355,35 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
       }
       settings.lanAllowed.push_back(address.get<std::string>());
     }
+    // Held for an update (update_install): kept on, whatever the tray says,
+    // till a box started since - the new VPN is up - or kUpdateHold went by
+    // (the box didn't come back: no reason to keep the computer cut off).
+    // The tray asks again and again (its kill switch differs), so it lets go
+    // on the first ask after either.
+    bool held = false;
+    if (heldSince_) {
+      const auto now = std::chrono::system_clock::now();
+      const bool expired = now - *heldSince_ >= kUpdateHold || *heldSince_ - now >= kUpdateHold;
+      held = !settings.enabled && !heldBoxUp_ && !expired;
+      if (held) {
+        settings.enabled = true;
+      }
+    }
     const bool wantActive = settings.enabled || settings.lanClosed;
     if (settings != killSettings_ || wantActive != killActive_) {
       if (const std::string error = ApplyKillSwitch(settings); !error.empty()) {
         return fail(error);
       }
     }
+    if (heldSince_ && !held) {
+      heldSince_.reset();
+      if (updates_ != nullptr) {
+        updates_->Hold(false);
+      }
+    }
     Json response;
     response["cmd"] = "kill_switch";
+    response["held"] = held;
     response["active"] = killActive_ && killSettings_.enabled;
     response["allow_lan"] = killSettings_.allowLan;
     response["lan_closed"] = killActive_ && killSettings_.lanClosed;
@@ -609,13 +642,47 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     if (!session.is_number_unsigned() || session.get<std::uint64_t>() > UINT32_MAX) {
       return fail("session must be a session id");
     }
+    // The VPN on and the kill switch off: the installer stops this service,
+    // and till the new one's box is up everything would go out bare, by the
+    // real address. The filters close it meanwhile (the service's own
+    // program stays let through: it is the one that comes back), and the
+    // mark tells the next service to keep them (see kill_switch).
+    std::optional<KillSwitchSettings> before;
+    std::string holdError;
+    {
+      const std::scoped_lock lock(stateMutex_);
+      if (killSwitch_ != nullptr && lastConfig_ && !(killActive_ && killSettings_.enabled)) {
+        KillSwitchSettings hold = killSettings_;
+        hold.enabled = true;
+        const KillSwitchSettings was = killSettings_;
+        holdError = ApplyKillSwitch(hold);
+        if (holdError.empty()) {
+          before = was;
+          heldSince_ = std::chrono::system_clock::now();
+          heldBoxUp_ = false;
+          updates_->Hold(true);
+        }
+      }
+    }
     if (const std::string error = updates_->Install(version.get<std::string>(), installer.get<std::string>(),
                                                     static_cast<std::uint32_t>(session.get<std::uint64_t>()));
         !error.empty()) {
+      if (before) {
+        const std::scoped_lock lock(stateMutex_);
+        if (heldSince_) {
+          ApplyKillSwitch(*before);
+          heldSince_.reset();
+          updates_->Hold(false);
+        }
+      }
       return fail(error);
     }
     Json response;
     response["cmd"] = "update_install";
+    response["held"] = before.has_value();
+    if (!holdError.empty()) {
+      response["kill_switch_error"] = holdError;
+    }
     return Dump(response);
   }
 

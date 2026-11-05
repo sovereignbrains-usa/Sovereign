@@ -4,7 +4,11 @@
 #include <wil/result.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <format>
+#include <limits>
+#include <string>
 #include <optional>
 #include <utility>
 
@@ -150,6 +154,41 @@ std::string SelfUpdate::Install(const std::string& version, const std::string& i
     return "установщик не запустился";
   }
   return {};
+}
+
+std::optional<std::chrono::system_clock::time_point> SelfUpdate::HeldSince() {
+  if (directory_.empty()) {
+    return std::nullopt;
+  }
+  const auto text = ReadFileAll(directory_ + L"\\held", 32);
+  if (!text) {
+    return std::nullopt;
+  }
+  std::int64_t seconds = 0;
+  for (const char c : *text) {
+    if (c < '0' || c > '9' || seconds > (std::numeric_limits<std::int64_t>::max() - 9) / 10) {
+      return std::nullopt;
+    }
+    seconds = seconds * 10 + (c - '0');
+  }
+  return std::chrono::system_clock::time_point(std::chrono::seconds(seconds));
+}
+
+void SelfUpdate::Hold(bool on) {
+  if (directory_.empty()) {
+    return;
+  }
+  const std::wstring path = directory_ + L"\\held";
+  if (!on) {
+    DeleteFileW(path.c_str());
+    return;
+  }
+  if (!CreateDirectoryW(directory_.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+    return;
+  }
+  const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+  WriteFileAll(path, std::to_string(now.count()));
 }
 
 namespace {

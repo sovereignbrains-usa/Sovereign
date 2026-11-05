@@ -92,7 +92,7 @@ void TryLoadCore(ServiceState& state) {
     state.core->SetLogSink(
         [&log = state.coreLog](sovereign::service::LogLevel reported, std::string_view message) {
           const auto level = sovereign::service::EffectiveLevel(reported, message);
-          log.Append(level, message);
+          log.AppendCollapsed(level, message);
           trace::CoreLog(level, message);
         });
     trace::CoreLoaded();

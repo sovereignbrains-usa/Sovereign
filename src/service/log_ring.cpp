@@ -23,15 +23,52 @@ std::string_view TruncateUtf8(std::string_view text, std::size_t maxBytes) {
 LogRing::LogRing(std::size_t capacity) : capacity_(std::max<std::size_t>(capacity, 1)) {}
 
 void LogRing::Append(LogLevel level, std::string_view message) {
+  const std::scoped_lock lock(mutex_);
+  PushLocked(level, message);
+}
+
+void LogRing::PushLocked(LogLevel level, std::string_view message) {
   const auto now = std::chrono::system_clock::now().time_since_epoch();
   LogEntry entry{0, level, std::string(TruncateUtf8(message, kMaxMessageBytes)),
                  std::chrono::duration_cast<std::chrono::milliseconds>(now).count()};
-  const std::scoped_lock lock(mutex_);
   entry.seq = ++lastSeq_;
   if (entries_.size() == capacity_) {
     entries_.pop_front();
   }
   entries_.push_back(std::move(entry));
+}
+
+namespace {
+
+// The line without its numbers: "ERROR[0489] ... 5.45.215.23:443" and
+// "ERROR[0494] ... 5.45.215.23:443" are the same line.
+std::string CollapseKey(std::string_view message) {
+  std::string key;
+  key.reserve(message.size());
+  for (const char c : message) {
+    if (c < '0' || c > '9') {
+      key.push_back(c);
+    }
+  }
+  return key;
+}
+
+}  // namespace
+
+void LogRing::AppendCollapsed(LogLevel level, std::string_view message) {
+  const std::string key = CollapseKey(message);
+  const std::scoped_lock lock(mutex_);
+  if (lastSeq_ > 0 && level == collapseLevel_ && key == collapseKey_) {
+    ++collapsed_;
+    return;
+  }
+  if (collapsed_ > 0) {
+    PushLocked(collapseLevel_, "(the line above repeated " + std::to_string(collapsed_) + " more times)");
+    collapsed_ = 0;
+  }
+  collapseKey_ = key;
+  collapseLevel_ = level;
+  PushLocked(level, message);
 }
 
 std::vector<LogEntry> LogRing::Since(std::uint64_t afterSeq) const {

@@ -35,6 +35,13 @@ class LogRing {
 
   void Append(LogLevel level, std::string_view message);
 
+  // Append, but a line that repeats the previous one (the same text with its
+  // numbers left out: the same host and error at another port or time) is not
+  // stored again - a Wi-Fi drop made one connection fail 766 times in a minute.
+  // When a different line comes, one line says how many were left out. Only
+  // the tray's view is folded; ETW still gets every line.
+  void AppendCollapsed(LogLevel level, std::string_view message);
+
   // Entries with seq > afterSeq, oldest first.
   std::vector<LogEntry> Since(std::uint64_t afterSeq) const;
 
@@ -42,10 +49,17 @@ class LogRing {
   std::uint64_t LastSeq() const;
 
  private:
+  void PushLocked(LogLevel level, std::string_view message);
+
   mutable std::mutex mutex_;
   std::deque<LogEntry> entries_;
   std::size_t capacity_;
   std::uint64_t lastSeq_ = 0;
+  // AppendCollapsed's run: the last line's key and level, and how many of its
+  // repeats were left out.
+  std::string collapseKey_;
+  LogLevel collapseLevel_ = LogLevel::Info;
+  std::uint64_t collapsed_ = 0;
 };
 
 // The level a core line is kept under. sing-box logs some ordinary endings of

@@ -40,8 +40,24 @@ void TestEffectiveLevel() {
   CHECK(EffectiveLevel(LogLevel::Error, "network: missing default interface") == LogLevel::Error);
 }
 
-void TestAppendAndSince() {
-  LogRing ring(3);
+void TestAppendCollapsed() {
+  LogRing ring(10);
+  ring.AppendCollapsed(LogLevel::Error, "ERROR[0489] dial 5.45.215.23:443: timeout");
+  ring.AppendCollapsed(LogLevel::Error, "ERROR[0494] dial 5.45.215.23:8443: timeout");
+  ring.AppendCollapsed(LogLevel::Error, "ERROR[0501] dial 5.45.215.23:443: timeout");
+  CHECK(ring.LastSeq() == 1);
+  // A different line closes the run with one summary line.
+  ring.AppendCollapsed(LogLevel::Error, "other failure");
+  const auto all = ring.Since(0);
+  CHECK(all.size() == 3);
+  CHECK(all[1].message.find("2 more") != std::string::npos);
+  CHECK(all[2].message == "other failure");
+  // The same text at another level is another line.
+  ring.AppendCollapsed(LogLevel::Warn, "other failure");
+  CHECK(ring.Since(0).size() == 4);
+}
+
+void TestAppendAndSince() {  LogRing ring(3);
   CHECK(ring.LastSeq() == 0);
   CHECK(ring.Since(0).empty());
 
@@ -120,6 +136,7 @@ int main() {  // NOLINT(bugprone-exception-escape) — see the catch below
   try {
     TestTruncateUtf8();
     TestEffectiveLevel();
+    TestAppendCollapsed();
     TestAppendAndSince();
     TestLongLineIsCut();
     TestConcurrentAppend();

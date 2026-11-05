@@ -121,6 +121,27 @@ void TestWindowBorder() {
   CHECK(WindowBorder(c) == kDirect);
 }
 
+// Which digits of a latency the measurement proves (the frames' own numbers).
+void TestDelayDimDigits() {
+  const auto ok = [](int ms, int jitter, int samples) {
+    UiDelay d;
+    d.state = UiDelay::State::Ok;
+    d.ms = ms;
+    d.jitter = jitter;
+    d.samples = samples;
+    return d;
+  };
+  CHECK(DelayDimDigits(ok(53, 1, 5)) == 0);    // error 0.45: all hold
+  CHECK(DelayDimDigits(ok(81, 11, 15)) == 1);  // error 2.8: the units are noise
+  CHECK(DelayDimDigits(ok(57, 8, 15)) == 1);
+  CHECK(DelayDimDigits(ok(5, 40, 5)) == 0);    // a lone digit stays
+  CHECK(DelayDimDigits(ok(120, 400, 4)) == 2); // error 200: only the leading one holds
+  CHECK(DelayDimDigits(ok(50, 0, 5)) == 0);    // no spread shown, nothing to dim
+  UiDelay failed;
+  failed.state = UiDelay::State::Failed;
+  CHECK(DelayDimDigits(failed) == 0);
+}
+
 void TestTypeScale() {
   using namespace ui;
   const float scale[] = {kTMicro, kTCaption, kTBody, kTHeading, kTLead, kTTitle};
@@ -217,6 +238,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestFatesTellApart();
     TestTypeScale();
     TestWindowBorder();
+    TestDelayDimDigits();
     TestTokensCss();
     TestNoHueLiterals();
   } catch (const std::exception& e) {

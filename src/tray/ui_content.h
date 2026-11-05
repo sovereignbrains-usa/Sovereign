@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <optional>
@@ -476,6 +477,26 @@ inline std::wstring DelayLabel(const UiDelay& delay, bool detailed) {
     case UiDelay::State::Failed: return L"нет ответа";
   }
   return {};
+}
+
+// How many of the latency's last digits the measurement doesn't prove (the
+// detailed label draws them dim, 05.11.2026): a digit whose place is smaller
+// than the mean's error - the half-spread over the root of the requests - is
+// noise. "81 ±11" over 15 requests: the error is 2.8, the 1s are noise; "53 ±1"
+// over 5: 0.45, all hold. The leading digit always stays.
+inline int DelayDimDigits(const UiDelay& delay) {
+  if (delay.state != UiDelay::State::Ok || delay.jitter <= 0) {
+    return 0;
+  }
+  const double error = delay.jitter / std::sqrt(static_cast<double>(std::max(delay.samples, 1)));
+  const int digits = static_cast<int>(std::to_wstring(std::max(delay.ms, 0)).size());
+  int dim = 0;
+  double place = 1;
+  while (dim < digits - 1 && place < error) {
+    ++dim;
+    place *= 10;
+  }
+  return dim;
 }
 
 // What the figures of a measured server come to, in a word: losing requests

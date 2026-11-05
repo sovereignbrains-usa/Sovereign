@@ -1588,6 +1588,21 @@ class Painter {
       }
       t->FillEllipse(D2D1::Ellipse(at, radius, radius), Color(c));
     }
+    // `s` in colour `c`, but the `count` characters from `from` in `dim`
+    // (a latency's digits the measurement doesn't prove).
+    void TextDimmed(std::wstring_view s, IDWriteTextFormat* f, D2D1_RECT_F r, D2D1_COLOR_F c, UINT32 from, UINT32 count,
+                    D2D1_COLOR_F dim) const {
+      wil::com_ptr<IDWriteTextLayout> layout;
+      wil::com_ptr<ID2D1SolidColorBrush> dimBrush;
+      if (s.empty() || count == 0 || FAILED(dwrite->CreateTextLayout(s.data(), static_cast<UINT32>(s.size()), f, r.right - r.left,
+                                                                    r.bottom - r.top, layout.put())) ||
+          FAILED(t->CreateSolidColorBrush(dim, dimBrush.put()))) {
+        Text(s, f, r, c);
+        return;
+      }
+      layout->SetDrawingEffect(dimBrush.get(), {from, count});
+      t->DrawTextLayout({r.left, r.top}, layout.get(), Color(c), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
     void Text(std::wstring_view s, IDWriteTextFormat* f, D2D1_RECT_F r, D2D1_COLOR_F c) const {
       if (s.empty()) {
         return;
@@ -4095,8 +4110,17 @@ class Painter {
         }
         if (isServer) {
           const UiDelay& delay = c.delays[static_cast<std::size_t>(it.index)];
-          k.Text(DelayLabel(delay, c.delaysDetailed), delay_.get(), {delayLeft, line.top, delayRight, line.bottom},
-                 FromColorRef(ui::DelayColor(delay)));
+          const std::wstring label = DelayLabel(delay, c.delaysDetailed);
+          const D2D1_RECT_F cell{delayLeft, line.top, delayRight, line.bottom};
+          const int dimDigits = c.delaysDetailed ? DelayDimDigits(delay) : 0;
+          if (dimDigits > 0) {
+            // "81 ±11 мс": the 1 of the 81 isn't proven - dim, the verdict's colour keeps the rest.
+            const auto digits = static_cast<UINT32>(std::to_wstring(delay.ms).size());
+            k.TextDimmed(label, delay_.get(), cell, FromColorRef(ui::DelayColor(delay)), digits - static_cast<UINT32>(dimDigits),
+                         static_cast<UINT32>(dimDigits), secondary);
+          } else {
+            k.Text(label, delay_.get(), cell, FromColorRef(ui::DelayColor(delay)));
+          }
           if (failCol && delay.state == UiDelay::State::Ok) {
             // The requests that got no answer: green none, amber a few, red a tenth or more of them.
             const int lost = DelayFailures(delay);

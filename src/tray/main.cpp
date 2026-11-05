@@ -665,7 +665,7 @@ void Execute(TrayModel& model, Action action, const std::optional<std::string>& 
   if (action == Action::Start) {
     model.OnStartResult(StartBox(config, atBoot), TrayModel::Clock::now());
   } else if (action == Action::Stop) {
-    model.OnStopResult(StopBox());
+    model.OnStopResult(StopBox(), TrayModel::Clock::now());
   }
 }
 
@@ -2333,6 +2333,13 @@ class Worker {
         (want == selected_ && stats->generation == selectedGeneration_)) {
       return;
     }
+    // The box on the config before, a restart for the new one due or just
+    // made: a server only the new one has isn't in its selector yet - asked
+    // after the restart, not now ("no such option in the selector", 04.11).
+    if (model_.SelectionWaits()) {
+      selectError_.clear();
+      return;
+    }
     const auto now = TrayModel::Clock::now();
     if (!selectError_.empty() && lastSelectTry_ && now - *lastSelectTry_ < kSelectRetry) {
       return;
@@ -2382,7 +2389,8 @@ class Worker {
       const std::string want = server.empty() ? choices.selector : server;  // none there: as usual
       const std::string selector = sovereign::tray::ServiceOutboundTag(s.id);
       const auto done = serviceSelected_.find(selector);
-      if (done != serviceSelected_.end() && done->second == std::pair{want, stats->generation}) {
+      if ((done != serviceSelected_.end() && done->second == std::pair{want, stats->generation}) ||
+          model_.SelectionWaits()) {  // as ApplySelection: the box before the restart hasn't it
         continue;
       }
       auto& tried = serviceSelectTry_[selector];

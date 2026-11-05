@@ -96,11 +96,16 @@ void TrayModel::OnStartResult(const std::string& error, Clock::time_point now) {
   retryAt_ = now + kRetryAfter;
 }
 
-void TrayModel::OnStopResult(const std::string& error) {
+void TrayModel::OnStopResult(const std::string& error, Clock::time_point now) {
   if (!error.empty()) {
     lastError_ = error;
+    if (!restartedFor_.empty()) {
+      restartedFor_.clear();  // the restart for the new config didn't happen: owed still
+      restartRetryAt_ = now + kRetryAfter;
+    }
     return;
   }
+  restartRetryAt_.reset();
   lastError_.clear();
   if (last_) {
     last_->running = false;
@@ -139,7 +144,8 @@ Action TrayModel::Decide(Clock::time_point now) {
     }
     return Action::None;
   }
-  if (!expectedConfig_.empty() && last_->configSha256 != expectedConfig_ && restartedFor_ != expectedConfig_) {
+  if (!expectedConfig_.empty() && last_->configSha256 != expectedConfig_ && restartedFor_ != expectedConfig_ &&
+      (!restartRetryAt_ || now >= *restartRetryAt_)) {
     restartedFor_ = expectedConfig_;
     return Action::Stop;  // the next poll starts it with the current config
   }

@@ -62,7 +62,10 @@ enum class Action : std::uint8_t { None, Start, Stop };
 // different config hash (config.json changed - a subscription refresh, or while
 // the tray wasn't running) the model stops the box, and the next poll starts
 // it with the current config. Once per expected config: if the hash still
-// differs after that, it doesn't loop.
+// differs after that, it doesn't loop. A stop that failed isn't that once:
+// tried again after kRetryAfter (05.11.2026: a box left on the old config
+// had none of the servers the window offered - "no such option in the
+// selector" on every pick).
 class TrayModel {
  public:
   using Clock = std::chrono::steady_clock;
@@ -89,7 +92,18 @@ class TrayModel {
 
   // Results of the actions the model asked for. An empty error is success.
   void OnStartResult(const std::string& error, Clock::time_point now);
-  void OnStopResult(const std::string& error);
+  void OnStopResult(const std::string& error, Clock::time_point now);
+
+  // Whether a switch of the box's selector waits: no box running (a stop
+  // just made), or it runs another config than the expected one and the
+  // restart for that is still owed - a server of the new config isn't in it
+  // yet. After the one restart a hash that still differs doesn't hold it up.
+  bool SelectionWaits() const {
+    if (!last_ || !last_->running) {
+      return true;
+    }
+    return !expectedConfig_.empty() && last_->configSha256 != expectedConfig_ && restartedFor_ != expectedConfig_;
+  }
 
   Display GetDisplay() const;
   // Bytes per second over the last two polls of the same box generation;
@@ -119,6 +133,7 @@ class TrayModel {
   std::string lastError_;
   std::string expectedConfig_;
   std::string restartedFor_;  // the expected config a mismatch restart was made for
+  std::optional<Clock::time_point> restartRetryAt_;  // its stop failed: tried again from then
 };
 
 }  // namespace sovereign::tray

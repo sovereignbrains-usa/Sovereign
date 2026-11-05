@@ -78,7 +78,7 @@ std::string DriveModel(TrayModel::Clock::time_point start) {
   model.SetExpectedConfig("bbbb");  // a subscription refresh: restart once
   now += std::chrono::seconds(1);
   step(model.OnPoll(Running(0, 0, 0, "aaaa"), now));
-  model.OnStopResult("");
+  model.OnStopResult("", now);
   step(model.SetWantOn(false, now));
   seen += static_cast<char>('0' + static_cast<int>(model.GetDisplay()));
   return seen;

@@ -117,7 +117,7 @@ void TestOffStopsOnceAndStaysOff() {
   m.OnPoll(Running(0, 0), t0 + 1s);
 
   CHECK(m.SetWantOn(false, t0 + 2s) == Action::Stop);
-  m.OnStopResult("");
+  m.OnStopResult("", t0 + 2s);
   CHECK(m.GetDisplay() == Display::Off);
   CHECK(m.OnPoll(Stopped(), t0 + 3s) == Action::None);
   CHECK(m.GetDisplay() == Display::Off);
@@ -153,7 +153,8 @@ void TestRestartsOnConfigMismatchOnce() {
   TrayModel m(true);
   m.SetExpectedConfig("new");
   CHECK(m.OnPoll(RunningWith("old"), t0) == Action::Stop);  // config.json changed
-  m.OnStopResult("");
+  m.OnStopResult("", t0);
+  CHECK(m.SelectionWaits());  // stopped for the restart: no server switch until it runs again
   CHECK(m.GetDisplay() == Display::Starting);
   CHECK(m.OnPoll(Stopped(), t0 + 1s) == Action::Start);      // started with the new one
   m.OnStartResult("", t0 + 1s);
@@ -161,9 +162,29 @@ void TestRestartsOnConfigMismatchOnce() {
   // no restart loop.
   CHECK(m.OnPoll(RunningWith("old"), t0 + 2s) == Action::None);
   CHECK(m.OnPoll(RunningWith("old"), t0 + 3s) == Action::None);
+  CHECK(!m.SelectionWaits());  // restarted already: selections go to this box
   // Another config: enforced again, once.
   m.SetExpectedConfig("newer");
   CHECK(m.OnPoll(RunningWith("old"), t0 + 4s) == Action::Stop);
+}
+
+// The stop for a new config failed: the box still runs the old one (servers
+// the new list has aren't in its selector - "no such option", 04.11.2026), so
+// the restart is owed and tried again after kRetryAfter, not given up.
+void TestFailedConfigRestartTriedAgain() {
+  TrayModel m(true);
+  m.SetExpectedConfig("new");
+  CHECK(m.OnPoll(RunningWith("old"), t0) == Action::Stop);
+  m.OnStopResult("pipe busy", t0);
+  CHECK(m.SelectionWaits());
+  CHECK(m.OnPoll(RunningWith("old"), t0 + 1s) == Action::None);  // not every poll
+  CHECK(m.SelectionWaits());
+  CHECK(m.OnPoll(RunningWith("old"), t0 + TrayModel::kRetryAfter) == Action::Stop);
+  m.OnStopResult("", t0 + TrayModel::kRetryAfter);
+  CHECK(m.OnPoll(Stopped(), t0 + TrayModel::kRetryAfter + 1s) == Action::Start);
+  m.OnStartResult("", t0 + TrayModel::kRetryAfter + 1s);
+  CHECK(m.OnPoll(RunningWith("new"), t0 + TrayModel::kRetryAfter + 2s) == Action::None);
+  CHECK(!m.SelectionWaits());
 }
 
 void TestMatchingOrUnknownConfigLeftAlone() {
@@ -222,6 +243,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestStartsOffAndStaysOff();
     TestFlowStreams();
     TestRestartsOnConfigMismatchOnce();
+    TestFailedConfigRestartTriedAgain();
     TestMatchingOrUnknownConfigLeftAlone();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

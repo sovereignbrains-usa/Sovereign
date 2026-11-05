@@ -59,6 +59,7 @@ struct ServerInfo {
   std::string tag;
   std::string type;   // sing-box's: "vless", "wireguard"...
   std::string label;  // "VLESS · REALITY", "Trojan · WS", "WireGuard"
+  std::string address;  // its "server" (a name or an address, no port); empty if it has none
 };
 
 // The servers in a config's outbounds and endpoints (not groups, direct,

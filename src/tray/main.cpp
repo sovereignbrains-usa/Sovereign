@@ -325,6 +325,7 @@ struct View {
     std::uint64_t trafficTotal = 0;
     std::int64_t expire = 0;
     std::int64_t paidTill = 0;     // the user's own say (profiles.h)
+    std::string ownHost;           // set: a server of the user's own (profiles.h OwnServer), at this host
   };
   std::vector<ProfileView> profiles;
   // A balloon to show once: the UI shows it when noticeId changes.
@@ -394,6 +395,7 @@ struct ProfileChange {
     Server,      // text: a server's tag, on
     Via,         // text: the configuration to connect through; "" = directly
     PaidTill,    // text: unix seconds the user paid their server till; "" = not said
+    OwnServer,   // on: this config is a server of the user's own (its host taken from its servers); off: not
   };
   std::string id;
   What what = What::Enabled;
@@ -1833,6 +1835,21 @@ class Worker {
           delays_.clear();  // its servers measure through another path now
         }
         break;
+      case ProfileChange::What::OwnServer:
+        if (!change.on) {
+          profile->own.reset();
+        } else if (profile->url.empty()) {
+          // The host is the first of its servers' that a command line can hold; none: nothing to say.
+          for (const auto& server : runtime_[change.id].servers) {
+            if (sovereign::tray::IsOwnHost(server.address)) {
+              sovereign::tray::OwnServer own;
+              own.host = server.address;
+              profile->own = std::move(own);
+              break;
+            }
+          }
+        }
+        break;
       case ProfileChange::What::PaidTill: {
         std::int64_t till = 0;
         std::from_chars(change.text.data(), change.text.data() + change.text.size(), till);
@@ -2918,7 +2935,8 @@ class Worker {
                                 .trafficUsed = profile.trafficUsed,
                                 .trafficTotal = profile.trafficTotal,
                                 .expire = profile.expire,
-                                .paidTill = profile.paidTill};
+                                .paidTill = profile.paidTill,
+                                .ownHost = profile.own ? profile.own->host : std::string()};
         for (const auto& server : state.servers) {
           shown.servers.push_back(
               {.tag = server.tag, .label = server.label, .enabled = sovereign::tray::IsServerEnabled(profile, server.tag)});
@@ -4679,6 +4697,7 @@ UiContent ContentFrom(const View& v) {
     shown.name = Widen(profile.name);
     shown.enabled = profile.enabled;
     shown.subscription = !profile.url.empty();
+    shown.ownHost = Widen(profile.ownHost);
     shown.failed = !profile.error.empty();
     shown.host = sovereign::tray::UrlHost(Widen(profile.url));
     shown.updated = profile.lastRefresh ? LocalTime(profile.lastRefresh) : L"ещё не загружена";
@@ -4726,7 +4745,9 @@ UiContent ContentFrom(const View& v) {
       off += server.enabled ? 0 : 1;
     }
     // The list's line: what it is, how many servers, how fresh.
-    std::wstring detail = shown.subscription ? L"подписка" : L"свой конфиг";
+    std::wstring detail = shown.subscription ? L"подписка"
+                          : shown.ownHost.empty() ? L"свой конфиг"
+                                                  : L"свой сервер " + shown.ownHost;
     detail += std::format(L" · серверов: {}", profile.servers.size() - off);
     if (off > 0) {
       detail += std::format(L" (выкл. {})", off);
@@ -5305,6 +5326,10 @@ void OnProfileCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
                             .hours = hours});
       break;
     }
+    case UiCommand::ToggleOwnServer:
+      RequestProfileChange({.id = profile.id, .what = ProfileChange::What::OwnServer, .on = profile.ownHost.empty(),
+                            .text = {}, .hours = 0});
+      break;
     case UiCommand::CopyProfileLink:
       if (!profile.url.empty() && CopyText(owner, Widen(profile.url)) && g_trayIcon != nullptr) {
         g_trayIcon->Balloon(L"Sovereign: ссылка скопирована",
@@ -6113,6 +6138,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::SetRefreshHours:
     case UiCommand::PaidMenu:
     case UiCommand::PaidDateText:
+    case UiCommand::ToggleOwnServer:
     case UiCommand::CopyProfileLink:
     case UiCommand::RemoveProfile:
     case UiCommand::ToggleServer:

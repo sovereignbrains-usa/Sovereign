@@ -155,6 +155,11 @@ void TestChain() {
   }
   CHECK(ListServers("not json").empty());
 
+  // A server's address, for marking a config as the user's own server.
+  const auto addressed = ListServers(
+      R"({"outbounds":[{"type":"vless","tag":"home","server":"203.0.113.7","server_port":443},{"type":"direct","tag":"direct"}]})");
+  CHECK(addressed.size() == 1 && addressed[0].address == "203.0.113.7");
+
   // A second configuration with the same pair: the link stays in the config,
   // out of the selector and the URL test.
   const auto both = CombineConfigs({{"A", Frame(), {}}, {"B", frame.dump(), {}}});

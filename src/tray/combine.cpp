@@ -623,7 +623,8 @@ std::vector<ServerInfo> AllServers(std::string_view config) {
       for (const Json& o : *list) {
         if (IsServer(o) && !Tag(o).empty()) {
           const auto via = types.find(Str(o, "detour"));
-          servers.push_back({Tag(o), Str(o, "type"), Label(o, via != types.end() ? via->second : std::string_view())});
+          servers.push_back({Tag(o), Str(o, "type"), Label(o, via != types.end() ? via->second : std::string_view()),
+                             Str(o, "server")});
         }
       }
     }

@@ -2566,7 +2566,7 @@ class Painter {
       // The name, and what kind of configuration it is after it - if there's room.
       const float nameWidth = std::min(TextWidth(p.name, heading_.get()) + 2, nameRight - left);
       l.items.push_back(Make(Kind::Heading, {left, rowTop + 6, left + nameWidth, rowTop + 32}, p.name));
-      const std::wstring badge = p.subscription ? L"подписка" : L"свой конфиг";
+      const std::wstring badge = p.subscription ? L"подписка" : p.ownHost.empty() ? L"свой конфиг" : L"свой сервер";
       const float badgeWidth = TextWidth(badge, caption_.get()) + 2 * kPillPad;
       if (left + nameWidth + 8 + badgeWidth <= nameRight) {
         l.items.push_back(Make(Kind::Pill, {left + nameWidth + 8, rowTop + 8, left + nameWidth + 8 + badgeWidth, rowTop + 30},
@@ -3040,7 +3040,7 @@ class Painter {
         y += kButton + 8;
       }
     }
-    Item rename = Make(Kind::Button, {x0, y, p.subscription ? mid - 4 : x1, y + kButton}, L"Переименовать",
+    Item rename = Make(Kind::Button, {x0, y, mid - 4, y + kButton}, L"Переименовать",
                        kGlyphRename);
     rename.action = ItemAction::EditName;
     rename.index = index;
@@ -3050,6 +3050,14 @@ class Painter {
           CommandItem(Kind::Button, {mid + 4, y, x1, y + kButton}, L"Период…", kGlyphClock, UiCommand::ChooseRefreshPeriod, index);
       period.tip = L"Как часто обновлять подписку";
       l.items.push_back(std::move(period));
+    } else {
+      // A config of their own can be marked as a server of theirs: the host is taken from its servers.
+      Item own = CommandItem(Kind::Button, {mid + 4, y, x1, y + kButton},
+                             p.ownHost.empty() ? L"Это мой сервер" : L"Не мой сервер", nullptr,
+                             UiCommand::ToggleOwnServer, index);
+      own.tip = p.ownHost.empty() ? L"Пометить как свой сервер: адрес берётся из конфига"
+                                  : L"Сейчас помечен как свой сервер (" + p.ownHost + L") — снять пометку";
+      l.items.push_back(std::move(own));
     }
     y += kButton + kGap + 4;
 

@@ -90,6 +90,7 @@ struct UiProfile {
   std::wstring detail;     // the list's line: "подписка · 8 серверов · 30.09 14:20"
   bool enabled = true;     // its servers are in the config the box runs
   bool subscription = false;
+  std::wstring ownHost;    // set: a server of the user's own, at this host (profiles.h OwnServer)
   bool failed = false;     // its last refresh failed
   std::wstring host;       // the subscription server's name only - the URL's path is a secret
   std::wstring updated;    // "30.09 14:20" / "ещё не загружена"
@@ -421,6 +422,7 @@ enum class UiCommand : std::uint8_t {
   LanAdd,             // anchor: who to let into the closed network - a device around, an address typed
   AddLanHostText,     // text: the address
   PaidMenu,           // index: a configuration; what the user paid its server till - typed, a month more, none
+  ToggleOwnServer,    // index: a configuration of the user's own: mark it as their server (host from its servers) or not
   PaidDateText,       // index: a configuration; text: the date, "15.11" or "15.11.2026"
   EditRelayUrl,       // starts typing the relay's address over its row
   EditRelayUrlText,   // text: the address ("" clears the relay)

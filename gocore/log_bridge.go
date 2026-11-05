@@ -19,6 +19,7 @@ import "C"
 
 import (
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -63,6 +64,9 @@ func (w platformWriter) WriteMessage(level log.Level, message string) {
 	if notice := blocked.notice(ansiEscape.ReplaceAllString(message, ""), time.Now()); notice != "" {
 		sayToHost(log.LevelInfo, notice)
 	}
+	if harmlessWarpNoise(ansiEscape.ReplaceAllString(message, "")) {
+		level = log.LevelDebug
+	}
 	// Platform writers receive every level, whatever log.level says (see
 	// output() in sing-box log/observable.go) — filter here so the host sees
 	// exactly what `sing-box run` with the same config would print.
@@ -70,6 +74,20 @@ func (w platformWriter) WriteMessage(level log.Level, message string) {
 		return
 	}
 	sayToHost(level, message)
+}
+
+// harmlessWarpNoise: two lines of the WireGuard endpoint (WARP) that sing-box prints as
+// errors every couple of minutes while nothing is wrong (05.11.2026, his: "логи насыпало
+// ошибок"). "failed to derive keypair ... handshakeZeroed" is a second copy of a handshake
+// response arriving after the first one was taken - the tunnel is up; "unable to update bind:
+// listen udp6" is the IPv6 socket the system refuses (IPv6 off on the Wi-Fi) - the endpoint
+// goes on over IPv4. They stay in the log at the debug level.
+func harmlessWarpNoise(message string) bool {
+	if !strings.Contains(message, "endpoint/wireguard[") {
+		return false
+	}
+	return strings.Contains(message, "failed to derive keypair: invalid state for keypair derivation: handshakeZeroed") ||
+		(strings.Contains(message, "unable to update bind: listen udp6") && strings.Contains(message, "An invalid argument was supplied"))
 }
 
 // sayToHost hands a line to the host's callback, if there is one.

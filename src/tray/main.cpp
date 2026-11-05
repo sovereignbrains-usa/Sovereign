@@ -5434,20 +5434,32 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
     }
     case UiCommand::BlockedApps: {
       // Who the refusals were for: the programs that asked most, and the names that hid
-      // behind a CNAME. Information only - the menu has nothing to pick.
+      // behind a CNAME. The counts are only said (grey); a program picked is shown in
+      // Explorer, its file selected - "what is this svchost" - when the engine knew where it is.
+      const auto& apps = view.blockWho.apps;
       std::vector<std::wstring> items;
-      items.reserve(view.blockWho.apps.size() + 3);
-      for (const auto& program : view.blockWho.apps) {
+      std::vector<std::size_t> labels;
+      items.reserve(apps.size() + 4);
+      labels.push_back(items.size());
+      items.emplace_back(apps.empty() ? L"Пока никто не спрашивал заблокированное"
+                                      : L"Сколько раз отказано — нажми, чтобы показать файл:");
+      const std::size_t first = items.size();
+      for (const auto& program : apps) {
+        if (program.path.empty()) {
+          labels.push_back(items.size());
+        }
         items.push_back(Widen(program.app) + L" — " + std::to_wstring(program.count));
-      }
-      if (items.empty()) {
-        items.emplace_back(L"Пока никто не спрашивал заблокированное");
       }
       if (view.blockWho.cloaked > 0) {
         items.emplace_back(L"");
+        labels.push_back(items.size());
         items.push_back(L"За CNAME спрятано: " + std::to_wstring(view.blockWho.cloaked));
       }
-      PickFromMenu(owner, args.anchor, items, -1, {}, {});
+      const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, labels);
+      if (picked && *picked >= first && *picked - first < apps.size()) {
+        const std::wstring select = L"/select,\"" + Widen(apps[*picked - first].path) + L"\"";
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr, SW_SHOWNORMAL);
+      }
       break;
     }
     case UiCommand::ChooseRemoteDns: {

@@ -5403,6 +5403,7 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       // Who the refusals were for: the programs that asked most, and the names that hid
       // behind a CNAME. Information only - the menu has nothing to pick.
       std::vector<std::wstring> items;
+      items.reserve(view.blockWho.apps.size() + 3);
       for (const auto& program : view.blockWho.apps) {
         items.push_back(Widen(program.app) + L" — " + std::to_wstring(program.count));
       }

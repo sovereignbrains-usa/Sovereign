@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Sovereign — кадры нативной графики</title>
+<style>
+/* Кадры первых идей из native-graphics-research.html в нынешнем облике клиента.
+   Цвета и меры — из tokens.css; без градиентов, теней и стекла. Всё неподвижно. */
+@font-face { font-family: "Geist"; src: url("../../assets/fonts/Geist.ttf") format("truetype"); font-weight: 100 900; }
+:root {
+  color-scheme: dark;
+  --window: rgb(14 14 15); --panel: rgb(18 18 19); --card: rgb(24 24 26); --dialog: rgb(36 37 41); --raised: rgb(44 44 49);
+  --ink-1: rgb(242 244 248); --ink-2: rgb(156 158 164);
+  --lit-rgb: 226 229 235; --lit: rgb(var(--lit-rgb)); --lit-ink: rgb(16 17 20);
+  --vpn: 76 146 255; --warp: 232 134 66; --direct: 160 165 176; --block: 240 96 96;
+  --ok: 64 196 140; --warn: 240 196 64;
+  --hair: rgb(255 255 255 / .08); --plate: rgb(255 255 255 / .05);
+  --desk: rgb(29 32 38);
+  --font: "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --icons: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #070708; color: var(--ink-1); font: 14px/1.4 var(--font); }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+.lede { color: var(--ink-2); max-width: 780px; margin: 0 0 12px; }
+.toc { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 32px; font-size: 12.5px; }
+.toc a { color: var(--ink-2); text-decoration: none; } .toc a:hover { color: var(--ink-1); }
+.frame { margin: 0 0 44px; }
+.fh { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
+.fh .n { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.fh h2 { margin: 0; font-size: 17.75px; font-weight: 600; }
+.fh .codes { color: var(--ink-2); font-size: 12.5px; }
+.desk { background: var(--desk); border-radius: 8px; padding: 28px; position: relative; }
+.notes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 14px; font-size: 12.5px; color: var(--ink-2); }
+.notes b { display: block; color: var(--ink-1); font-weight: 600; margin-bottom: 3px; }
+.notes code, .legend code { font: 12px "Cascadia Mono", Consolas, monospace; color: var(--ink-1); }
+.cap { color: var(--ink-2); font-size: 12.5px; }
+.tn { font-variant-numeric: tabular-nums; }
+.dim { color: var(--ink-2); font-style: normal; }
+.gl { font-family: var(--icons); font-style: normal; }
+
+/* ---------- окно клиента ---------- */
+.win { background: var(--window); border: 1px solid var(--hair); border-radius: 8px; display: flex; flex-direction: column; position: relative; }
+.win[data-fate="vpn"] { border-color: rgb(var(--vpn)); }
+.win[data-fate="warp"] { border-color: rgb(var(--warp)); }
+.win[data-fate="direct"] { border-color: rgb(var(--direct)); }
+.win[data-fate="block"] { border-color: rgb(var(--block)); }
+.win.w10 { border-radius: 0; border-color: rgb(255 255 255 / .14); }
+.bar { height: 36px; display: flex; align-items: center; flex: none; }
+.bar .app { display: flex; align-items: center; gap: 8px; padding-left: 12px; font-size: 13px; color: var(--ink-2); }
+.bar .title { font-weight: 600; font-size: 15px; }
+.bar .sp { flex: 1; }
+.ic { width: 36px; height: 36px; display: grid; place-items: center; font-family: var(--icons); font-size: 14px; color: var(--ink-2); flex: none; }
+.ic.w40 { width: 40px; }
+.ic.s { width: 32px; height: 32px; }
+.scroll { padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+.card { background: var(--card); border-radius: 8px; outline: 1px solid var(--hair); outline-offset: -1px; position: relative; }
+.div { height: 1px; background: var(--hair); margin: 0 20px; }
+.muted { color: var(--ink-2); font-size: 12.5px; }
+.pill { height: 20px; padding: 0 8px; border-radius: 10px; background: var(--plate); outline: 1px solid var(--hair); outline-offset: -1px;
+        font-size: 12px; color: var(--ink-2); display: inline-flex; align-items: center; font-weight: 400; }
+.confhead { display: flex; align-items: center; padding: 4px 8px 4px 20px; }
+.confhead .muted { flex: 1; letter-spacing: .06em; font-size: 12px; }
+.conf { display: flex; align-items: center; padding: 8px 12px 8px 20px; gap: 8px; }
+.conf .t { flex: 1; } .conf .name { font-weight: 600; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.chev { font-family: var(--icons); font-size: 11px; color: var(--ink-2); }
+.fl { display: inline-flex; flex-direction: column; width: 18px; height: 12px; border-radius: 2px; overflow: hidden; vertical-align: -1px;
+      outline: 1px solid rgb(255 255 255 / .12); flex: none; }
+.fl i { flex: 1; } .fl.de i:nth-child(1) { background: #000; } .fl.de i:nth-child(2) { background: #d00; } .fl.de i:nth-child(3) { background: #fc0; }
+.fl.nl i:nth-child(1) { background: #ae1c28; } .fl.nl i:nth-child(2) { background: #fff; } .fl.nl i:nth-child(3) { background: #21468b; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.warn { background: rgb(var(--warn)); } .dot.bad { background: rgb(var(--block)); } .dot.ok { background: rgb(var(--ok)); }
+.btn { height: 34px; padding: 0 14px; border-radius: 6px; background: var(--card); outline: 1px solid var(--hair); outline-offset: -1px;
+       display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+.btn.accent { background: var(--lit); color: var(--lit-ink); outline-color: var(--lit); font-weight: 600; }
+.radio { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--ink-2); flex: none; display: grid; place-items: center; }
+.radio.on { border-color: var(--lit); } .radio.on::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--lit); }
+.radio.auto { border-style: dashed; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.seg div { height: 32px; display: grid; place-items: center; border-radius: 6px; background: var(--panel); color: var(--ink-2); font-size: 13px; }
+.seg div.on { background: var(--card); color: var(--ink-1); outline: 1px solid var(--hair); outline-offset: -1px; }
+canvas { display: block; }
+
+/* ---------- кадр 1 ---------- */
+.f1 { display: grid; grid-template-columns: 400px 1fr; gap: 64px; align-items: start; padding-left: 56px; }
+.cubebox { position: relative; }
+.cubebox canvas { width: 100%; height: 330px; }
+.srv { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 12px; }
+.srv .t { flex: 1; min-width: 0; } .srv .nm { font-weight: 600; display: flex; gap: 8px; align-items: center; font-size: 14px; white-space: nowrap; }
+.srv .v, .legend .v { color: var(--ink-1); }
+.srv .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.srv .num .big { font-weight: 600; font-size: 15.75px; }
+.mk { position: absolute; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--ink-2); color: var(--ink-2);
+      font-size: 11px; display: grid; place-items: center; font-variant-numeric: tabular-nums; background: var(--desk); }
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; max-width: 470px; }
+.legend li { display: grid; grid-template-columns: 20px 1fr; gap: 12px; }
+.legend .mk { position: static; }
+.legend b { display: block; font-weight: 600; margin-bottom: 2px; }
+.legend span.t { color: var(--ink-2); font-size: 13px; }
+
+/* ---------- кадр 2 ---------- */
+.minis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; }
+.mini { height: 150px; }
+.mini .bar { height: 30px; } .mini .bar .app { font-size: 12px; } .mini .ic { width: 30px; height: 30px; font-size: 10px; }
+.mini .mb { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 16px 10px; gap: 2px; }
+.mini .mb b { font-weight: 600; font-size: 15.75px; }
+.minis .under { font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+
+/* ---------- кадр 3 ---------- */
+.trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+.trio canvas, .duo canvas { width: 100%; background: var(--window); border-radius: 8px; }
+.trio canvas { height: 330px; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 28px; }
+.duo canvas { height: 260px; }
+.under { font-size: 12.5px; color: var(--ink-2); margin-top: 8px; }
+.under b { color: var(--ink-1); font-weight: 600; }
+
+/* ---------- кадр 4 ---------- */
+.f4 { display: grid; grid-template-columns: 440px 1fr; gap: 40px; align-items: start; }
+.shead { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 12px; }
+.shead .t { flex: 1; min-width: 0; } .shead .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ms { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.keychg { padding: 12px 16px 14px 12px; display: flex; flex-direction: column; gap: 12px; }
+.keychg .top { display: flex; gap: 12px; align-items: flex-start; }
+.keychg .nm { font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.keychg .was { display: flex; align-items: center; gap: 10px; padding-left: 52px; }
+.keychg .btns { display: flex; gap: 8px; padding-left: 52px; }
+.pair canvas { width: 100%; height: 240px; background: var(--window); border-radius: 8px; }
+
+/* ---------- кадр 5 ---------- */
+.f5 { display: grid; grid-template-columns: 560px 1fr; gap: 40px; align-items: start; }
+.cols, .prow { display: grid; grid-template-columns: 18px minmax(0, 1fr) 48px 62px 72px 34px; gap: 10px; align-items: center; }
+.cols { padding: 4px 16px 2px 20px; font-size: 11px; color: var(--ink-2); letter-spacing: .02em; }
+.cols span { text-align: right; } .cols span:nth-child(3) { text-align: center; }
+.prow { padding: 6px 16px 6px 20px; min-height: 36px; }
+.prow.on { background: rgb(255 255 255 / .06); border-radius: 6px; margin: 0 4px; padding-left: 16px; padding-right: 12px; }
+.prow .name { font-size: 13.5px; line-height: 1.25; }
+.prow .lens { width: 48px; height: 12px; }
+.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; font-size: 13px; }
+.num .u { color: var(--ink-2); font-size: 12px; }
+.dec { display: grid; grid-template-columns: 1fr 2.4ch; font-variant-numeric: tabular-nums; font-size: 13px; }
+.dec .ip { text-align: right; } .dec .fp { text-align: left; }
+.fails { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-variant-numeric: tabular-nums; font-size: 13px; }
+.fails .dot { width: 6px; height: 6px; }
+.explain { display: flex; flex-direction: column; gap: 18px; font-size: 13px; color: var(--ink-2); }
+.explain .ex { display: flex; align-items: center; gap: 14px; }
+.explain .ex .big { font-size: 24px; font-weight: 600; color: var(--ink-1); font-variant-numeric: tabular-nums; min-width: 96px; }
+.explain canvas { width: 96px; height: 24px; }
+
+/* ---------- кадр 6 ---------- */
+.taskbar { height: 48px; background: rgb(32 32 32); border-radius: 0 0 8px 8px; display: flex; align-items: center; justify-content: flex-end;
+           gap: 2px; padding: 0 12px; position: relative; color: rgb(235 235 235); }
+.screenTop { height: 120px; background: var(--desk); border-radius: 8px 8px 0 0; position: relative; }
+.tray { width: 32px; height: 40px; display: grid; place-items: center; font-family: var(--icons); font-size: 15px; }
+.tray.us { border-radius: 4px; background: rgb(255 255 255 / .06); }
+.tray.us canvas { width: 16px; height: 16px; }
+.clock { text-align: right; font: 12px/1.35 "Segoe UI", var(--font); padding: 0 6px 0 10px; font-variant-numeric: tabular-nums; }
+.systip { position: absolute; bottom: 52px; background: rgb(43 43 43); outline: 1px solid rgb(255 255 255 / .1); outline-offset: -1px;
+          padding: 6px 10px; border-radius: 6px; font: 12px/1.4 "Segoe UI", var(--font); color: rgb(235 235 235); white-space: nowrap; }
+.states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px 20px; margin-top: 28px; }
+.state { display: flex; gap: 14px; align-items: flex-end; }
+.state canvas { image-rendering: pixelated; outline: 1px solid rgb(255 255 255 / .06); }
+.state .under { margin-top: 8px; }
+
+/* ---------- кадр 7 ---------- */
+.screen { position: relative; background: var(--desk); border-radius: 8px; overflow: hidden; }
+.dw { position: absolute; background: rgb(30 30 32); border-radius: 6px; outline: 1px solid rgb(255 255 255 / .07); outline-offset: -1px; }
+.dw .dt { height: 26px; display: flex; align-items: center; padding: 0 0 0 10px; font-size: 12px; color: var(--ink-2); }
+.dw .dt .sp { flex: 1; } .dw .dt i { font-family: var(--icons); font-size: 9px; width: 28px; text-align: center; font-style: normal; }
+.dw .dc { padding: 8px 12px; display: flex; flex-direction: column; gap: 7px; }
+.dw .dc i { display: block; height: 6px; border-radius: 3px; background: var(--plate); }
+.xo { position: absolute; inset: 0; border-radius: 6px; pointer-events: none; }
+.xt { position: absolute; left: 10px; top: 32px; background: var(--card); padding: 4px 9px 4px 8px; border-left: 3px solid rgb(var(--f));
+      border-radius: 2px 4px 4px 2px; font-size: 12px; color: var(--ink-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.xt.quiet { border-left: 3px dashed var(--ink-2); color: var(--ink-2); }
+.pick { position: absolute; background: var(--raised); border-radius: 8px; padding: 6px; display: flex; flex-direction: column; gap: 4px; width: 168px; z-index: 50; }
+.pick .ph { font-size: 12px; color: var(--ink-2); padding: 2px 6px 4px; }
+.pick .c { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 6px; background: var(--plate); font-size: 13px; }
+.pick .c i { width: 3px; height: 14px; border-radius: 1.5px; background: rgb(var(--f)); }
+.pick .c.on { background: rgb(var(--lit-rgb) / .12); outline: 1px solid rgb(var(--lit-rgb) / .40); outline-offset: -1px; }
+.pick .c .s { margin-left: auto; color: var(--ink-2); font-size: 12px; }
+.aim { position: absolute; z-index: 60; width: 30px; height: 30px; margin: -15px 0 0 -15px; }
+.edge { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: rgb(var(--warp)); z-index: 60; }
+.tb { position: absolute; left: 0; right: 0; bottom: 0; height: 22px; background: rgb(32 32 32); z-index: 55; }
+.pair2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 28px; }
+.foot { color: var(--ink-2); font-size: 13px; max-width: 820px; }
+.foot b { color: var(--ink-1); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>Sovereign — кадры нативной графики</h1>
+<p class="lede">Первые идеи из <code>native-graphics-research.html</code>, показанные в нынешнем облике клиента. Всё неподвижно: анимации Windows у тебя выключены, поэтому это и есть то, что ты увидишь. Куб упрощён до плоских граней, в клиенте он остаётся как есть. Адреса взяты из документационных диапазонов (203.0.113.x и 198.51.100.x), ключи выдуманы.</p>
+<nav class="toc">
+  <a href="#f1">1 · Главное окно</a><a href="#f2">2 · Рамка окна</a><a href="#f3">3 · Призма и выдержка</a><a href="#f4">4 · Гильош ключа</a>
+  <a href="#f5">5 · Честные цифры и струна</a><a href="#f6">6 · Значок в трее</a><a href="#f7">7 · Вне окна</a>
+</nav>
+
+<!-- ======================= 1 ======================= -->
+<section class="frame" id="f1">
+  <div class="fh"><span class="n">Кадр 1</span><h2>Главное окно, VPN включён</h2><span class="codes">C5 · D4 · B2 · D1 · B4</span></div>
+  <div class="desk f1">
+    <div class="win" data-fate="vpn" style="width:400px">
+      <span class="mk" style="right:-34px;top:8px">1</span>
+      <div class="bar">
+        <div class="app"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="rgb(156 158 164)" stroke-width="1.3" stroke-linejoin="round"><path d="M8 1.5 14 5v6l-6 3.5L2 11V5z"/><path d="M2 5l6 3.5L14 5M8 8.5v6"/></svg>Sovereign</div>
+        <div class="sp"></div>
+        <div class="ic">&#xE8F0;</div><div class="ic">&#xE8A5;</div><div class="ic">&#xE713;</div>
+        <div class="ic w40">&#xE921;</div><div class="ic w40">&#xE8BB;</div>
+      </div>
+      <div class="scroll">
+        <div class="card">
+          <div class="confhead"><span class="muted">КОНФИГУРАЦИИ · 2</span><span class="ic s">&#xE77F;</span><span class="ic s">&#xED14;</span><span class="ic s">&#xE8E5;</span></div>
+          <div class="div"></div>
+          <div class="conf"><div class="t"><div class="name">Основная <span class="pill">подписка</span></div><div class="muted">Сервер оплачен до 25.11 ›</div></div><span class="pill tn">20 дней</span><i class="chev">&#xE76C;</i></div>
+          <div class="div"></div>
+          <div class="conf"><div class="t"><div class="name">Запасная <span class="pill">подписка</span></div><div class="muted">Сервер оплачен до 09.11 ›</div></div><span class="pill tn">4 дня</span><i class="chev">&#xE76C;</i></div>
+        </div>
+        <div class="cubebox">
+          <canvas class="prism" data-w="vpn:8,warp:2,direct:1,block:1" data-light="in:.42,vpn:.95,warp:.5,direct:.6,block:.85" data-half="40" data-mode="exp"></canvas>
+          <span class="mk" style="right:-51px;top:150px">2</span>
+          <span class="mk" style="left:-51px;top:96px">3</span>
+        </div>
+        <div class="card srv">
+          <span class="mk" style="left:-51px;top:22px">4</span>
+          <span class="mk" style="right:-51px;top:22px">5</span>
+          <canvas class="ros" data-key="reality-pbk:Qx3fN8vT2mK9pL4sW7yB1cZ6dH0jR5gE" data-curves="3" style="width:36px;height:36px"></canvas>
+          <div class="t"><div class="nm"><i class="fl de"><i></i><i></i><i></i></i>VLESS + Vision + REALITY</div>
+            <div class="muted tn">203.0.113.24 · <span class="v">17<i class="dim">0.2</i></span> Мбит/с</div></div>
+          <div class="num"><span class="big">53</span> <span class="dim" style="font-size:12px">мс</span></div>
+          <i class="chev">&#xE76C;</i>
+        </div>
+      </div>
+    </div>
+    <ol class="legend">
+      <li><span class="mk">1</span><div><b>Рамка цвета судьбы · C5</b><span class="t">Системная кромка 1 px синяя, пока трафик идёт через VPN. Окно сообщает состояние даже краем глаза, когда оно не в фокусе. Это один вызов DWM, на Windows 11.</span></div></li>
+      <li><span class="mk">2</span><div><b>Куб как призма · D4</b><span class="t">Снизу в куб входит белый пучок: это весь трафик, рука пользователя. Сверху выходят нити судеб: 8 VPN и 2 WARP. Одна серая нить «напрямую» обходит куб, как сейчас точки. Одна красная упирается в грань. Доля пути — число нитей из 12, а не толщина.</span></div></li>
+      <li><span class="mk">3</span><div><b>Длинная выдержка · B2</b><span class="t">Нити нарисованы как снимок с выдержкой 3 с, яркость — сколько прошло. WARP бледнее, потому что по нему шло меньше. Без анимаций снимок просто сменяется раз в 1–2 с.</span></div></li>
+      <li><span class="mk">4</span><div><b>Гильош ключа · D1</b><span class="t">Розетка выведена из публичного ключа сервера. Если сервер подменили, рисунок станет другим, и это видно без сверки 64 знаков. Цвета у розетки нет: это личность сервера, а не судьба.</span></div></li>
+      <li><span class="mk">5</span><div><b>Честные цифры · B4</b><span class="t">Цифры табличные: «53» не сдвигает строку, когда меняется. В «<span class="v">17<i class="dim">0.2</i></span>» серым отмечены разряды, которые замер не доказал: скорость гуляет примерно на ±6 Мбит/с.</span></div></li>
+    </ol>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>Пять идей в одном окне. Раскладка, шрифт и карточки те же. Новое — только линии: рамка, нити и розетка, а также серые разряды.</div>
+    <div><b>Без анимаций</b>Это и есть рабочий вид. Нити и цифры меняются раз в 1–2 с скачком, без переходов. Мигать нечему.</div>
+    <div><b>Как сделать</b><code>DWMWA_BORDER_COLOR</code>; геометрия D2D для нитей и розетки; <code>IDWriteTypography</code> (tnum) и <code>SetDrawingEffect</code> для разрядов.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Всё, кроме рамки, работает на обеих. На Windows 10 атрибут рамки отвергается, и окно выглядит как сейчас.</div>
+  </div>
+</section>
+
+<!-- ======================= 2 ======================= -->
+<section class="frame" id="f2">
+  <div class="fh"><span class="n">Кадр 2</span><h2>Рамка окна цвета судьбы</h2><span class="codes">C5</span></div>
+  <div class="desk">
+    <div class="minis">
+      <div><div class="win mini" data-fate="vpn"><div class="bar"><div class="app">Sovereign</div><div class="sp"></div><div class="ic">&#xE921;</div><div class="ic">&#xE8BB;</div></div>
+        <div class="mb"><b>VPN</b><span class="muted">весь трафик через сервер</span></div></div><div class="under">Синяя</div></div>
+      <div><div class="win mini" data-fate="warp"><div class="bar"><div class="app">Sovereign</div><div class="sp"></div><div class="ic">&#xE921;</div><div class="ic">&#xE8BB;</div></div>
+        <div class="mb"><b>WARP</b><span class="muted">основной путь — WARP</span></div></div><div class="under">Оранжевая</div></div>
+      <div><div class="win mini" data-fate="direct"><div class="bar"><div class="app">Sovereign</div><div class="sp"></div><div class="ic">&#xE921;</div><div class="ic">&#xE8BB;</div></div>
+        <div class="mb"><b>Напрямую</b><span class="muted">VPN выключен</span></div></div><div class="under">Серая</div></div>
+      <div><div class="win mini" data-fate="block"><div class="bar"><div class="app">Sovereign</div><div class="sp"></div><div class="ic">&#xE921;</div><div class="ic">&#xE8BB;</div></div>
+        <div class="mb"><b>Kill switch держит</b><span class="muted">сети нет, пока VPN не вернётся</span></div></div><div class="under">Красная</div></div>
+      <div><div class="win mini w10"><div class="bar"><div class="app">Sovereign</div><div class="sp"></div><div class="ic">&#xE921;</div><div class="ic">&#xE8BB;</div></div>
+        <div class="mb"><b>Windows 10 LTSC</b><span class="muted">атрибута нет — рамка обычная</span></div></div><div class="under">Как сейчас</div></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>Цвет системной кромки 1 px повторяет основную судьбу. Красная рамка значит не «ошибку», а то, что kill switch сейчас держит.</div>
+    <div><b>Без анимаций</b>Цвет меняется сразу, движения здесь нет вообще.</div>
+    <div><b>Как сделать</b>Нужен один вызов <code>DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, …)</code> при смене состояния, рядом с <code>DWMWA_USE_IMMERSIVE_DARK_MODE</code>. Цвета берутся из <code>ui_style.h</code>.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Работает на Windows 11 22000+. На LTSC 2021 вызов возвращает ошибку, и окно остаётся как справа.</div>
+  </div>
+</section>
+
+<!-- ======================= 3 ======================= -->
+<section class="frame" id="f3">
+  <div class="fh"><span class="n">Кадр 3</span><h2>Куб как призма, нити как выдержка</h2><span class="codes">D4 · B2</span></div>
+  <div class="desk">
+    <div class="trio">
+      <div><canvas class="prism" data-w="vpn:8,warp:2,direct:1,block:1" data-light="in:.42,vpn:.95,warp:.5,direct:.6,block:.85" data-half="40" data-mode="exp"></canvas>
+        <div class="under"><b>Обычный день.</b> <span class="tn">8 VPN · 2 WARP · 1 напрямую · 1 блок</span></div></div>
+      <div><canvas class="prism" data-w="direct:12" data-light="in:.42,direct:.7" data-half="40" data-mode="exp"></canvas>
+        <div class="under"><b>VPN выключен.</b> Все 12 нитей обходят куб: туннеля нет.</div></div>
+      <div><canvas class="prism" data-w="block:12" data-light="in:.42,block:.85" data-half="40" data-mode="exp"></canvas>
+        <div class="under"><b>Kill switch держит.</b> Все нити упираются в грань — под кубом шов из засечек.</div></div>
+    </div>
+    <div class="duo">
+      <div><canvas class="prism" data-w="vpn:8,warp:2,direct:1,block:1" data-light="in:.42,vpn:.95,warp:.5,direct:.6,block:.85" data-half="34" data-mode="dots" data-seed="11"></canvas>
+        <div class="under"><b>Точки, один момент.</b> Так выглядит любой застывший кадр живого трафика. Куда шёл поток, по нему не понять.</div></div>
+      <div><canvas class="prism" data-w="vpn:8,warp:2,direct:1,block:1" data-light="in:.42,vpn:.95,warp:.5,direct:.6,block:.85" data-half="34" data-mode="exp"></canvas>
+        <div class="under"><b>Выдержка, последние 3 с.</b> Тот же поток. Видно и пути, и доли, и что шло больше.</div></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>Число нитей из 12 — это доля пути; доли считаются методом наибольшего остатка, поэтому в сумме всегда 12. Яркость нитей — объём за 3 с. Ниже куба трафик ещё ничей, поэтому он белый.</div>
+    <div><b>Без анимаций</b>Это фотография: раз в 1–2 с её сменяет следующая. Для тебя это основной режим живого трафика.</div>
+    <div><b>Как сделать</b>В <code>cube.h</code> добавить <code>PrismStrands(shares) → array&lt;Fate,12&gt;</code>. Выдержка аналитическая: только геометрия D2D, без FP16, в <code>DrawLive</code> под частицами.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Обе. Нужно только то, что уже рисует куб.</div>
+  </div>
+</section>
+
+<!-- ======================= 4 ======================= -->
+<section class="frame" id="f4">
+  <div class="fh"><span class="n">Кадр 4</span><h2>Гильош ключа: подмену сервера видно глазом</h2><span class="codes">D1</span></div>
+  <div class="desk f4">
+    <div class="win" data-fate="vpn" style="width:440px">
+      <div class="bar"><div class="ic w40">&#xE72B;</div><div class="title">Серверы</div><div class="sp"></div><div class="ic">&#xE945;</div><div class="ic">&#xE916;</div><div class="ic w40">&#xE921;</div><div class="ic w40">&#xE8BB;</div></div>
+      <div class="scroll">
+        <div class="card">
+          <div class="shead"><canvas class="ros" data-key="reality-pbk:Qx3fN8vT2mK9pL4sW7yB1cZ6dH0jR5gE" data-curves="3" style="width:40px;height:40px"></canvas>
+            <i class="fl de"><i></i><i></i><i></i></i><div class="t"><div class="n">203.0.113.24</div><div class="muted">AS64500 · 6 протоколов</div></div><span class="ms">50 мс</span><i class="chev">&#xE70D;</i></div>
+          <div class="div"></div>
+          <div class="shead"><canvas class="ros" data-key="reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cF" data-curves="3" style="width:40px;height:40px"></canvas>
+            <i class="fl nl"><i></i><i></i><i></i></i><div class="t"><div class="n">198.51.100.7</div><div class="muted">AS64501 · 5 протоколов</div></div><span class="ms">51 мс</span><i class="chev">&#xE70D;</i></div>
+        </div>
+        <div class="card keychg">
+          <div class="top"><canvas class="ros" data-key="reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cG" data-curves="3" style="width:40px;height:40px"></canvas>
+            <div><div class="nm"><span class="dot warn"></span>Ключ сервера сменился</div>
+              <div class="muted">198.51.100.7: до 04.11 был другой ключ. Если сервер не переустанавливали, это подмена.</div></div></div>
+          <div class="was"><span class="muted">было</span><canvas class="ros" data-key="reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cF" data-curves="3" data-alpha=".6" style="width:30px;height:30px"></canvas>
+            <span class="muted">стало</span><canvas class="ros" data-key="reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cG" data-curves="3" style="width:30px;height:30px"></canvas></div>
+          <div class="btns"><span class="btn">Сервер переустановил я</span><span class="btn">Отключиться</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="pair">
+      <canvas class="gpair" data-a="reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cF" data-b="reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cG"></canvas>
+      <div class="under">Слева старый ключ, справа новый: они отличаются одним битом в последнем знаке, а розетки разные с первого взгляда. В клиенте хеш — SHA-256 публичного ключа. В макете вместо него FNV.</div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>У каждого сервера своя розетка. Когда ключ меняется, вид розетки другой, и в карточке появляется вопрос. Он оформлен как вердикт: янтарная точка и слово.</div>
+    <div><b>Без анимаций</b>Розетка неподвижна всегда.</div>
+    <div><b>Как сделать</b>SHA-256 (BCrypt) берётся только от публичного: ключа Reality или SPKI сертификата. UUID — это учётные данные, его брать нельзя. Из байтов хеша получаются параметры гипотрохоид, рисунок кешируется в <code>ID2D1GeometryRealization</code>. Прошлый хеш хранится по серверу.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Обе. При 96 dpi линии не тоньше 0,75 DIP, иначе они сливаются.</div>
+  </div>
+</section>
+
+<!-- ======================= 5 ======================= -->
+<section class="frame" id="f5">
+  <div class="fh"><span class="n">Кадр 5</span><h2>Честные цифры и струна дрожания</h2><span class="codes">B4 · D7</span></div>
+  <div class="desk f5">
+    <div class="win" data-fate="vpn" style="width:560px">
+      <div class="bar"><div class="ic w40">&#xE72B;</div><div class="title">Серверы</div><div class="sp"></div><div class="ic">&#xE945;</div><div class="ic">&#xE916;</div><div class="ic w40">&#xE921;</div><div class="ic w40">&#xE8BB;</div></div>
+      <div class="scroll">
+        <div class="seg"><div class="on">Быстрые сверху</div><div>Как в подписке</div></div>
+        <div class="card" id="srvlist"></div>
+      </div>
+    </div>
+    <div class="explain">
+      <div class="ex"><span class="big">8<i class="dim">1</i> <span class="dim" style="font-size:13px;font-weight:400">мс</span></span><span>Разброс ±11 мс при 15 замерах. Погрешность среднего около 3 мс, поэтому единицы не доказаны и показаны серым.</span></div>
+      <div class="ex"><span class="big">50 <span class="dim" style="font-size:13px;font-weight:400">мс</span></span><span>Разброс ±1 мс при 5 замерах — все разряды настоящие.</span></div>
+      <div class="ex"><span class="big">19<i class="dim">0.4</i></span><span>Скорость гуляет на ±7 Мбит/с. Число стоит в столбце по точке и не меняет ширину, пока идёт замер.</span></div>
+      <div class="ex"><canvas class="lens" data-s="0" style="width:96px;height:24px"></canvas><span>Разброс 0 мс — натянутая струна.</span></div>
+      <div class="ex"><canvas class="lens" data-s="4" style="width:96px;height:24px"></canvas><span>4 мс — струна чуть дрогнула.</span></div>
+      <div class="ex"><canvas class="lens" data-s="11" style="width:96px;height:24px"></canvas><span>11 мс — линза: сервер дёрганый, хотя средний отклик у него неплохой.</span></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>Струна 48×12 — это разброс отклика. Серые разряды — то, что замер не доказал. Столбец скорости выровнен по точке, сбои показаны точкой вердикта и числом.</div>
+    <div><b>Без анимаций</b>Всё неподвижно. Цифры при замере меняются, но строка не дёргается: ширина постоянная.</div>
+    <div><b>Как сделать</b>Нужен <code>ApplyNumeric(layout, range)</code> (tnum) и <code>SignificantDigits(value, σ, n)</code>. Разряды младше σ/√n рисуются кистью вторичного текста. Для выравнивания по точке — два layout'а. Струна — <code>DrawJitterLens(dc, rect, σ, fate)</code>.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Обе. Табличные цифры в Geist есть, проверено по файлу шрифта.</div>
+  </div>
+</section>
+
+<!-- ======================= 6 ======================= -->
+<section class="frame" id="f6">
+  <div class="fh"><span class="n">Кадр 6</span><h2>Значок в трее как прибор</h2><span class="codes">C4</span></div>
+  <div class="desk">
+    <div class="screenTop"></div>
+    <div class="taskbar">
+      <div class="systip" style="right:178px">Sovereign · VPN · <span class="tn">4,1 МБ/с</span></div>
+      <div class="tray">&#xE70E;</div>
+      <div class="tray us"><canvas class="trayreal" data-st="vpn:3"></canvas></div>
+      <div class="tray">&#xE701;</div><div class="tray">&#xE767;</div>
+      <div class="clock">21:40<br>05.11.2026</div>
+    </div>
+    <div class="states" id="trayStates"></div>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>Лампа слева показывает судьбу, столбик справа — скорость в 4 ступенях. Цифры только в подсказке, в значке их нет. Когда держит kill switch, вместо лампы красное кольцо и столбика нет.</div>
+    <div><b>Без анимаций</b>Значок перерисовывается только при смене ступени, с гистерезисом, чтобы полоска не дрожала. Окно при открытии просто появляется.</div>
+    <div><b>Как сделать</b>D2D → WIC → <code>CreateIconIndirect</code> → <code>Shell_NotifyIconW(NIM_MODIFY)</code>. Размер — по <code>GetSystemMetricsForDpi(SM_CXSMICON)</code>: при 100% это 16, при 150% — 24.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Обе. На 11 новый значок по умолчанию прячется в переполнение — подсказать при первом запуске.</div>
+  </div>
+</section>
+
+<!-- ======================= 7 ======================= -->
+<section class="frame" id="f7">
+  <div class="fh"><span class="n">Кадр 7</span><h2>Вне окна: рентген, прицел, линия по краю</h2><span class="codes">C2 · C1 · C3</span></div>
+  <div class="desk">
+    <div class="screen" data-scene="xray" style="height:420px"></div>
+    <div class="under"><b>Рентген · C2.</b> Пока держишь клавишу, каждое окно обведено цветом своего пути. Рамки идут только по видимым частям. Блокнот без соединений обведён штрихом.</div>
+    <div class="pair2">
+      <div><div class="screen" data-scene="aim" style="height:300px"></div>
+        <div class="under"><b>Прицел · C1.</b> Прицел белый: это рука. Окно под ним обведено цветом нынешнего пути. Отпустил — рядом четыре пути на выбор.</div></div>
+      <div><div class="screen" data-scene="edge" style="height:300px"></div>
+        <div class="under"><b>Линия по краю · C3.</b> Клиент сам перевёл Telegram на WARP: оранжевая линия 3 DIP 1,5 с идёт по верху рабочей области. Текста нет.</div></div>
+    </div>
+  </div>
+  <div class="notes">
+    <div><b>Что видно</b>Закон судьбы выходит за окно. В табличке путь показан рейкой, а слова остаются белыми, ведь слова судьбой не красятся. Это поправка к эскизу из исследования. Программа без соединений обведена штрихом, а не серым: серый уже занят путём «напрямую». Это вторая поправка.</div>
+    <div><b>Без анимаций</b>Всё и так неподвижно. Линия по краю появляется целиком и исчезает через 1,5 с, в полном экране и в режиме «не беспокоить» её нет.</div>
+    <div><b>Как сделать</b>Нужно наложение без кликов (<code>WS_EX_TRANSPARENT | WS_EX_LAYERED</code> + DComp) на каждый монитор. Окна — <code>EnumWindows</code> в z-порядке, рамки по <code>DWMWA_EXTENDED_FRAME_BOUNDS</code>, скрытые отсекаются по <code>DWMWA_CLOAKED</code>. Под прицелом: <code>WindowFromPoint</code> → путь exe.</div>
+    <div><b>LTSC 2021 · Windows 11</b>Обе. Окна от имени администратора без повышения не прочитать — для них подпись «нужны права администратора».</div>
+  </div>
+</section>
+
+<p class="foot"><b>Если делать, порядок такой.</b> Сначала C5 и B4: по дню, без нового слоя. Потом D1 (розетка и память ключа), D4 вместе с выдержкой B2, значок C4. Потом всё, что вне окна: C1, за ним C2 и C3 на том же наложении. Исходный код этим файлом не тронут.</p>
+</main>
+
+<script>
+(function () {
+const RGB = { vpn: "76,146,255", warp: "232,134,66", direct: "160,165,176", block: "240,96,96", lit: "226,229,235", ok: "64,196,140", warn: "240,196,64" };
+const rgba = (k, a) => `rgba(${RGB[k]},${a})`;
+const DPR = () => window.devicePixelRatio || 1;
+function setup(cv) {
+  const dpr = DPR(), w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  return [g, w, h];
+}
+function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
+function hashBytes(str) {
+  const out = [];
+  for (let k = 0; k < 32; k++) {
+    let h = (2166136261 ^ k) >>> 0;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    h ^= h >>> 15; h = Math.imul(h, 2246822507) >>> 0; h ^= h >>> 13; out.push(h & 255);
+  }
+  return out;
+}
+function gcd(a, b) { while (b) { [a, b] = [b, a % b]; } return a; }
+const kv = s => Object.fromEntries((s || "").split(",").filter(Boolean).map(x => { const [k, v] = x.split(":"); return [k.trim(), +v]; }));
+
+// ---------- D1: розетка ----------
+function rosette(g, cx, cy, rad, bytes, o) {
+  const curves = o.curves || 4, lw = o.lw || .6, alpha = o.alpha == null ? 1 : o.alpha;
+  for (let c = 0; c < curves; c++) {
+    const b = bytes.slice(c * 6, c * 6 + 6);
+    const R = 7 + (b[0] % 9), r = 2 + (b[1] % 4), d = (0.35 + b[2] / 255 * 0.65) * r, ph = b[3] / 255 * Math.PI * 2;
+    const k = (R - r) / r, period = 2 * Math.PI * r / gcd(R, r);
+    const scale = rad / (R - r + d) * (0.62 + c * (0.38 / Math.max(1, curves - 1)));
+    g.beginPath();
+    const N = 1600;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N * period;
+      const x = (R - r) * Math.cos(t) + d * Math.cos(k * t), y = (R - r) * Math.sin(t) - d * Math.sin(k * t);
+      const xr = x * Math.cos(ph) - y * Math.sin(ph), yr = x * Math.sin(ph) + y * Math.cos(ph);
+      i ? g.lineTo(cx + xr * scale, cy + yr * scale) : g.moveTo(cx + xr * scale, cy + yr * scale);
+    }
+    g.strokeStyle = `rgba(200,203,210,${(0.55 + c * 0.1) * alpha})`; g.lineWidth = lw; g.stroke();
+  }
+}
+
+// ---------- куб: плоские грани, без градиентов ----------
+const DEG = Math.PI / 180;
+function rot(v, yaw, pitch) {
+  const cy = Math.cos(yaw * DEG), sy = Math.sin(yaw * DEG), cp = Math.cos(pitch * DEG), sp = Math.sin(pitch * DEG);
+  const tx = v[0] * cy + v[2] * sy, ty = v[1], tz = -v[0] * sy + v[2] * cy;
+  return [tx, ty * cp - tz * sp, ty * sp + tz * cp];
+}
+const LIGHT = (() => { const l = [-0.45, 0.75, 0.5], n = Math.hypot(...l); return l.map(x => x / n); })();
+const FACES = [
+  [[1, 0, 0], [[1, -1, -1], [1, 1, -1], [1, 1, 1], [1, -1, 1]]],
+  [[-1, 0, 0], [[-1, -1, 1], [-1, 1, 1], [-1, 1, -1], [-1, -1, -1]]],
+  [[0, 1, 0], [[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]]],
+  [[0, -1, 0], [[-1, -1, 1], [1, -1, 1], [1, -1, -1], [-1, -1, -1]]],
+  [[0, 0, 1], [[-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]]],
+  [[0, 0, -1], [[1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1]]],
+];
+function poly(g, pts) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
+function cubeModel(cx, cy, half) {
+  const yaw = 45, pitch = 32;
+  const at = v => { const r = rot([v[0] * half, v[1] * half, v[2] * half], yaw, pitch); return [cx + r[0], cy - r[1]]; };
+  const verts = [];
+  for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) verts.push(at([x, y, z]));
+  const top = Math.min(...verts.map(p => p[1])), bot = Math.max(...verts.map(p => p[1]));
+  const B = verts.find(p => p[1] === bot), lower = verts.filter(p => p[1] > cy + 1);
+  const L = lower.reduce((a, p) => p[0] < a[0] ? p : a), R = lower.reduce((a, p) => p[0] > a[0] ? p : a);
+  const silY = x => { const E = x < B[0] ? L : R, t = (x - B[0]) / ((E[0] - B[0]) || 1); return B[1] + (E[1] - B[1]) * Math.max(0, Math.min(1, t)); };
+  const draw = g => {
+    const faces = [];
+    for (const [n, c] of FACES) {
+      const rn = rot(n, yaw, pitch);
+      if (rn[2] <= .001) continue;
+      faces.push({ pts: c.map(at), sh: Math.max(0, rn[0] * LIGHT[0] + rn[1] * LIGHT[1] + rn[2] * LIGHT[2]) });
+    }
+    for (const f of faces) {
+      const k = .45 + .95 * (.25 + .75 * f.sh);
+      const col = [.2, .21, .24].map(x => Math.round(Math.min(1, x * k) * 255));
+      poly(g, f.pts); g.fillStyle = `rgb(${col.join(",")})`; g.fill();
+    }
+    g.lineJoin = "round";
+    for (const f of faces) { poly(g, f.pts); g.strokeStyle = "rgba(226,229,235,.85)"; g.lineWidth = 1; g.stroke(); }
+  };
+  return { cx, cy, half, top, bot, silY, draw };
+}
+
+// ---------- D4 + B2: призма ----------
+function bez(p0, p1, p2, p3, n) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push([u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+              u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1]]);
+  }
+  return out;
+}
+function hamilton(shares, N) {                       // наибольший остаток: сумма всегда N
+  const tot = shares.reduce((a, s) => a + s[1], 0) || 1;
+  const base = shares.map(([f, w]) => { const q = w / tot * N; return { f, n: Math.floor(q), r: q - Math.floor(q) }; });
+  const left = N - base.reduce((a, b) => a + b.n, 0);
+  [...base].sort((a, b) => b.r - a.r).slice(0, left).forEach(b => b.n++);
+  const out = []; base.forEach(b => { for (let i = 0; i < b.n; i++) out.push(b.f); });
+  return out;
+}
+function prismModel(w, h, half, weights) {
+  const cube = cubeModel(w / 2, h * 0.5, half), cx = cube.cx, cy = cube.cy;
+  const fates = hamilton(["direct", "vpn", "warp", "block"].map(f => [f, weights[f] || 0]), 12);
+  const N = fates.length, splitY = cube.bot + 26, baseY = h - 2;
+  const inX = i => cx + (i - (N - 1) / 2) * 2.4, botX = i => cx + (i - (N - 1) / 2) * 6;
+  const strands = [], outs = [], dirs = [], blks = [];
+  fates.forEach((f, i) => (f === "vpn" || f === "warp" ? outs : f === "direct" ? dirs : blks).push(i));
+  fates.forEach((f, i) => {                           // снизу — белый пучок: трафик ещё ничей
+    const enter = f === "vpn" || f === "warp";
+    let pts = bez([botX(i), baseY], [botX(i), baseY - (baseY - splitY) * .5], [inX(i), splitY + (baseY - splitY) * .35], [inX(i), splitY], 24);
+    if (enter) pts = pts.concat([[inX(i), cy]]);
+    strands.push({ fate: "lit", of: f, kind: "in", pts });
+  });
+  const m = outs.length, spread = Math.min(19, (w * .74) / Math.max(1, m));
+  outs.forEach((i, j) => {                            // сверху — нити судеб веером
+    const f = fates[i], v = j - (m - 1) / 2 + (f === "warp" ? .9 : 0), xs = cx + v * 2.2, xe = cx + v * spread;
+    strands.push({ fate: f, kind: "out", pts: [[xs, cy]].concat(bez([xs, cube.top + 6], [xs, cube.top - 22], [xe, cube.top - 48], [xe, 2], 36)) });
+  });
+  // напрямую — мимо куба, как точки сейчас; сторона по месту в пучке, крайняя нить идёт по внешнему кругу — без пересечений
+  const dl = dirs.filter(i => inX(i) < cx).sort((a, b) => b - a), dr = dirs.filter(i => inX(i) >= cx).sort((a, b) => a - b);
+  [[dl, -1], [dr, 1]].forEach(([arr, side]) => arr.forEach((i, ring) => {
+    const x0 = inX(i), ox = cx + side * (half * 2.1 + ring * 6);
+    strands.push({ fate: "direct", kind: "dir", pts: bez([x0, splitY], [ox, splitY - 4], [ox, cube.top + 10], [cx + side * (half * .9 + ring * 5), 2], 40) });
+  }));
+  const nb = blks.length;
+  blks.forEach((i, k) => {                            // блок — упирается в грань и кончается засечкой
+    const gap = Math.min(9, half * 1.6 / Math.max(1, nb));
+    const xe = cx + (k - (nb - 1) / 2) * gap + (nb === 1 ? half * .35 : 0), ye = cube.silY(xe) + 7, x0 = inX(i);
+    strands.push({ fate: "block", kind: "blk", tick: [xe, ye], pts: bez([x0, splitY], [x0, splitY - 8], [xe, ye + 10], [xe, ye], 16) });
+  });
+  return { cube, strands };
+}
+function line(g, pts, dx) { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0] + dx, p[1]) : g.moveTo(p[0] + dx, p[1])); }
+function drawExposure(g, model, light) {
+  g.globalCompositeOperation = "lighter"; g.lineCap = "round"; g.lineJoin = "round";
+  const layers = [[0, 1, 1.1], [-.9, .24, 1], [.9, .24, 1], [-2, .1, 1], [2, .1, 1]];
+  for (const s of model.strands) {
+    const a = s.fate === "lit" ? (light.in ?? .42) : (light[s.fate] ?? .8);
+    for (const [dx, k, lw] of layers) { line(g, s.pts, dx); g.strokeStyle = rgba(s.fate, a * k); g.lineWidth = lw; g.stroke(); }
+    if (s.tick) { g.beginPath(); g.moveTo(s.tick[0] - 3, s.tick[1]); g.lineTo(s.tick[0] + 3, s.tick[1]); g.strokeStyle = rgba("block", a); g.lineWidth = 1.4; g.stroke(); }
+  }
+  g.globalCompositeOperation = "source-over";
+  model.cube.draw(g);
+}
+function drawDots(g, model, light, seed) {
+  const r = rng(seed);
+  for (const s of model.strands) {
+    const f = s.kind === "in" ? s.of : s.fate, vol = light[f] ?? .8;
+    const n = Math.round((s.kind === "in" ? 1 : 2) + vol * 2);
+    for (let q = 0; q < n; q++) {
+      const p = s.pts[Math.floor(r() * s.pts.length)], rad = 1.2 + r() * 1.2;
+      g.fillStyle = rgba(f, .16); g.beginPath(); g.arc(p[0], p[1], rad * 2.8, 0, 7); g.fill();
+      g.fillStyle = rgba(f, .95); g.beginPath(); g.arc(p[0], p[1], rad, 0, 7); g.fill();
+    }
+  }
+  model.cube.draw(g);
+}
+
+// ---------- D7: струна ----------
+function lens(cv, sigma, fate) {
+  const [g, w, h] = setup(cv), a = Math.min(h / 2 - 1, (h / 12) * 1.25 * Math.log2(1 + sigma)), mid = Math.floor(h / 2) + .5;
+  g.strokeStyle = rgba(fate, .95); g.lineWidth = 1;
+  [1, -1].forEach(sg => {
+    g.beginPath();
+    for (let k = 0; k <= 48; k++) { const x = 1 + k / 48 * (w - 2), y = mid + sg * a * Math.sin(Math.PI * k / 48); k ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke();
+  });
+}
+
+// ---------- B4: разряды, которым можно верить ----------
+function sig(value, decimals, unc) {                 // серым — разряды младше погрешности среднего
+  const s = value.toFixed(decimals), [ip, fp = ""] = s.split(".");
+  let out = "", dimFrom = -1;
+  const digits = (ip + fp).split(""), places = [];
+  for (let i = 0; i < ip.length; i++) places.push(10 ** (ip.length - 1 - i));
+  for (let i = 0; i < fp.length; i++) places.push(10 ** -(i + 1));
+  for (let i = 0; i < digits.length; i++) if (places[i] < unc && i > 0) { dimFrom = i; break; }
+  const intLen = ip.length;
+  digits.forEach((d, i) => {
+    const ch = (i === intLen ? "." : "") + d;
+    out += dimFrom >= 0 && i >= dimFrom ? `<i class="dim">${ch}</i>` : ch;
+  });
+  return out;
+}
+function sigSplit(value, unc) {                      // для выравнивания по точке: целая и дробная части
+  const html = sig(value, 1, unc), at = html.lastIndexOf(".");
+  const i = html.indexOf("<i"), dot = html.indexOf(".");
+  if (i >= 0 && i < dot) return [html.slice(0, dot) + "</i>", '<i class="dim">' + html.slice(dot)];
+  return [html.slice(0, at), html.slice(at)];
+}
+
+const SERVERS = [
+  { flag: "de", addr: "203.0.113.24", as: "AS64500", key: "reality-pbk:Qx3fN8vT2mK9pL4sW7yB1cZ6dH0jR5gE", protos: [
+    { name: "AnyTLS + ECH", ms: 50, j: 1, n: 5, s: 190.4, d: 0 }, { name: "Hysteria 2", ms: 51, j: 0, n: 5, s: 0, d: 0 },
+    { name: "VLESS + Vision + REALITY", ms: 53, j: 1, n: 5, s: 170.2, d: 0, on: true }, { name: "AnyTLS + REALITY", ms: 59, j: 2, n: 5, s: 185.7, d: 0 },
+    { name: "Shadowsocks 2022 + ShadowTLS", ms: 64, j: 4, n: 6, s: 140.9, d: 0 }, { name: "NaïveProxy", ms: 66, j: 0, n: 5, s: 120.5, d: 0 } ] },
+  { flag: "nl", addr: "198.51.100.7", as: "AS64501", key: "reality-pbk:Lm7tR2wX9qA4nB8vE1kY6uJ3sD5gH0cF", protos: [
+    { name: "Hysteria 2", ms: 51, j: 2, n: 5, s: 0, d: 0 }, { name: "AnyTLS + REALITY", ms: 52, j: 2, n: 5, s: 160.3, d: 0 },
+    { name: "VLESS + Vision + REALITY", ms: 57, j: 3, n: 5, s: 0, d: 0 }, { name: "Shadowsocks 2022 + ShadowTLS", ms: 57, j: 8, n: 15, s: 95.1, d: 3 },
+    { name: "NaïveProxy", ms: 81, j: 11, n: 15, s: 80.6, d: 1 } ] },
+];
+function serverList() {
+  const host = document.getElementById("srvlist");
+  if (!host) return;
+  let h = "";
+  SERVERS.forEach((s, gi) => {
+    if (gi) h += '<div class="div"></div>';
+    const best = Math.min(...s.protos.map(p => p.ms));
+    h += `<div class="shead"><canvas class="ros" data-key="${s.key}" data-curves="3" style="width:32px;height:32px"></canvas><i class="fl ${s.flag}"><i></i><i></i><i></i></i>
+      <div class="t"><div class="n">${s.addr}</div><div class="muted">${s.as}</div></div><span class="ms">${best} мс</span><i class="chev">&#xE70D;</i></div>`;
+    h += `<div class="cols"><span></span><span></span><span>разброс</span><span>отклик</span><span>Мбит/с</span><span>сбои</span></div>`;
+    s.protos.forEach(p => {
+      const unc = p.j / Math.sqrt(p.n), sp = p.s ? sigSplit(p.s, p.s * .08 / Math.sqrt(5)) : ["—", ""];
+      const fails = p.d ? `<span class="dot warn"></span>${p.d}` : `<span class="dim">0</span>`;   // сбой — вердикт, не судьба: янтарь, не красный
+      h += `<div class="prow ${p.on ? "on" : ""}"><div class="radio ${p.on ? "on" : ""}"></div><span class="name">${p.name}</span>
+        <canvas class="lens" data-s="${p.j}"></canvas>
+        <span class="num">${sig(p.ms, 0, unc)} <span class="u">мс</span></span>
+        <span class="dec"><span class="ip">${sp[0]}</span><span class="fp">${sp[1]}</span></span>
+        <span class="fails">${fails}</span></div>`;
+    });
+    h += '<div style="height:6px"></div>';
+  });
+  host.innerHTML = h;
+}
+
+// ---------- C4: значок ----------
+function trayDraw(g, S, st) {                         // лампа слева, столбик скорости справа: круг над полоской читался как «пользователь»
+  const k = S / 16, bar = st.step != null, cx = (bar ? 6.5 : 8) * k, cy = 8 * k;
+  if (st.ring) { g.beginPath(); g.arc(cx, cy, 5.6 * k - .9 * k, 0, 7); g.strokeStyle = rgba(st.fate, 1); g.lineWidth = 1.8 * k; g.stroke(); }
+  else { g.beginPath(); g.arc(cx, cy, 4.8 * k, 0, 7); g.fillStyle = rgba(st.fate, 1); g.fill(); }
+  if (bar) {
+    const x = Math.round(13 * k), ww = Math.max(2, Math.round(2 * k)), y0 = Math.round(k), L = S - 2 * y0, f = Math.round(L * st.step / 4);
+    g.fillStyle = "rgba(255,255,255,.16)"; g.fillRect(x, y0, ww, L);
+    if (f > 0) { g.fillStyle = rgba(st.fate, 1); g.fillRect(x, y0 + L - f, ww, f); }
+  }
+}
+function trayBitmap(S, st) {
+  const off = document.createElement("canvas"); off.width = S; off.height = S;
+  const g = off.getContext("2d"); g.fillStyle = "rgb(32,32,32)"; g.fillRect(0, 0, S, S); trayDraw(g, S, st);
+  return off;
+}
+function trayZoom(S, st, zoom) {
+  const cv = document.createElement("canvas"); cv.width = S * zoom; cv.height = S * zoom;
+  cv.style.width = S * zoom + "px"; cv.style.height = S * zoom + "px";
+  const g = cv.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(trayBitmap(S, st), 0, 0, S * zoom, S * zoom);
+  g.strokeStyle = "rgba(0,0,0,.45)"; g.lineWidth = 1;
+  for (let i = 1; i < S; i++) {
+    g.beginPath(); g.moveTo(i * zoom + .5, 0); g.lineTo(i * zoom + .5, S * zoom); g.stroke();
+    g.beginPath(); g.moveTo(0, i * zoom + .5); g.lineTo(S * zoom, i * zoom + .5); g.stroke();
+  }
+  return cv;
+}
+const TRAY_STATES = [
+  { st: { fate: "vpn", step: 0 }, t: "VPN, тихо" },
+  { st: { fate: "vpn", step: 1 }, t: "VPN, до 1 МБ/с" },
+  { st: { fate: "vpn", step: 3 }, t: "VPN, от 10 МБ/с" },
+  { st: { fate: "vpn", step: 4 }, t: "VPN, от 50 МБ/с" },
+  { st: { fate: "warp", step: 2 }, t: "WARP, от 1 МБ/с" },
+  { st: { fate: "direct", step: 2 }, t: "VPN выключен, всё напрямую" },
+  { st: { fate: "warn", ring: true }, t: "Подключаюсь: кольцо вердикта" },
+  { st: { fate: "block", ring: true }, t: "Kill switch держит: красное кольцо, без столбика" },
+];
+function trays() {
+  const host = document.getElementById("trayStates");
+  if (host && !host.childElementCount) TRAY_STATES.forEach(({ st, t }) => {
+    const d = document.createElement("div");
+    const row = document.createElement("div"); row.className = "state";
+    row.append(trayZoom(16, st, 6), trayZoom(24, st, 3));
+    d.append(row);
+    const u = document.createElement("div"); u.className = "under"; u.textContent = t + " · 16 и 24 px"; d.append(u);
+    host.append(d);
+  });
+  document.querySelectorAll("canvas.trayreal").forEach(cv => {
+    const [f, s] = cv.dataset.st.split(":"), S = Math.round(16 * DPR());
+    cv.width = S; cv.height = S;
+    const g = cv.getContext("2d"); g.clearRect(0, 0, S, S); trayDraw(g, S, { fate: f, step: +s });
+  });
+}
+
+// ---------- C1, C2, C3: рабочий стол ----------
+const APPS = [
+  { t: "Браузер", x: 3, y: 6, w: 46, h: 82, fate: "direct", tag: "Браузер · напрямую · 14 соед.", lines: [62, 90, 74, 40, 86, 70, 55] },
+  { t: "Блокнот", x: 6, y: 58, w: 22, h: 34, fate: null, tag: "Блокнот · нет соединений", lines: [80, 64, 72] },
+  { t: "Telegram", x: 33, y: 18, w: 25, h: 74, fate: "vpn", tag: "Telegram · VPN · 3 соед.", lines: [70, 50, 82, 44, 66, 58, 76] },
+  { t: "Игра", x: 55, y: 4, w: 41, h: 52, fate: "warp", tag: "Игра · WARP · 2 соед.", lines: [40, 30] },
+  { t: "updater.exe", x: 62, y: 52, w: 31, h: 42, fate: "block", tag: "updater.exe · блок · 14 отказов", lines: [68, 52, 74] },
+];
+function scenes() {
+  document.querySelectorAll(".screen").forEach(sc => {
+    const mode = sc.dataset.scene;
+    let h = "";
+    APPS.forEach((a, z) => {
+      let extra = "";
+      if (mode === "xray") {
+        extra = a.fate ? `<div class="xo" style="border:2px solid rgb(var(--${a.fate}))"></div><div class="xt" style="--f:var(--${a.fate})">${a.tag}</div>`
+                       : `<div class="xo" style="border:1px dashed var(--ink-2)"></div><div class="xt quiet">${a.tag}</div>`;
+      }
+      if (mode === "aim" && a.t === "Telegram") extra = `<div class="xo" style="border:2px solid rgb(var(--vpn))"></div><div class="xt" style="--f:var(--vpn)">Telegram · VPN</div>`;
+      const lines = a.lines.map(w => `<i style="width:${w}%"></i>`).join("");
+      h += `<div class="dw" style="left:${a.x}%;top:${a.y}%;width:${a.w}%;height:${a.h}%;z-index:${z + 1}">
+        <div class="dt">${a.t}<span class="sp"></span><i>&#xE921;</i><i>&#xE922;</i><i>&#xE8BB;</i></div><div class="dc">${lines}</div>${extra}</div>`;
+    });
+    if (mode === "aim") {
+      h += `<svg class="aim" style="left:47%;top:50%" viewBox="0 0 30 30" fill="none" stroke="rgb(226,229,235)" stroke-width="1.5" stroke-linecap="round">
+        <circle cx="15" cy="15" r="8.5"/><path d="M15 1v8M15 21v8M1 15h8M21 15h8"/></svg>`;
+      h += `<div class="pick" style="left:calc(47% + 18px);top:calc(50% - 92px)"><div class="ph">Куда пустить Telegram</div>
+        <div class="c on" style="--f:var(--vpn)"><i></i>VPN<span class="s">сейчас</span></div>
+        <div class="c" style="--f:var(--warp)"><i></i>WARP</div>
+        <div class="c" style="--f:var(--direct)"><i></i>Напрямую</div>
+        <div class="c" style="--f:var(--block)"><i></i>Блок</div></div>`;
+    }
+    if (mode === "edge") h += `<div class="edge"></div>`;
+    sc.innerHTML = h;
+  });
+}
+
+// ---------- всё вместе ----------
+function drawAll() {
+  serverList();
+  document.querySelectorAll("canvas.prism").forEach(cv => {
+    const [g, w, h] = setup(cv), model = prismModel(w, h, +cv.dataset.half || 40, kv(cv.dataset.w)), light = kv(cv.dataset.light);
+    cv.dataset.mode === "dots" ? drawDots(g, model, light, +cv.dataset.seed || 7) : drawExposure(g, model, light);
+  });
+  document.querySelectorAll("canvas.ros").forEach(cv => {
+    const [g, w, h] = setup(cv), n = +cv.dataset.curves || 3, small = w < 48;   // мелко — меньше кривых, иначе розетки сливаются в одну звезду
+    rosette(g, w / 2, h / 2, w / 2 - 1, hashBytes(cv.dataset.key), { curves: small ? Math.min(n, 2) : n, lw: small ? .85 : .75, alpha: cv.dataset.alpha ? +cv.dataset.alpha : 1 });
+  });
+  document.querySelectorAll("canvas.gpair").forEach(cv => {
+    const [g, w, h] = setup(cv), rad = h * .4;
+    rosette(g, w * .27, h / 2, rad, hashBytes(cv.dataset.a), { curves: 4, lw: .7 });
+    rosette(g, w * .73, h / 2, rad, hashBytes(cv.dataset.b), { curves: 4, lw: .7 });
+    g.strokeStyle = "rgba(255,255,255,.08)"; g.beginPath(); g.moveTo(w / 2 + .5, 14); g.lineTo(w / 2 + .5, h - 14); g.stroke();
+    g.fillStyle = "rgb(156,158,164)"; g.font = "12.5px Geist, Segoe UI, sans-serif"; g.fillText("было", 14, 22); g.fillText("стало", w / 2 + 14, 22);
+  });
+  document.querySelectorAll("canvas.lens").forEach(cv => lens(cv, +cv.dataset.s, "vpn"));
+  trays();
+  scenes();
+}
+
+const only = new URLSearchParams(location.search).get("only");
+if (only) document.querySelectorAll("main > *").forEach(el => { if (el.id !== only) el.style.display = "none"; });
+(document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(drawAll);
+let tm; window.addEventListener("resize", () => { clearTimeout(tm); tm = setTimeout(drawAll, 120); });
+})();
+</script>
+</body>
+</html>

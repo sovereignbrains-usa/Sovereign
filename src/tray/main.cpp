@@ -296,6 +296,7 @@ struct View {
   // The checks' page (diagnose.h): written by the checks' thread, not the worker.
   std::array<sovereign::tray::CheckResult, sovereign::tray::kCheckCount> checks{};
   bool checksRunning = false;
+  bool speedRunning = false;  // the speed test: a run of its own, not held by the other checks
   // The configurations (profiles.h), in the settings' order.
   struct ServerView {
     std::string tag;
@@ -3752,6 +3753,7 @@ void WriteSupportReport(HWND owner, const View::ProfileView& profile, const View
 // A run of the checks (diagnose.h), on a thread of its own: they take
 // seconds, the speed test half a minute. One at a time.
 std::optional<std::jthread> g_checks;
+std::optional<std::jthread> g_speed;  // the speed test's run (StartChecks with Speed alone)
 
 // Where the newest connection to one of `targets` went: the service asks the
 // core's traffic manager (box_route) - whatever the log's level.
@@ -3793,9 +3795,12 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
   std::vector<std::string> lanAllowed;
   sovereign::tray::ExitIp vpn;
   bool selective = false;
+  // The speed test runs beside the others, not after them: the checks a connect
+  // starts by itself held its button grey for a minute (05.11.2026).
+  const bool speed = which.size() == 1 && which.front() == sovereign::tray::CheckId::Speed;
   {
     const std::scoped_lock lock(shared.mutex);
-    if (shared.view.checksRunning) {
+    if (speed ? shared.view.speedRunning : shared.view.checksRunning) {
       return;
     }
     if (shared.view.wantOn) {
@@ -3803,7 +3808,7 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
     }
     // Only chosen things through the VPN: the checks' own requests go directly.
     selective = shared.view.routing.finalDirect || shared.view.appsMode == AppsMode::Include;
-    shared.view.checksRunning = true;
+    (speed ? shared.view.speedRunning : shared.view.checksRunning) = true;
     for (const auto id : which) {
       shared.view.checks[static_cast<std::size_t>(id)] = {};
     }
@@ -3813,8 +3818,9 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
       lanAllowed.push_back(h.address);
     }
   }
-  g_checks.reset();  // the last run's thread, finished
-  g_checks.emplace([which = std::move(which), host = std::move(host), quiet, routing, lanClosed,
+  std::optional<std::jthread>& run = speed ? g_speed : g_checks;
+  run.reset();  // the last run's thread, finished
+  run.emplace([which = std::move(which), host = std::move(host), quiet, speed, routing, lanClosed,
                     lanAllowed = std::move(lanAllowed), vpn = std::move(vpn), selective](const std::stop_token& stop) {
     const auto post = [] {
       auto& s = State();
@@ -3868,7 +3874,7 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
     {
       auto& s = State();
       const std::scoped_lock lock(s.mutex);
-      s.view.checksRunning = false;
+      (speed ? s.view.speedRunning : s.view.checksRunning) = false;
       if (quiet) {
         using sovereign::tray::CheckId;
         static constexpr std::array<std::pair<CheckId, const wchar_t*>, 3> kGuarded = {
@@ -4800,6 +4806,7 @@ UiContent ContentFrom(const View& v) {
                           L"Введи адрес — клиент откроет его и спросит ядро, как он пошёл: напрямую, через VPN, через "
                           L"WARP или заблокирован, и по какому правилу."));
   c.checksRunning = v.checksRunning;
+  c.speedRunning = v.speedRunning;
   using sovereign::tray::RoutingSettings;
   const RoutingSettings& r = v.routing;
   c.routing.russia = r.russia ? static_cast<int>(*r.russia) : -1;
@@ -5434,21 +5441,30 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
     }
     case UiCommand::BlockedApps: {
       // Who the refusals were for: the programs that asked most, and the names that hid
-      // behind a CNAME. The counts are only said (grey); a program picked is shown in
-      // Explorer, its file selected - "what is this svchost" - when the engine knew where it is.
+      // behind a CNAME. A program picked opens what it asked (the engine keeps its last
+      // names): a name picked is let through as in "Недавно заблокировано", and its file
+      // can be shown in Explorer - "what is this program". svchost.exe is Windows' own DNS
+      // client, asking for every program at once: said so, or it reads as a culprit.
       const auto& apps = view.blockWho.apps;
+      const auto title = [](const sovereign::tray::BlockedProgram& program) {
+        std::wstring name = Widen(program.app);
+        if (_wcsicmp(name.c_str(), L"svchost.exe") == 0) {
+          name += L" (DNS Windows — за все программы)";
+        }
+        return name;
+      };
       std::vector<std::wstring> items;
       std::vector<std::size_t> labels;
       items.reserve(apps.size() + 4);
       labels.push_back(items.size());
       items.emplace_back(apps.empty() ? L"Пока никто не спрашивал заблокированное"
-                                      : L"Сколько раз отказано — нажми, чтобы показать файл:");
+                                      : L"Сколько раз отказано — нажми, чтобы увидеть что:");
       const std::size_t first = items.size();
       for (const auto& program : apps) {
-        if (program.path.empty()) {
+        if (program.names.empty() && program.path.empty()) {
           labels.push_back(items.size());
         }
-        items.push_back(Widen(program.app) + L" — " + std::to_wstring(program.count));
+        items.push_back(title(program) + L" — " + std::to_wstring(program.count));
       }
       if (view.blockWho.cloaked > 0) {
         items.emplace_back(L"");
@@ -5456,9 +5472,37 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
         items.push_back(L"За CNAME спрятано: " + std::to_wstring(view.blockWho.cloaked));
       }
       const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, labels);
-      if (picked && *picked >= first && *picked - first < apps.size()) {
-        const std::wstring select = L"/select,\"" + Widen(apps[*picked - first].path) + L"\"";
+      if (!picked || *picked < first || *picked - first >= apps.size()) {
+        break;
+      }
+      const sovereign::tray::BlockedProgram program = apps[*picked - first];
+      std::vector<std::wstring> asked;
+      std::vector<std::size_t> captions;
+      asked.reserve(program.names.size() + 4);
+      if (!program.names.empty()) {
+        captions.push_back(asked.size());
+        asked.push_back(L"Что спрашивал " + Widen(program.app) + L" — нажми, чтобы пропускать:");
+        asked.emplace_back(L"");
+        for (const std::string& name : program.names) {
+          asked.push_back(Widen(name));
+        }
+      }
+      const std::size_t names = captions.empty() ? 0 : 2;
+      std::size_t show = asked.size();  // "Показать файл", when there is one
+      if (!program.path.empty()) {
+        if (!asked.empty()) {
+          asked.emplace_back(L"");
+        }
+        show = asked.size();
+        asked.emplace_back(L"Показать файл в Проводнике");
+      }
+      const auto choice = PickFromMenu(owner, args.anchor, asked, -1, {}, captions);
+      if (choice && *choice == show && !program.path.empty()) {
+        const std::wstring select = L"/select,\"" + Widen(program.path) + L"\"";
         ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr, SW_SHOWNORMAL);
+      } else if (choice && names > 0 && *choice >= names && *choice - names < program.names.size()) {
+        const int way = r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy;
+        send(What::AddRule, false, way, 0, program.names[*choice - names]);
       }
       break;
     }
@@ -6753,6 +6797,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, 
     exitCode = static_cast<int>(msg.wParam);
     thread.request_stop();
     g_checks.reset();  // stops and joins a check run, while its state is still here
+  g_speed.reset();
     g_updateLaunch = {};  // and an update_install call
   }  // joins the worker before its state goes away
   g_updater = nullptr;

@@ -208,4 +208,23 @@ func TestBlockedApps(t *testing.T) {
 	if got, _ := w.blockedApps(1); len(got) != 1 {
 		t.Fatalf("the most: %+v", got)
 	}
+	// What each asked: newest first, a name once.
+	if names := apps[0].Names; len(names) != 2 || names[0] != "b.test" || names[1] != "a.test" {
+		t.Fatalf("brave's names: %v", names)
+	}
+	w.mu.Lock()
+	w.count("ads", "a.test", `C:\Program Files\Brave\brave.exe`, false, now.Add(time.Minute))
+	for i := range appNamesKeep + 5 {
+		w.count("ads", fmt.Sprintf("n%d.test", i), `C:\Windows\System32\svchost.exe`, false, now)
+	}
+	w.mu.Unlock()
+	apps, _ = w.blockedApps(5)
+	for _, a := range apps {
+		switch {
+		case a.App == "brave.exe" && (len(a.Names) != 2 || a.Names[0] != "a.test"):
+			t.Fatalf("brave again: %v", a.Names)
+		case a.App == "svchost.exe" && (len(a.Names) != appNamesKeep || a.Names[0] != "n14.test"):
+			t.Fatalf("svchost kept: %v", a.Names)
+		}
+	}
 }

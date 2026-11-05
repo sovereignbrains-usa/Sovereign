@@ -3276,7 +3276,7 @@ class Painter {
                                     i == kCheckSpeed ? L"Замерить скорость" : L"Проверить другой сайт…",
                                     i == kCheckSpeed ? kGlyphSpeed : kGlyphRefresh,
                                     i == kCheckSpeed ? UiCommand::RunSpeed : UiCommand::CheckRoute);
-      run.enabled = !c.checksRunning;
+      run.enabled = i == kCheckSpeed ? !c.speedRunning : !c.checksRunning;
       run.tip = i == kCheckSpeed ? L"Замерить скорость приёма и отдачи через VPN"
                                  : L"Ввести сайт и узнать, каким путём он пойдёт";
       l.items.push_back(std::move(run));
@@ -5824,7 +5824,7 @@ struct MainWindow::Impl {
         add(kMenuRemove, L"Удалить…");
         break;
       case Kind::CheckRow: {
-        const bool running = content.checksRunning;
+        const bool running = item.sub == static_cast<int>(kCheckSpeed) ? content.speedRunning : content.checksRunning;
         add(kMenuRun,
             item.sub == static_cast<int>(kCheckSpeed)   ? L"Замерить скорость"
             : item.sub == static_cast<int>(kCheckRoute) ? L"Проверить адрес…"

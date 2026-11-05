@@ -1172,8 +1172,17 @@ BlockedPrograms ParseBlockedPrograms(std::string_view response) {
           !entry.value("count", Json()).is_number_unsigned()) {
         continue;
       }
-      out.apps.push_back({entry["app"].get<std::string>(), entry.value("path", std::string()),
-                          entry["count"].get<std::uint64_t>()});
+      BlockedProgram& program = out.apps.emplace_back(BlockedProgram{.app = entry["app"].get<std::string>(),
+                                                                     .path = entry.value("path", std::string()),
+                                                                     .count = entry["count"].get<std::uint64_t>(),
+                                                                     .names = {}});
+      if (const auto names = entry.find("names"); names != entry.end() && names->is_array()) {
+        for (const auto& name : *names) {
+          if (name.is_string() && !name.get_ref<const std::string&>().empty()) {
+            program.names.push_back(name.get<std::string>());
+          }
+        }
+      }
     }
   }
   if (const auto it = json.find("recent"); it != json.end() && it->is_array()) {
@@ -1232,16 +1241,13 @@ std::vector<std::string> DohNames(std::string_view ours) {
   }
   return names;
 }
-std::vector<std::string> DohAddresses(std::string_view ours) {
-  std::vector<std::string> addresses;
-  addresses.reserve(kDohAddresses.size());
-  for (const std::string_view cidr : kDohAddresses) {
-    const std::string_view address = cidr.substr(0, cidr.find('/'));
-    if (ours.find(address) == std::string_view::npos) {
-      addresses.emplace_back(cidr);
-    }
-  }
-  return addresses;
+// The addresses are all closed: a route rule never meets the client's own DNS
+// (sing-box dials a DNS server through its detour or the default outbound, not
+// the router), so sparing them only left 1.1.1.1 open to a browser's DoH
+// (seen live 05.11.2026). The names stay spared: the "no address" DNS rule
+// would starve a server's own name of its lookup.
+std::vector<std::string> DohAddresses() {
+  return {kDohAddresses.begin(), kDohAddresses.end()};
 }
 
 }  // namespace
@@ -1556,7 +1562,7 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     if (const std::vector<std::string> names = DohNames(ourDns); !names.empty()) {
       rules.push_back(Json{{"domain_suffix", names}, {"action", "reject"}});
     }
-    if (const std::vector<std::string> addresses = DohAddresses(ourDns); !addresses.empty()) {
+    if (const std::vector<std::string> addresses = DohAddresses(); !addresses.empty()) {
       rules.push_back(Json{{"ip_cidr", addresses}, {"port", 443}, {"action", "reject"}});
     }
     rules.push_back(Json{{"port", kDotPort}, {"action", "reject"}});

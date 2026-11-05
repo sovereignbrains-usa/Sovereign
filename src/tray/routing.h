@@ -270,6 +270,7 @@ struct BlockedProgram {
   std::string app;   // the file name
   std::string path;  // where it is; empty when the engine didn't know
   std::uint64_t count = 0;
+  std::vector<std::string> names;  // what it was refused lately, newest first
 };
 struct BlockedPrograms {
   std::uint64_t cloaked = 0;

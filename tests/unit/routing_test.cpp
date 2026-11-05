@@ -411,7 +411,7 @@ void TestCloseDoh() {
   RoutingSettings google;
   google.remoteDns = RoutingSettings::RemoteDns::Google;
   const Seen preset = seen(apply(google));
-  CHECK(!preset.googleName || !preset.googleAddress);  // whichever the preset dials stays open
+  CHECK(preset.googleAddress && ours.googleAddress);  // the addresses close anyway: the client's DNS isn't routed
 }
 
 // The order: a blocked program first (no network at all), then the sites, the
@@ -1385,6 +1385,10 @@ void TestBlockedAnswer() {
   CHECK(who.recent.empty());  // an answer from before "recent"
   const auto recent = ParseBlockedPrograms(R"({"cmd":"box_blocked","recent":["a.example.com",7,"","b.example.net"]})");
   CHECK(recent.recent == std::vector<std::string>({"a.example.com", "b.example.net"}));
+  CHECK(who.apps[0].names.empty());  // an answer from before "names"
+  const auto named =
+      ParseBlockedPrograms(R"({"cmd":"box_blocked","apps":[{"app":"brave.exe","count":2,"names":["a.test",3,"","b.test"]}]})");
+  CHECK(named.apps.size() == 1 && named.apps[0].names == std::vector<std::string>({"a.test", "b.test"}));
 }
 
 void TestRuleSetRound() {

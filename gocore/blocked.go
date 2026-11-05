@@ -28,6 +28,7 @@ const (
 	blockedRepeat = 10 * time.Minute // a name said again after this
 	askedKeep     = 4096             // requests remembered, their names
 	appsKeep      = 256              // programs counted
+	appNamesKeep  = 10               // names remembered a program
 	blockedNotice = "ads: blocked "  // what the tray looks for
 )
 
@@ -46,6 +47,8 @@ type blockedWatch struct {
 	// name behind a CNAME (guard.go). Only what the core itself refuses says a program.
 	apps    map[string]uint64
 	cloaked uint64
+	// And what each of them asked, the names it was refused lately, newest first (appNamesKeep).
+	appNames map[string][]string
 	// When each name was last refused, every refusal (not once in ten minutes as the notice):
 	// what a page that just broke had cut - the tray's "Сломалось только что" lets it through.
 	// Not the malware lists' names: those are let through one by one, if at all.
@@ -61,7 +64,7 @@ var blocked = newBlockedWatch()
 
 func newBlockedWatch() *blockedWatch {
 	return &blockedWatch{asked: map[string]string{}, said: map[string]time.Time{}, counts: map[string]uint64{},
-		counted: map[string]time.Time{}, apps: map[string]uint64{}, last: map[string]time.Time{}}
+		counted: map[string]time.Time{}, apps: map[string]uint64{}, appNames: map[string][]string{}, last: map[string]time.Time{}}
 }
 
 // recentNames: the names refused within recentWindow of `now`, newest first, at most `most`.
@@ -171,6 +174,9 @@ func (w *blockedWatch) count(cat, name, app string, cloaked bool, now time.Time)
 	if app != "" {
 		if _, known := w.apps[app]; known || len(w.apps) < appsKeep {
 			w.apps[app]++
+			if name != "" {
+				w.appNames[app] = recentFirst(w.appNames[app], name, appNamesKeep)
+			}
 		}
 	}
 }
@@ -189,16 +195,30 @@ func (w *blockedWatch) blockedCounts() map[string]uint64 {
 // blockedApps: the programs that asked most for what was refused, most first (at most `most`),
 // and how many of all refusals were behind a CNAME.
 type appCount struct {
-	App   string `json:"app"`  // the program's file name
-	Path  string `json:"path"` // and where it is
-	Count uint64 `json:"count"`
+	App   string   `json:"app"`  // the program's file name
+	Path  string   `json:"path"` // and where it is
+	Count uint64   `json:"count"`
+	Names []string `json:"names"` // what it was refused lately, newest first
+}
+
+// recentFirst: `names` with `name` at the front (once), at most `most`.
+func recentFirst(names []string, name string, most int) []string {
+	out := make([]string, 0, min(len(names)+1, most))
+	out = append(out, name)
+	for _, n := range names {
+		if n != name && len(out) < most {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func (w *blockedWatch) blockedApps(most int) (apps []appCount, cloaked uint64) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for path, n := range w.apps {
-		apps = append(apps, appCount{App: programName(path), Path: path, Count: n})
+		apps = append(apps, appCount{App: programName(path), Path: path, Count: n,
+			Names: append([]string{}, w.appNames[path]...)})
 	}
 	sort.Slice(apps, func(i, j int) bool {
 		if apps[i].Count != apps[j].Count {

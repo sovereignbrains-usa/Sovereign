@@ -271,6 +271,7 @@ struct UiContent {
   UiRouting routing;
   std::vector<UiCheck> checks;  // the "Проверка" page, in diagnose.h's CheckId order
   bool checksRunning = false;
+  bool speedRunning = false;  // the speed test, a run of its own
 
   bool appsInclude = false;      // per-app mode: false = all except the list
   std::vector<std::wstring> apps;

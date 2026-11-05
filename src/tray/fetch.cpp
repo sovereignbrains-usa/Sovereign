@@ -93,7 +93,8 @@ std::expected<Opened, std::string> Open(const std::wstring& url, const std::wstr
 std::expected<Response, std::string> HttpsGet(const std::wstring& url, const std::wstring& userAgent,
                                               std::size_t maxBytes, std::initializer_list<const wchar_t*> headerNames,
                                               std::string_view what, const wchar_t* method = L"GET",
-                                              std::string_view body = {}, const std::wstring& extraHeaders = {}) {
+                                              std::string_view body = {}, const std::wstring& extraHeaders = {},
+                                              const std::function<void(std::size_t)>& progress = {}) {
   auto opened = Open(url, userAgent, method, what);
   if (!opened) {
     return std::unexpected(opened.error());
@@ -152,6 +153,9 @@ std::expected<Response, std::string> HttpsGet(const std::wstring& url, const std
       return std::unexpected(Failure("обрыв при чтении ответа"));
     }
     response.body.resize(offset + read);
+    if (progress) {
+      progress(response.body.size());
+    }
   }
   return response;
 }
@@ -287,8 +291,9 @@ std::expected<FetchResult, std::string> FetchSubscriptionViaRelay(const std::str
 }
 
 std::expected<std::string, std::string> Download(const std::wstring& url, const std::wstring& userAgent,
-                                                 std::size_t maxBytes) {
-  auto response = HttpsGet(url, userAgent, maxBytes, {}, "сервер");
+                                                 std::size_t maxBytes,
+                                                 const std::function<void(std::size_t)>& progress) {
+  auto response = HttpsGet(url, userAgent, maxBytes, {}, "сервер", L"GET", {}, {}, progress);
   if (!response) {
     return std::unexpected(response.error());
   }

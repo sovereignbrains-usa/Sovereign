@@ -112,6 +112,17 @@ void TestQuiet() {
   CHECK(ClampQuietMinutes(10) == 10 && ClampQuietMinutes(7) == 2 && ClampQuietMinutes(-1) == 2 && ClampQuietMinutes(30) == 30);
 }
 
+void TestDownloadProgress() {
+  CHECK(DownloadPercent(0, 0) == -1);
+  CHECK(DownloadPercent(50, 200) == 25);
+  CHECK(DownloadPercent(300, 200) == 100);
+  CHECK(DownloadSecondsLeft(50, 200, 0) == -1);   // no speed yet
+  CHECK(DownloadSecondsLeft(50, 0, 10) == -1);    // no total
+  CHECK(DownloadSecondsLeft(50, 200, 10) == 15);  // 150 bytes at 10 a second
+  CHECK(DownloadSecondsLeft(200, 200, 10) == 0);
+  CHECK(DownloadSecondsLeft(51, 200, 10) == 15);  // rounded up: never "0 s" while bytes are left
+}
+
 }  // namespace
 
 int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
@@ -122,6 +133,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestChecksum();
     TestQuiet();
     TestUpstream();
+    TestDownloadProgress();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 2;

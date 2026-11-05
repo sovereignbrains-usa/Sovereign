@@ -41,7 +41,8 @@ std::expected<FetchResult, std::string> FetchSubscriptionViaRelay(const std::str
 // Any other GET over https, same client, the body capped at maxBytes; an
 // error for anything but a 200. Blocking: call it off the UI thread.
 std::expected<std::string, std::string> Download(const std::wstring& url, const std::wstring& userAgent,
-                                                 std::size_t maxBytes);
+                                                 std::size_t maxBytes,
+                                                 const std::function<void(std::size_t)>& progress = {});
 
 // Any request over https with `headers` ("Name: value", CRLF between),
 // same client; the answer's body, an error for anything but a 200.

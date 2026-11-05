@@ -64,6 +64,11 @@ inline constexpr double kBusyBytesPerSecond = 64.0 * 1024;
 // default; anything else a tray.json says is taken for it.
 inline constexpr std::array<int, 5> kQuietChoices{1, 2, 5, 10, 30};
 int ClampQuietMinutes(int minutes);
+
+// A download's percent (0-100; -1 when the total is unknown) and the seconds left at the speed so far
+// (-1 when there is no speed yet or no total).
+int DownloadPercent(std::uint64_t downloaded, std::uint64_t total);
+int DownloadSecondsLeft(std::uint64_t downloaded, std::uint64_t total, double bytesPerSecond);
 bool QuietForUpdate(std::chrono::milliseconds sinceInput, bool fullScreen, std::chrono::seconds sinceTraffic,
                     std::chrono::minutes quietInput = kQuietInput);
 

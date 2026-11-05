@@ -805,6 +805,24 @@ UiPage BackOf(UiPage page) {
   }
 }
 
+// "Скачиваю версию 0.5.113 · 42% · ещё 12 с"; once downloaded, the installer's half minute.
+std::wstring DownloadingText(const UiContent& c) {
+  if (c.updateInstalling) {
+    return L"Ставлю версию " + c.updateVersion + L" · около 30 с, VPN на это время отключится";
+  }
+  std::wstring text = L"Скачиваю версию " + c.updateVersion;
+  if (c.updateProgress >= 0) {
+    text += L" · " + std::to_wstring(c.updateProgress) + L"%";
+    if (c.updateSecondsLeft >= 0) {
+      text += c.updateSecondsLeft >= 60 ? L" · ещё " + std::to_wstring((c.updateSecondsLeft + 59) / 60) + L" мин"
+                                        : L" · ещё " + std::to_wstring(c.updateSecondsLeft) + L" с";
+    }
+  } else {
+    text += L"…";
+  }
+  return text;
+}
+
 std::wstring UpdateStatus(const UiContent& c) {
   switch (c.update) {
     case UiUpdate::Idle:
@@ -815,7 +833,7 @@ std::wstring UpdateStatus(const UiContent& c) {
     case UiUpdate::UpToDate: return L"Это последняя версия.";
     case UiUpdate::Available:
       return c.updateError.empty() ? L"Доступна версия " + c.updateVersion : L"Не удалось: " + c.updateError;
-    case UiUpdate::Downloading: return L"Скачиваю версию " + c.updateVersion + L"…";
+    case UiUpdate::Downloading: return DownloadingText(c);
     case UiUpdate::Waiting: return L"Версия " + c.updateVersion + L" скачана, ждёт паузы.";
     case UiUpdate::Failed: return L"Не удалось проверить: " + c.updateError;
     case UiUpdate::Off: return L"Сборка для разработки: обновления не проверяются.";
@@ -2307,7 +2325,7 @@ class Painter {
       if (c.update == UiUpdate::Downloading) {
         update->action = ItemAction::Page;
         update->index = static_cast<int>(UiPage::Settings);
-        update->tip = L"Скачиваю версию " + c.updateVersion + L"…";
+        update->tip = DownloadingText(c);
       } else if (c.update == UiUpdate::Waiting) {
         update->tip = L"Версия " + c.updateVersion +
                       L" скачана и поставится, когда компьютер будет свободен. Нажми, чтобы поставить сейчас";
@@ -3793,7 +3811,9 @@ class Painter {
       Item check = CommandItem(Kind::ValueRow, row(top), L"Проверить сейчас", kGlyphRefresh, UiCommand::CheckUpdate);
       check.enabled = !checking && c.update != UiUpdate::Off;
       check.detail = c.update == UiUpdate::Checking      ? L"проверяю…"
-                     : c.update == UiUpdate::Downloading ? L"скачиваю " + c.updateVersion + L"…"
+                     : c.update == UiUpdate::Downloading ? (c.updateInstalling ? L"ставлю " + c.updateVersion + L"…"
+                                                        : c.updateProgress >= 0 ? L"скачиваю " + std::to_wstring(c.updateProgress) + L"%"
+                                                                                : L"скачиваю " + c.updateVersion + L"…")
                      : c.update == UiUpdate::UpToDate    ? L"это последняя версия"
                      : c.update == UiUpdate::Waiting     ? L"скачана, ждёт паузы"
                      : c.update == UiUpdate::Off         ? L"не в этой сборке"

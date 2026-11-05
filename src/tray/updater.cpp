@@ -218,9 +218,12 @@ void Updater::DoInstall() {
   if (!release) {
     return;
   }
-  Set([](State& s) {
+  Set([&release](State& s) {
     s.status = Status::Downloading;
     s.error.clear();
+    s.downloaded = 0;
+    s.total = release->installerSize;
+    s.bytesPerSecond = 0;
   });
   const auto fail = [this](const std::string& why) {
     Set([&](State& s) {
@@ -237,7 +240,25 @@ void Updater::DoInstall() {
   if (!expected) {
     return fail("в файле контрольной суммы нет установщика");
   }
-  const auto installer = Download(Widen(release->installerUrl), userAgent_, kMaxInstallerBytes);
+  // The page shows it as it comes: told about a step of a percent (or of a second's quarter), not
+  // about every piece of 64 KB.
+  const auto began = std::chrono::steady_clock::now();
+  auto lastTold = began;
+  std::uint64_t lastPercent = 101;
+  const auto installer = Download(Widen(release->installerUrl), userAgent_, kMaxInstallerBytes, [&](std::size_t got) {
+    const auto now = std::chrono::steady_clock::now();
+    const std::uint64_t percent = release->installerSize > 0 ? got * 100 / release->installerSize : 0;
+    if (percent == lastPercent && now - lastTold < std::chrono::milliseconds(500)) {
+      return;
+    }
+    lastPercent = percent;
+    lastTold = now;
+    const double seconds = std::chrono::duration<double>(now - began).count();
+    Set([&](State& s) {
+      s.downloaded = got;
+      s.bytesPerSecond = seconds > 0.2 ? static_cast<double>(got) / seconds : 0;
+    });
+  });
   if (!installer) {
     return fail("установщик не скачался: " + installer.error());
   }

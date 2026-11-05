@@ -35,6 +35,11 @@ class Updater {
     std::string error;       // Failed, or Available after a failed download: why
     std::wstring installer;  // Ready: the verified installer on disk
     std::string boxLatest;   // the newest stable sing-box, once known (kSingBoxReleasesApi)
+    // Downloading the installer: bytes got, bytes expected (the release's size; 0 - unknown), and the
+    // speed since it began, bytes a second - what the page's percent and "left" come from.
+    std::uint64_t downloaded = 0;
+    std::uint64_t total = 0;
+    double bytesPerSecond = 0;
   };
 
   // `changed` runs on the updater's thread after every state change.

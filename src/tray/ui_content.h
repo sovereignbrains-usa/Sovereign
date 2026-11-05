@@ -342,6 +342,9 @@ struct UiContent {
   int updateQuietMinutes = 2;           // installing unasked waits this long without input
   std::wstring updateVersion;           // the newest release, once known
   std::wstring updateError;
+  bool updateInstalling = false;  // downloaded and checked, handed to the installer: the VPN is off for a half minute
+  int updateProgress = -1;     // Downloading: percent, -1 unknown
+  int updateSecondsLeft = -1;  // Downloading: seconds to the end at the speed so far, -1 unknown
 };
 
 // The window's pages: the overview, and the ones it opens (back with Esc).

@@ -1,5 +1,7 @@
 #include "update.h"
 
+#include <cmath>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -87,6 +89,21 @@ std::string ChecksumUrl(const Version& version) {
 int ClampQuietMinutes(int minutes) {
   return std::ranges::find(kQuietChoices, minutes) != kQuietChoices.end() ? minutes
                                                                           : static_cast<int>(kQuietInput.count());
+}
+
+int DownloadPercent(std::uint64_t downloaded, std::uint64_t total) {
+  if (total == 0) {
+    return -1;
+  }
+  return static_cast<int>(downloaded >= total ? 100 : downloaded * 100 / total);
+}
+
+int DownloadSecondsLeft(std::uint64_t downloaded, std::uint64_t total, double bytesPerSecond) {
+  if (total == 0 || bytesPerSecond < 1) {
+    return -1;
+  }
+  const std::uint64_t left = downloaded >= total ? 0 : total - downloaded;
+  return static_cast<int>(std::ceil(static_cast<double>(left) / bytesPerSecond));
 }
 
 bool QuietForUpdate(std::chrono::milliseconds sinceInput, bool fullScreen, std::chrono::seconds sinceTraffic,

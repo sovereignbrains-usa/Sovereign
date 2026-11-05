@@ -5049,6 +5049,12 @@ UiContent ContentFrom(const View& v) {
     }
     c.updateVersion = Widen(update.latest);
     c.updateError = Widen(update.error);
+    c.updateInstalling = update.status == Status::Ready && c.update == sovereign::tray::UiUpdate::Downloading;
+    if (update.status == Status::Downloading) {
+      c.updateProgress = sovereign::tray::DownloadPercent(update.downloaded, update.total);
+      c.updateSecondsLeft =
+          sovereign::tray::DownloadSecondsLeft(update.downloaded, update.total, update.bytesPerSecond);
+    }
     const auto inside = sovereign::tray::ParseVersion(Narrow(c.boxVersion));
     if (const auto newest = sovereign::tray::ParseVersion(update.boxLatest); inside && newest) {
       c.boxIsLatest = *inside >= *newest;

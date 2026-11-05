@@ -350,6 +350,70 @@ void TestBlockCategories() {
   CHECK(trackers && malware && c["dns"]["rules"].dump().contains("sov-ads-trackers"));
 }
 
+// A browser's own DoH closed while the block is on: its resolvers refused by
+// name, by address on 443 and DoT on 853, no addresses for them in DNS - but
+// for the one the client's own DNS is; nothing of it with the switch or the
+// whole block off.
+void TestCloseDoh() {
+  CHECK(RoutingSettings{}.closeDoh);
+  RoutingSettings off;
+  off.closeDoh = false;
+  CHECK(!RoutingFromJson(json::parse(RoutingToJson(off).dump())).closeDoh);
+  CHECK(RoutingFromJson(json::parse(RoutingToJson(RoutingSettings{}).dump())).closeDoh);
+
+  const auto keys = BuildConfigFromLinks({"trojan://pw@nl.example.com:443#NL"}).config.value_or("{}");
+  const auto apply = [&](const RoutingSettings& s) {
+    const std::string config = CombineConfigs({{"Ключи", keys, {}}}, OwnFrame(s)).config.value_or("{}");
+    return json::parse(ApplyRouting(config, s, {{"sov-ads", "C:/lists/sov-ads.srs"}}));
+  };
+  struct Seen {
+    bool names = false, addresses = false, dot = false, dns = false, canary = false, googleName = false, googleAddress = false;
+  };
+  const auto seen = [](const json& c) {
+    Seen out;
+    for (const json& r : c["route"]["rules"]) {
+      if (r.value("action", "") != "reject") {
+        continue;
+      }
+      const std::string text = r.dump();
+      out.names = out.names || (r.contains("domain_suffix") && text.contains("\"cloudflare-dns.com\""));
+      out.addresses = out.addresses || (r.contains("ip_cidr") && r.value("port", 0) == 443);
+      out.dot = out.dot || (r.size() == 2 && r.value("port", 0) == 853);
+      out.googleName = out.googleName || (r.contains("domain_suffix") && text.contains("\"dns.google\""));
+      out.googleAddress = out.googleAddress || (r.contains("ip_cidr") && text.contains("8.8.8.8/32"));
+    }
+    for (const json& r : c["dns"]["rules"]) {
+      const std::string text = r.dump();
+      out.dns = out.dns || (r.contains("domain_suffix") && text.contains("\"cloudflare-dns.com\"") &&
+                            r.value("action", "") == "predefined");
+      out.canary = out.canary || text.contains("use-application-dns.net");
+    }
+    return out;
+  };
+
+  RoutingSettings s;  // the ads on by default
+  const Seen on = seen(apply(s));
+  CHECK(on.names && on.addresses && on.dot && on.dns && on.canary);
+  const Seen none = seen(apply(off));
+  CHECK(!none.names && !none.addresses && !none.dot && !none.dns && !none.canary);
+  RoutingSettings unfiltered;
+  unfiltered.blockAds = unfiltered.trackers = unfiltered.malware = unfiltered.cookieWindows = false;
+  const Seen bare = seen(apply(unfiltered));
+  CHECK(!bare.names && !bare.addresses && !bare.dot && !bare.canary);
+
+  // The client's own DNS through Google: dns.google stays open.
+  RoutingSettings custom;
+  custom.remoteDns = RoutingSettings::RemoteDns::Custom;
+  custom.remoteDnsCustom = "https://dns.google/dns-query";
+  CHECK(apply(custom)["dns"]["servers"].dump().contains("\"dns.google\""));
+  const Seen ours = seen(apply(custom));
+  CHECK(ours.names && ours.dot && !ours.googleName && on.googleName && on.googleAddress);
+  RoutingSettings google;
+  google.remoteDns = RoutingSettings::RemoteDns::Google;
+  const Seen preset = seen(apply(google));
+  CHECK(!preset.googleName || !preset.googleAddress);  // whichever the preset dials stays open
+}
+
 // The order: a blocked program first (no network at all), then the sites, the
 // lists and QUIC, the other programs last - a browser sent through the proxy
 // still has its ads cut.
@@ -467,7 +531,8 @@ void TestOwn() {
                      ? 1
                      : 0;
   }
-  CHECK(noAddress == (Files().empty() ? 1 : 2));  // the user's block rule, and the ads list when it's there
+  // The user's block rule, the DoH resolvers (closeDoh), and the ads list when it's there.
+  CHECK(noAddress == (Files().empty() ? 2 : 3));
   if (!Files().empty()) {
     CHECK(c["route"]["rule_set"].size() == 4);
     CHECK(dump.find("sov-geoip-ru") != std::string::npos);
@@ -1317,6 +1382,9 @@ void TestBlockedAnswer() {
   CHECK(who.cloaked == 4 && who.apps.size() == 2);
   CHECK(who.apps[0].app == "brave.exe" && who.apps[0].count == 9 && who.apps[0].path == "C:\\B\\brave.exe");
   CHECK(who.apps[1].app == "svchost.exe" && who.apps[1].path.empty() && who.apps[1].count == 2);
+  CHECK(who.recent.empty());  // an answer from before "recent"
+  const auto recent = ParseBlockedPrograms(R"({"cmd":"box_blocked","recent":["a.example.com",7,"","b.example.net"]})");
+  CHECK(recent.recent == std::vector<std::string>({"a.example.com", "b.example.net"}));
 }
 
 void TestRuleSetRound() {
@@ -1382,6 +1450,7 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestOrder();
     TestAdGuard();
   TestBlockCategories();
+  TestCloseDoh();
     TestCountryVia();
     TestHysteriaSpeed();
     if (check) {

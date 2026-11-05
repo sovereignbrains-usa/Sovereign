@@ -46,13 +46,52 @@ type blockedWatch struct {
 	// name behind a CNAME (guard.go). Only what the core itself refuses says a program.
 	apps    map[string]uint64
 	cloaked uint64
+	// When each name was last refused, every refusal (not once in ten minutes as the notice):
+	// what a page that just broke had cut - the tray's "Сломалось только что" lets it through.
+	// Not the malware lists' names: those are let through one by one, if at all.
+	last map[string]time.Time
 }
+
+const (
+	recentWindow = 2 * time.Minute // "just now": what box_blocked's "recent" holds
+	recentShown  = 40              // at most so many names in it
+)
 
 var blocked = newBlockedWatch()
 
 func newBlockedWatch() *blockedWatch {
 	return &blockedWatch{asked: map[string]string{}, said: map[string]time.Time{}, counts: map[string]uint64{},
-		counted: map[string]time.Time{}, apps: map[string]uint64{}}
+		counted: map[string]time.Time{}, apps: map[string]uint64{}, last: map[string]time.Time{}}
+}
+
+// recentNames: the names refused within recentWindow of `now`, newest first, at most `most`.
+func (w *blockedWatch) recentNames(now time.Time, most int) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	type seen struct {
+		name string
+		at   time.Time
+	}
+	var list []seen
+	for name, at := range w.last {
+		if now.Sub(at) < recentWindow {
+			list = append(list, seen{name, at})
+		}
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if !list[i].at.Equal(list[j].at) {
+			return list[i].at.After(list[j].at)
+		}
+		return list[i].name < list[j].name
+	})
+	if len(list) > most {
+		list = list[:most]
+	}
+	names := make([]string, 0, len(list))
+	for _, s := range list {
+		names = append(names, s.name)
+	}
+	return names
 }
 
 // askedName: the name a line says is asked or sniffed, or "".
@@ -101,6 +140,16 @@ const countWindow = 3 * time.Second
 // count: one block of `name` by `cat`, asked by the program `app` (its path, or ""), a name
 // behind a CNAME when `cloaked`; w.mu is held.
 func (w *blockedWatch) count(cat, name, app string, cloaked bool, now time.Time) {
+	if name != "" && cat != "malware" { // a phishing name isn't let through in a bunch
+		w.last[name] = now
+		if len(w.last) > askedKeep {
+			for n, at := range w.last {
+				if now.Sub(at) >= recentWindow {
+					delete(w.last, n)
+				}
+			}
+		}
+	}
 	if name != "" {
 		key := cat + " " + name
 		if last, ok := w.counted[key]; ok && now.Sub(last) < countWindow {

@@ -257,6 +257,13 @@ BlockedWho GoCore::BlockedByWho() {
                           entry["count"].get<std::uint64_t>()});
     }
   }
+  if (const auto it = json.find("recent"); it != json.end() && it->is_array()) {
+    for (const auto& name : *it) {
+      if (name.is_string()) {
+        out.recent.push_back(name.get<std::string>());
+      }
+    }
+  }
   return out;
 }
 

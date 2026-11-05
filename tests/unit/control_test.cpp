@@ -456,7 +456,7 @@ void TestSmart() {
 
   // What each block category refused: none yet - an empty object; then its numbers.
   CHECK(Send(handler, R"({"cmd":"box_blocked"})") ==
-        json::parse(R"({"cmd":"box_blocked","counts":{},"cloaked":0,"apps":[]})"));
+        json::parse(R"({"cmd":"box_blocked","counts":{},"cloaked":0,"apps":[],"recent":[]})"));
   core.blocked = {{"ads", 12}, {"trackers", 3}};
   answer = Send(handler, R"({"cmd":"box_blocked"})");
   CHECK(answer.value("cmd", "") == "box_blocked");
@@ -469,6 +469,10 @@ void TestSmart() {
   CHECK(answer["apps"].size() == 2);
   CHECK(answer["apps"][0].value("app", "") == "brave.exe" && answer["apps"][0].value("count", 0) == 9);
   CHECK(answer["apps"][1].value("path", "x").empty());
+  // And what was refused just now, newest first.
+  core.blockedWho.recent = {"ads.example.com", "pixel.example.net"};
+  answer = Send(handler, R"({"cmd":"box_blocked"})");
+  CHECK(answer["recent"] == json::array({"ads.example.com", "pixel.example.net"}));
 }
 
 class FakeKillSwitch final : public sovereign::service::IKillSwitch {

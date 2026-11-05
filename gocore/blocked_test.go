@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -75,5 +76,32 @@ func TestBlockedCounts(t *testing.T) {
 		if got[cat] != n {
 			t.Fatalf("counts %v, want %v", got, want)
 		}
+	}
+}
+
+// "Just now": every refusal of a name renews it (the notice says it once in ten minutes), the
+// newest first, what's older than recentWindow out, at most `most`.
+func TestBlockedRecent(t *testing.T) {
+	w := newBlockedWatch()
+	at := time.Unix(1_800_000_000, 0)
+	w.mu.Lock()
+	w.count("ads", "old.example.com", "", false, at)
+	w.count("ads", "ads.example.com", "", false, at.Add(time.Minute))
+	w.count("trackers", "pixel.example.net", "", false, at.Add(time.Minute+time.Second))
+	w.count("ads", "ads.example.com", "", false, at.Add(2*time.Minute)) // again: the newest now
+	w.count("ads", "", "", false, at.Add(2*time.Minute))                 // no name: nothing to list
+	w.count("malware", "bank.example.org", "", false, at.Add(2*time.Minute)) // never in a bunch
+	w.mu.Unlock()
+	now := at.Add(2*time.Minute + time.Second)
+	got := w.recentNames(now, 10)
+	want := []string{"ads.example.com", "pixel.example.net"} // old.example.com: over two minutes
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("recent %v, want %v", got, want)
+	}
+	if got := w.recentNames(now, 1); len(got) != 1 || got[0] != "ads.example.com" {
+		t.Fatalf("recent at most 1: %v", got)
+	}
+	if got := blockedAnswer()["recent"]; got == nil {
+		t.Fatalf("box_blocked without recent")
 	}
 }

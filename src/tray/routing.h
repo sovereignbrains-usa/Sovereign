@@ -136,6 +136,14 @@ struct RoutingSettings {
   bool trackers = true;
   // Malware and phishing hosts, the scams: on, a site's break by them is rare.
   bool malware = true;
+  // A browser's own "secure DNS" (DoH to dns.google, cloudflare-dns.com...;
+  // DoT and DoQ on 853) asks past the client, the lists above cut nothing for
+  // it: with any of them on, the known resolvers are refused (their names given
+  // no addresses, their connections cut; Firefox's canary name says "no DoH"),
+  // so the browser falls back to the system's DNS - this one. A browser set to
+  // a DoH service with no fallback (Chrome's "secure DNS: Cloudflare") stops
+  // opening sites: the switch is there for that.
+  bool closeDoh = true;
   // QUIC (HTTP/3 over UDP) refused, so browsers take TCP. Auto: refused
   // unless every server carries UDP as UDP (Hysteria, TUIC) - through a TCP
   // one (VLESS, Trojan, AnyTLS...) it's UDP packed in TCP, worse than TCP.
@@ -266,6 +274,7 @@ struct BlockedProgram {
 struct BlockedPrograms {
   std::uint64_t cloaked = 0;
   std::vector<BlockedProgram> apps;
+  std::vector<std::string> recent;  // the names refused in the last two minutes, newest first
 };
 BlockedPrograms ParseBlockedPrograms(std::string_view response);
 // A check of the lists as it goes (the tray's UpdateRuleSets): one download

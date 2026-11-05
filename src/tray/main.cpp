@@ -409,6 +409,7 @@ struct RoutingChange {
     CookieWindows,  // on
     Trackers,       // on
     Malware,        // on
+    CloseDoh,       // on
     Quic,           // value: RoutingSettings::Quic's number
     HysteriaMbps,   // value: Mbit/s, 0: BBR
     FinalDirect,    // on; value: 1 - "в обход блокировок" (RoutingSettings::smart)
@@ -1160,6 +1161,7 @@ class Worker {
       case RoutingChange::What::CookieWindows: r.cookieWindows = change.on; break;
       case RoutingChange::What::Trackers: r.trackers = change.on; break;
       case RoutingChange::What::Malware: r.malware = change.on; break;
+      case RoutingChange::What::CloseDoh: r.closeDoh = change.on; break;
       case RoutingChange::What::Quic:
         r.quic = static_cast<sovereign::tray::RoutingSettings::Quic>(std::clamp(change.value, 0, 2));
         break;
@@ -1259,11 +1261,13 @@ class Worker {
           sovereign::tray::SetAppPath(settings_, rule->processes.front(), change.path);
         }
         sovereign::tray::AddRule(r.rules, *rule);  // already elsewhere: moved here
-        std::erase_if(blocked_, [&](const std::string& name) {
+        const auto letThrough = [&](const std::string& name) {
           return std::any_of(rule->domains.begin(), rule->domains.end(), [&](const std::string& d) {
             return name == d || name.ends_with("." + d);
           });
-        });
+        };
+        std::erase_if(blocked_, letThrough);
+        std::erase_if(blockWho_.recent, letThrough);  // "Сломалось только что" without them till the next ask
         break;
       }
       case RoutingChange::What::SetRuleAction:
@@ -4803,6 +4807,7 @@ UiContent ContentFrom(const View& v) {
   c.routing.cookieWindows = r.cookieWindows;
   c.routing.trackers = r.trackers;
   c.routing.malware = r.malware;
+  c.routing.closeDoh = r.closeDoh;
   c.routing.quic = static_cast<int>(r.quic);
   c.routing.quicBlocked = v.quicBlocked;
   c.routing.hysteriaMbps = r.hysteriaMbps;
@@ -5385,25 +5390,45 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::ToggleCookieWindows: send(What::CookieWindows, !r.cookieWindows); break;
     case UiCommand::ToggleTrackers: send(What::Trackers, !r.trackers); break;
     case UiCommand::ToggleMalware: send(What::Malware, !r.malware); break;
+    case UiCommand::ToggleCloseDoh: send(What::CloseDoh, !r.closeDoh); break;
     case UiCommand::BlockedMenu: {
       // What the lists blocked lately (the ads' and the cookie windows'
       // alike): a click lets one through - a rule of its own where
       // everything else goes (the user's sites come first).
+      // First, when a page just broke and which name it was is anyone's guess:
+      // everything the ads, trackers and cookie lists cut in the last two
+      // minutes, let through at once - one rule (the malware lists' names
+      // aren't in it: gocore/blocked.go).
+      const std::vector<std::string>& justNow = view.blockWho.recent;
       std::vector<std::wstring> items;
-      items.reserve(view.blockedAds.size() + 2);
+      items.reserve(view.blockedAds.size() + 4);
+      std::vector<std::size_t> captions;
+      if (!justNow.empty()) {
+        items.push_back(L"Сломалось только что — пропустить всё за 2 минуты (" + std::to_wstring(justNow.size()) +
+                        L")");
+        items.emplace_back(L"");
+      }
+      const std::size_t first = items.size() + (view.blockedAds.empty() ? 0 : 2);  // after the caption and its line
+      if (view.blockedAds.empty()) {
+        captions.push_back(items.size());
+        items.emplace_back(L"Пока ничего не заблокировано");
+      } else {
+        captions.push_back(items.size());
+        items.insert(items.end(), {L"Заблокировано недавно — нажми, чтобы пропускать:", L""});
+      }
       for (const std::string& name : view.blockedAds) {
         items.push_back(Widen(name));
       }
-      if (items.empty()) {
-        items.emplace_back(L"Пока ничего не заблокировано");
-      } else {
-        items.insert(items.begin(), {L"Заблокировано недавно — нажми, чтобы пропускать:", L""});
-      }
-      const std::size_t skip = view.blockedAds.empty() ? 0 : 2;  // the caption and a line under it
-      const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, {0});
-      if (picked && *picked >= skip && *picked - skip < view.blockedAds.size()) {
-        send(What::AddRule, false, r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy, 0,
-             view.blockedAds[*picked - skip]);
+      const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, captions);
+      const int way = r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy;
+      if (picked && !justNow.empty() && *picked == 0) {
+        std::string names;
+        for (const std::string& name : justNow) {
+          names += (names.empty() ? "" : ", ") + name;
+        }
+        send(What::AddRule, false, way, 0, names);
+      } else if (picked && *picked >= first && *picked - first < view.blockedAds.size()) {
+        send(What::AddRule, false, way, 0, view.blockedAds[*picked - first]);
       }
       break;
     }
@@ -5986,6 +6011,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::ToggleCookieWindows:
     case UiCommand::ToggleTrackers:
     case UiCommand::ToggleMalware:
+    case UiCommand::ToggleCloseDoh:
     case UiCommand::BlockedMenu:
     case UiCommand::BlockedApps:
     case UiCommand::AddWarpSite:

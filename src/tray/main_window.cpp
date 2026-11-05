@@ -3632,7 +3632,8 @@ class Painter {
       l.items.push_back(std::move(ads));
       HintAfter(l, L"Блокировать рекламу", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
                 L"Запросы к рекламным серверам по спискам никуда не уходят: страницы грузятся без рекламы. "
-                L"Сломалось что-то нужное — «Недавно заблокировано» ниже: нажми имя, и оно пойдёт дальше.");
+                L"Сломалось что-то нужное — «Недавно заблокировано» ниже: нажми имя, и оно пойдёт дальше, "
+                L"или «Сломалось только что» — пропустит всё, что закрыто за последние 2 минуты.");
       top += kSettingsRow;
       line(top);
       Item trackers = CommandItem(Kind::Switch, row(top), L"Блокировать трекеры", nullptr, UiCommand::ToggleTrackers);
@@ -3664,6 +3665,17 @@ class Painter {
                 L"откроется.");
       top += kSettingsRow;
       if (c.routing.blockAds || c.routing.cookieWindows || c.routing.trackers || c.routing.malware) {
+        line(top);
+        Item doh = CommandItem(Kind::Switch, row(top), L"Закрыть обход через DoH", nullptr, UiCommand::ToggleCloseDoh);
+        doh.checked = c.routing.closeDoh;
+        doh.tick = kBucketBlock;
+        l.items.push_back(std::move(doh));
+        HintAfter(l, L"Закрыть обход через DoH", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
+                  L"Браузер со своим «безопасным DNS» (DoH, DoT) спрашивает адреса мимо клиента, и списки выше "
+                  L"для него не работают. Включено: известные DNS-сервисы закрыты, браузер спрашивает через "
+                  L"клиент. Если в браузере выбран конкретный сервис безопасного DNS и сайты перестали "
+                  L"открываться — выключи его там или здесь.");
+        top += kSettingsRow;
         line(top);
         Item recent = CommandItem(Kind::ValueRow, row(top), L"Недавно заблокировано", nullptr, UiCommand::BlockedMenu);
         recent.detail = L"пропустить нужное";

@@ -5,11 +5,15 @@ package main
 */
 import "C"
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // box_blocked: what each block category has refused, {"counts":{"ads":n,
-// "trackers":n,"cookies":n,"malware":n},"cloaked":n,"apps":[{"app","path","count"}]}: the
-// refusals behind a CNAME, and the programs that asked most. Freed with box_free.
+// "trackers":n,"cookies":n,"malware":n},"cloaked":n,"apps":[{"app","path","count"}],
+// "recent":[name]}: the refusals behind a CNAME, the programs that asked most, and the names
+// refused in the last two minutes, newest first. Freed with box_free.
 //
 //export box_blocked
 func box_blocked() *C.char {
@@ -27,5 +31,6 @@ func blockedAnswer() map[string]any {
 	if apps == nil {
 		apps = []appCount{}
 	}
-	return map[string]any{"counts": blocked.blockedCounts(), "cloaked": cloaked, "apps": apps}
+	return map[string]any{"counts": blocked.blockedCounts(), "cloaked": cloaked, "apps": apps,
+		"recent": blocked.recentNames(time.Now(), recentShown)}
 }

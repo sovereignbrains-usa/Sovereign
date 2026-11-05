@@ -163,6 +163,7 @@ struct UiRouting {
   bool cookieWindows = false;  // the "accept cookies?" windows of sites, taken off
   bool trackers = true;        // the trackers' and analytics' servers
   bool malware = true;         // malware, phishing and scam domains
+  bool closeDoh = true;        // a browser's own DoH/DoT refused while any of the above is on
   int quic = 0;             // RoutingSettings::Quic's number: 0 auto, 1 blocked, 2 let through
   bool quicBlocked = true;  // what it comes to - auto: by the servers
   int hysteriaMbps = 0;     // RoutingSettings::hysteriaMbps
@@ -374,6 +375,7 @@ enum class UiCommand : std::uint8_t {
   ToggleCookieWindows,  // the cookie windows' list, on or off
   ToggleTrackers,       // the trackers' lists, on or off
   ToggleMalware,        // the malware and phishing lists, on or off
+  ToggleCloseDoh,       // a browser's own DoH/DoT refused, on or off
   BlockedMenu,        // anchor: what was blocked lately - a click lets one through
   BlockedApps,        // anchor: which programs asked for what was blocked (information)
   ToggleWarp,         // on: registers a WARP device first if there's none

@@ -55,6 +55,7 @@ constexpr std::string_view kPhishingFilter = "https://adguardteam.github.io/Host
 constexpr const char* kScams = "sov-ads-scams";
 constexpr std::string_view kScamsFilter = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_10.txt";
 
+
 constexpr const char* kLocalDns = "sov-local";
 constexpr std::string_view kServicePrefix = "sov-svc-";  // a service's list: sov-svc-<id>
 
@@ -111,6 +112,34 @@ constexpr std::array<ServiceInfo, 30> kServices = {{
      "Vuze.exe,Azureus.exe,FrostWire.exe,WebTorrent.exe",
      {}, {}},
 }};
+
+// The public resolvers a browser or a program talks DoH to on its own
+// (RoutingSettings::closeDoh): their names, each with its subdomains
+// (mozilla.cloudflare-dns.com, chrome.cloudflare-dns.com...), and the
+// addresses Windows' own DoH and the apps dial without a name. The client's
+// own DNS isn't routed (sing-box dials it itself), so it isn't hit by these.
+constexpr std::array kDohNames = {
+    "dns.google",          "dns.google.com",        "cloudflare-dns.com",   "one.one.one.one",
+    "1dot1dot1dot1.cloudflare-dns.com",             "dns.quad9.net",        "dns9.quad9.net",
+    "dns10.quad9.net",     "dns11.quad9.net",       "doh.opendns.com",      "doh.familyshield.opendns.com",
+    "dns.adguard.com",     "dns.adguard-dns.com",   "unfiltered.adguard-dns.com", "family.adguard-dns.com",
+    "dns.nextdns.io",      "doh.cleanbrowsing.org", "dns.mullvad.net",      "doh.mullvad.net",
+    "dns.controld.com",    "freedns.controld.com",  "doh.dns.sb",           "dns.alidns.com",
+    "doh.pub",             "dns.twnic.tw",          "doh.libredns.gr",      "common.dot.dns.yandex.net",
+    "safe.dot.dns.yandex.net", "family.dot.dns.yandex.net",                 "dns.comss.one",
+    "router.comss.one",    "dns.malw.link",         "xbox-dns.ru",          "dns.dnswarden.com",
+};
+// Firefox asks it before turning DoH on by itself: no addresses - "this network filters, no DoH".
+constexpr std::string_view kFirefoxCanary = "use-application-dns.net";
+constexpr std::array kDohAddresses = {
+    "1.1.1.1/32",         "1.0.0.1/32",         "1.1.1.2/32",          "1.0.0.2/32",         "1.1.1.3/32",
+    "1.0.0.3/32",         "8.8.8.8/32",         "8.8.4.4/32",          "9.9.9.9/32",         "149.112.112.112/32",
+    "9.9.9.10/32",        "9.9.9.11/32",        "94.140.14.14/32",     "94.140.15.15/32",    "94.140.14.140/32",
+    "208.67.222.222/32",  "208.67.220.220/32",  "185.228.168.9/32",    "194.242.2.2/32",     "76.76.2.0/32",
+    "2606:4700:4700::1111/128", "2606:4700:4700::1001/128", "2001:4860:4860::8888/128",
+    "2001:4860:4860::8844/128", "2620:fe::fe/128",          "2620:fe::9/128",
+};
+constexpr int kDotPort = 853;  // DNS over TLS, and over QUIC on UDP
 
 constexpr std::string_view kGeositeBase = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/";
 constexpr std::string_view kGeoipBase = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/";
@@ -491,6 +520,7 @@ nlohmann::json RoutingToJson(const RoutingSettings& s) {
           {"cookieWindows", s.cookieWindows},
           {"trackers", s.trackers},
           {"malware", s.malware},
+          {"closeDoh", s.closeDoh},
           {"quic", s.quic == RoutingSettings::Quic::Block   ? "block"
                    : s.quic == RoutingSettings::Quic::Allow ? "allow"
                                                             : "auto"},
@@ -545,6 +575,7 @@ RoutingSettings RoutingFromJson(const nlohmann::json& json) {
   flag("cookieWindows", s.cookieWindows);
   flag("trackers", s.trackers);
   flag("malware", s.malware);
+  flag("closeDoh", s.closeDoh);
   // "blockQuic" before 0.4.56: off stays off; on, the default, is auto now.
   bool blockQuic = true;
   flag("blockQuic", blockQuic);
@@ -1145,6 +1176,13 @@ BlockedPrograms ParseBlockedPrograms(std::string_view response) {
                           entry["count"].get<std::uint64_t>()});
     }
   }
+  if (const auto it = json.find("recent"); it != json.end() && it->is_array()) {
+    for (const auto& name : *it) {
+      if (name.is_string() && !name.get_ref<const std::string&>().empty()) {
+        out.recent.push_back(name.get<std::string>());
+      }
+    }
+  }
   return out;
 }
 
@@ -1173,6 +1211,37 @@ const std::vector<BlockCategory>& BlockCategories() {
         {std::string(kScams), std::string(kScamsFilter), false, true}}},
   };
   return categories;
+}
+
+// RoutingSettings::closeDoh: only while something of "Блок" is on - with
+// nothing filtered the browser's own DNS hides nothing from it.
+bool ClosesDoh(const RoutingSettings& s) {
+  return s.closeDoh && (s.blockAds || s.cookieWindows || s.trackers || s.malware);
+}
+
+// The resolvers to close, but for the ones the client's own DNS names
+// (`ours`: the user's DNS and the config's servers, lower case): a remote DNS
+// set to dns.google stays reachable.
+std::vector<std::string> DohNames(std::string_view ours) {
+  std::vector<std::string> names;
+  names.reserve(kDohNames.size());
+  for (const std::string_view name : kDohNames) {
+    if (ours.find(name) == std::string_view::npos) {
+      names.emplace_back(name);
+    }
+  }
+  return names;
+}
+std::vector<std::string> DohAddresses(std::string_view ours) {
+  std::vector<std::string> addresses;
+  addresses.reserve(kDohAddresses.size());
+  for (const std::string_view cidr : kDohAddresses) {
+    const std::string_view address = cidr.substr(0, cidr.find('/'));
+    if (ours.find(address) == std::string_view::npos) {
+      addresses.emplace_back(cidr);
+    }
+  }
+  return addresses;
 }
 
 }  // namespace
@@ -1476,6 +1545,22 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   for (const Json& sets : blockSets) {
     rules.push_back(Json{{"rule_set", sets}, {"action", "reject"}});
   }
+  // A browser's own secure DNS would ask past the lists above: its resolvers
+  // refused, by name and by address on 443, and DNS over TLS/QUIC on 853 -
+  // the browser falls back to the system's DNS, which is ours (05.11.2026).
+  // A site of the user's (above) still wins; the client's own DNS isn't routed.
+  const bool closeDoh = ClosesDoh(settings);
+  const std::string ourDns =
+      Lower(settings.remoteDnsCustom + " " + settings.localDnsCustom + " " + dns["servers"].dump());
+  if (closeDoh) {
+    if (const std::vector<std::string> names = DohNames(ourDns); !names.empty()) {
+      rules.push_back(Json{{"domain_suffix", names}, {"action", "reject"}});
+    }
+    if (const std::vector<std::string> addresses = DohAddresses(ourDns); !addresses.empty()) {
+      rules.push_back(Json{{"ip_cidr", addresses}, {"port", 443}, {"action", "reject"}});
+    }
+    rules.push_back(Json{{"port", kDotPort}, {"action", "reject"}});
+  }
   // A service's app the user sent its own way (Telegram.exe while Telegram
   // goes elsewhere - "the app apart"): before the services, or the service's
   // names and addresses would take the app's traffic first.
@@ -1665,6 +1750,15 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     Json ads{{"rule_set", sets}};
     SetNoAddress(ads);
     dnsRules.push_back(std::move(ads));
+  }
+  // The resolvers closed in the routing: no addresses for their names, and
+  // Firefox's canary - "this network filters" - keeps its DoH off.
+  if (closeDoh) {
+    std::vector<std::string> names = DohNames(ourDns);
+    names.emplace_back(kFirefoxCanary);
+    Json doh{{"domain_suffix", names}};
+    SetNoAddress(doh);
+    dnsRules.push_back(std::move(doh));
   }
   // A service sent directly: its names here too (through the proxy's DNS
   // they'd get the proxy country's addresses); blocked: no addresses.

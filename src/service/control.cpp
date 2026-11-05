@@ -591,6 +591,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     response["counts"] = std::move(counts);
     response["cloaked"] = who.cloaked;
     response["apps"] = std::move(apps);
+    response["recent"] = who.recent;  // refused in the last two minutes: "Сломалось только что"
     return Dump(response);
   }
 

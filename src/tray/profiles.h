@@ -17,6 +17,21 @@
 
 namespace sovereign::tray {
 
+// What the tray knows of a server the user set up himself (docs/design/self-hosted.md):
+// where it is and how the tray gets in. The key itself is not here - keyRef names
+// it in the tray's secret store. A profile without this is a subscription or keys.
+struct OwnServer {
+  std::string host;                    // a name or an address, no port
+  int sshPort = 22;
+  std::string sshUser = "root";
+  std::string keyRef;                  // the secret's name, [a-z0-9-]; empty: asked at each login
+  std::vector<std::string> protocols;  // what's installed on it: "reality", "hysteria2"...
+};
+
+// A host fit for ssh and a config: letters, digits, '.', '-', ':' (IPv6), no spaces
+// or anything a command line would read - it ends up in one.
+bool IsOwnHost(std::string_view host);
+
 struct Profile {
   std::string id;             // its folder's name: [a-z0-9-], at most kMaxProfileId
   std::string name;           // what the window shows (UTF-8); the user may rename it
@@ -42,6 +57,8 @@ struct Profile {
   // What the user says they paid their own server till (support_report.h
   // PaidDate) - for a panel that doesn't say (expire). Unix seconds; 0: not said.
   std::int64_t paidTill = 0;
+  // Set for a server the user installed himself; the card then looks other than a subscription's.
+  std::optional<OwnServer> own;
 };
 
 // What a subscription server is told the device is (x-hwid, which panels

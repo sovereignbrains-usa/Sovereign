@@ -215,6 +215,35 @@ void TestSubscriptionHosts() {
     CHECK(rule->ips == std::vector<std::string>({"203.0.113.7/32", "2001:db8::1/128"}));
   }
 }
+
+// A server of the user's own: kept through tray.json, an unsafe host or user dropped to a plain config.
+void TestOwnServer() {
+  CHECK(IsOwnHost("203.0.113.7") && IsOwnHost("vpn.example.com") && IsOwnHost("2001:db8::1"));
+  CHECK(!IsOwnHost("") && !IsOwnHost("-oProxyCommand=x") && !IsOwnHost("a b") && !IsOwnHost("a;b") &&
+        !IsOwnHost("a$(b)"));
+
+  Profile server = Make("p1", "Home");
+  server.own = OwnServer{"203.0.113.7", 2222, "admin", "key-1", {"reality", "hysteria2"}};
+  const auto read = ProfilesFromJson(ProfilesToJson({server, Make("p2", "Sub", "https://a.example.com/s")}));
+  CHECK(read.size() == 2 && read[0].own.has_value() && !read[1].own.has_value());
+  if (read.size() == 2 && read[0].own) {
+    CHECK(read[0].own->host == "203.0.113.7" && read[0].own->sshPort == 2222 && read[0].own->sshUser == "admin");
+    CHECK(read[0].own->keyRef == "key-1" && read[0].own->protocols.size() == 2);
+  }
+
+  auto json = ProfilesToJson({server});
+  json[0]["own"]["host"] = "x -oProxyCommand=y";
+  CHECK(!ProfilesFromJson(json)[0].own.has_value());
+  json = ProfilesToJson({server});
+  json[0]["own"]["sshPort"] = 99999;
+  json[0]["own"]["sshUser"] = "a;b";
+  json[0]["own"]["keyRef"] = "../x";
+  json[0]["own"]["protocols"] = nlohmann::json::array({"reality", "reality", 5, "a b"});
+  const auto clamped = ProfilesFromJson(json);
+  CHECK(clamped.size() == 1 && clamped[0].own && clamped[0].own->sshPort == 65535 &&
+        clamped[0].own->sshUser == "root" && clamped[0].own->keyRef.empty() &&
+        clamped[0].own->protocols == std::vector<std::string>({"reality"}));
+}
 }  // namespace
 
 int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
@@ -227,6 +256,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestHwid();
     TestVia();
     TestSubscriptionHosts();
+    TestOwnServer();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 1;

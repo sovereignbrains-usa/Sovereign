@@ -142,6 +142,14 @@ bool IsHwid(std::string_view hwid) {
          });
 }
 
+bool IsOwnHost(std::string_view host) {
+  return !host.empty() && host.size() <= 253 && host.front() != '-' &&
+         std::all_of(host.begin(), host.end(), [](char c) {
+           return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ||
+                  c == '-' || c == ':';
+         });
+}
+
 std::vector<std::string> SubscriptionHosts(const std::vector<Profile>& profiles) {
   std::vector<std::string> hosts;
   for (const Profile& p : profiles) {
@@ -174,7 +182,7 @@ std::vector<std::string> SubscriptionHosts(const std::vector<Profile>& profiles)
 nlohmann::json ProfilesToJson(const std::vector<Profile>& profiles) {
   nlohmann::json list = nlohmann::json::array();
   for (const Profile& p : profiles) {
-    list.push_back({{"id", p.id},
+    auto entry = nlohmann::json({{"id", p.id},
                     {"name", p.name},
                     {"userNamed", p.userNamed},
                     {"url", p.url},
@@ -192,6 +200,11 @@ nlohmann::json ProfilesToJson(const std::vector<Profile>& profiles) {
                     {"trafficTotal", p.trafficTotal},
                     {"expire", p.expire},
                     {"paidTill", p.paidTill}});
+    if (p.own) {
+      entry["own"] = {{"host", p.own->host}, {"sshPort", p.own->sshPort}, {"sshUser", p.own->sshUser},
+                       {"keyRef", p.own->keyRef}, {"protocols", p.own->protocols}};
+    }
+    list.push_back(std::move(entry));
   }
   return list;
 }
@@ -267,6 +280,30 @@ std::vector<Profile> ProfilesFromJson(const nlohmann::json& json, std::string_vi
     }
     p.expire = std::max<std::int64_t>(0, number(entry, "expire").value_or(0));
     p.paidTill = std::max<std::int64_t>(0, number(entry, "paidTill").value_or(0));
+    if (const auto it = entry.find("own"); it != entry.end() && it->is_object()) {
+      OwnServer own;
+      const auto host = text(*it, "host");
+      const auto user = text(*it, "sshUser");
+      const auto key = text(*it, "keyRef");
+      // A host that wouldn't be safe in a command line makes the entry a plain config, not a server.
+      if (host && IsOwnHost(*host)) {
+        own.host = *host;
+        if (user && !user->empty() && IsOwnHost(*user)) {
+          own.sshUser = *user;
+        }
+        own.keyRef = key && IsProfileId(*key) ? *key : std::string();
+        own.sshPort = static_cast<int>(std::clamp<std::int64_t>(number(*it, "sshPort").value_or(22), 1, 65535));
+        if (const auto list = it->find("protocols"); list != it->end() && list->is_array()) {
+          for (const auto& item : *list) {
+            if (item.is_string() && IsOwnHost(item.get<std::string>()) &&
+                std::find(own.protocols.begin(), own.protocols.end(), item.get<std::string>()) == own.protocols.end()) {
+              own.protocols.push_back(item.get<std::string>());
+            }
+          }
+        }
+        p.own = std::move(own);
+      }
+    }
     if (p.name.empty()) {
       p.name = UniqueProfileName(profiles, "Конфиг");
     }

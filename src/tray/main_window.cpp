@@ -5163,6 +5163,24 @@ struct MainWindow::Impl {
   }
 
 
+  // The window's edge in the colour of the main way (ui::WindowBorder). One
+  // call when it changes. Windows 10 has no such attribute (22000+): the call
+  // fails and the edge stays the system's - nothing to undo.
+  std::optional<COLORREF> border;
+  bool borderKnown = false;
+  void ApplyBorder(const UiContent& c) {
+    const std::optional<COLORREF> want = ui::WindowBorder(c);
+    if (hwnd == nullptr || (borderKnown && want == border)) {
+      return;
+    }
+    borderKnown = true;
+    border = want;
+    constexpr DWORD kBorderColor = 34;                  // DWMWA_BORDER_COLOR
+    constexpr COLORREF kDefaultEdge = 0xFFFFFFFF;       // DWMWA_COLOR_DEFAULT
+    const COLORREF value = want.value_or(kDefaultEdge);
+    DwmSetWindowAttribute(hwnd, kBorderColor, &value, sizeof value);
+  }
+
   // A new state: a turn from wherever the cube is into its pose - forward,
   // to the next square-on yaw (askew by the pose's own offset).
   void CubeTo(Display display) {
@@ -6813,6 +6831,7 @@ bool MainWindow::IsVisible() const { return impl_->hwnd != nullptr && IsWindowVi
 void MainWindow::Update(const UiContent& content) {
   Impl& m = *impl_;
   m.CubeTo(content.display);
+  m.ApplyBorder(content);
   const bool sameList = content.protocols == m.content.protocols && content.autoOption == m.content.autoOption &&
                         content.serversByDelay == m.content.serversByDelay;
   if (!content.delaysTesting || !sameList || m.serverOrder.empty()) {

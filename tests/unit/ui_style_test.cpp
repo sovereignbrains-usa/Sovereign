@@ -95,6 +95,32 @@ void TestFatesTellApart() {
   CHECK(DeltaE(kWarning, kBlock) >= 30.0);  // and not blocked
 }
 
+// The window's edge follows the main way, and says nothing when none is known.
+void TestWindowBorder() {
+  using namespace ui;
+  UiContent c;
+  c.display = Display::On;
+  c.flowVpn = 5;
+  CHECK(WindowBorder(c) == kVpn);
+  c.flowWarp = 9;  // WARP carries more than the VPN
+  CHECK(WindowBorder(c) == kWarp);
+  c.display = Display::Off;
+  CHECK(WindowBorder(c) == kDirect);
+  c.display = Display::Starting;
+  CHECK(!WindowBorder(c).has_value());
+  c.display = Display::ServiceDown;
+  CHECK(!WindowBorder(c).has_value());
+  c.killSwitchActive = true;  // the filters in place, the VPN not up: shut
+  c.display = Display::Error;
+  CHECK(WindowBorder(c) == kBlock);
+  c.display = Display::Starting;
+  CHECK(WindowBorder(c) == kBlock);
+  c.display = Display::On;  // up again: the way it is, not the filters
+  CHECK(WindowBorder(c) == kWarp);
+  c.display = Display::Off;  // the user's own off: direct, the kill switch is let go with it
+  CHECK(WindowBorder(c) == kDirect);
+}
+
 void TestTypeScale() {
   using namespace ui;
   const float scale[] = {kTMicro, kTCaption, kTBody, kTHeading, kTLead, kTTitle};
@@ -190,6 +216,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestTextPairs();
     TestFatesTellApart();
     TestTypeScale();
+    TestWindowBorder();
     TestTokensCss();
     TestNoHueLiterals();
   } catch (const std::exception& e) {

@@ -11,6 +11,7 @@
 
 #include <wil/com.h>
 
+#include <optional>
 #include <string>
 
 #include "ui_content.h"
@@ -77,6 +78,22 @@ inline COLORREF DelayColor(const UiDelay& delay) {
     return kUpload;
   }
   return delay.ms < 500 ? kWarning : kDanger;
+}
+
+// The window's own 1 px edge (DWMWA_BORDER_COLOR) in the colour of the main
+// way (05.11.2026): VPN blue, WARP orange when WARP carries more than the VPN,
+// grey while VPN is off (all of it direct), red while the kill switch holds
+// the internet shut. Nothing (the system's edge) while starting, broken or
+// with no service: no way is known then, so none is claimed.
+inline std::optional<COLORREF> WindowBorder(const UiContent& c) {
+  if (c.killSwitchActive && c.display != Display::On && c.display != Display::Off) {
+    return kBlock;
+  }
+  switch (c.display) {
+    case Display::On: return c.flowWarp > c.flowVpn ? kWarp : kVpn;
+    case Display::Off: return kDirect;
+    default: return std::nullopt;
+  }
 }
 
 // A glyph font that exists here: Fluent Icons on Windows 11, MDL2 on 10 (the

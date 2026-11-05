@@ -20,8 +20,8 @@
 namespace sovereign::tray {
 
 // In the order the page lists them.
-enum class CheckId : std::uint8_t { Exit, RussiaDirect, DnsLeak, WebRtc, Ipv6, Lan, DnsLatency, Speed, Route };
-inline constexpr std::size_t kCheckCount = 9;
+enum class CheckId : std::uint8_t { Exit, RussiaDirect, DnsLeak, WebRtc, Ipv6, Lan, DnsLatency, Speed, Route, Exposure };
+inline constexpr std::size_t kCheckCount = 10;
 
 struct DiagnoseInput {
   RoutingSettings routing;

@@ -4806,6 +4806,12 @@ UiContent ContentFrom(const View& v) {
   c.checks.push_back(line(CheckId::Route, L"Не открывается сайт?",
                           L"Введи адрес — клиент откроет его и спросит ядро, как он пошёл: напрямую, через VPN, через "
                           L"WARP или заблокирован, и по какому правилу."));
+  // Seen from the network: shown once it has been run (the page's button).
+  if (v.checks[static_cast<std::size_t>(CheckId::Exposure)].status != sovereign::tray::CheckResult::Status::NotRun) {
+    c.checks.push_back(line(CheckId::Exposure, L"Виден ли компьютер в сети",
+                            L"Включён ли брандмауэр, блокирует ли он входящие, работают ли службы общего доступа. "
+                            L"Показывает, что видно другим устройствам в Wi-Fi."));
+  }
   c.checksRunning = v.checksRunning;
   c.speedRunning = v.speedRunning;
   using sovereign::tray::RoutingSettings;
@@ -6037,13 +6043,13 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::OpenChecks: {  // the settings' row (the title bar's wrench gone, 30.10.2026): the page, run at once
       using sovereign::tray::CheckId;
       ShowMainWindow(UiPage::Checks);
-      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6}, {});
+      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure}, {});
       break;
     }
     case UiCommand::RunChecks: {
       using sovereign::tray::CheckId;
       // Where sites go is the routing page's (its row and its tiles' "Проверить"), not here.
-      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6},
+      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure},
                   {});
       break;
     }

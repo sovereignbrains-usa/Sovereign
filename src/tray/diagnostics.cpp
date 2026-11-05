@@ -427,6 +427,39 @@ double StreamMbps(const std::vector<float>& samples) {
   return sum / static_cast<double>(samples.end() - from);
 }
 
+CheckResult JudgeExposure(const ExposureFacts& facts) {
+  using Status = CheckResult::Status;
+  CheckResult r;
+  const bool off = std::any_of(facts.profiles.begin(), facts.profiles.end(),
+                               [](const ExposureFacts::Profile& p) { return !p.firewallOn; });
+  const bool open = std::any_of(facts.profiles.begin(), facts.profiles.end(), [](const ExposureFacts::Profile& p) {
+    return p.firewallOn && !p.inboundBlocked;
+  });
+  std::string services;
+  for (const auto& name : facts.sharingServices) {
+    services += (services.empty() ? "" : ", ") + name;
+  }
+  if (off || open) {
+    r.status = Status::Fail;
+    r.summary = off ? "брандмауэр выключен" : "входящие не блокируются";
+    r.detail = off ? "Брандмауэр Windows выключен хотя бы в одном профиле сети: всё, что слушает порт, открыто для "
+                     "локальной сети. Включи его в параметрах Windows."
+                   : "Брандмауэр разрешает входящие соединения, которых нет в правилах. Верни для профиля действие "
+                     "по умолчанию «Блокировать».";
+    return r;
+  }
+  if (!services.empty()) {
+    r.status = Status::Warn;
+    r.summary = std::format("работает: {}", services);
+    r.detail = "Эти службы пускают в компьютер из локальной сети. Если они не нужны, отключи их в «Службах».";
+    return r;
+  }
+  r.status = Status::Ok;
+  r.summary = facts.openPorts == 0 ? std::string("закрыт") : std::format("закрыт · портов слушается: {}", facts.openPorts);
+  r.detail = "Брандмауэр включён и блокирует входящие, служб общего доступа нет. Слушающие порты закрыты им от сети.";
+  return r;
+}
+
 double Mbps(std::uint64_t bytes, double seconds) {
   return seconds <= 0 ? 0 : static_cast<double>(bytes) * 8.0 / seconds / 1e6;
 }

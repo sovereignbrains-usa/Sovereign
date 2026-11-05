@@ -261,6 +261,62 @@ bool InPrefixes(const std::string& address, const std::vector<std::array<unsigne
   });
 }
 
+// The Exposure check's facts, off the registry, the service manager and the
+// TCP table.
+ExposureFacts CollectExposure() {
+  ExposureFacts facts;
+  constexpr const wchar_t* kProfiles[] = {L"DomainProfile", L"StandardProfile", L"PublicProfile"};
+  for (std::size_t i = 0; i < 3; ++i) {
+    const std::wstring key =
+        std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\") + kProfiles[i];
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"EnableFirewall", RRF_RT_REG_DWORD, nullptr, &value, &size) ==
+        ERROR_SUCCESS) {
+      facts.profiles[i].firewallOn = value != 0;
+    }
+    size = sizeof(value);
+    // Absent: the default, which is block.
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"DefaultInboundAction", RRF_RT_REG_DWORD, nullptr, &value,
+                     &size) == ERROR_SUCCESS) {
+      facts.profiles[i].inboundBlocked = value != 0;
+    }
+  }
+  if (const wil::unique_schandle scm{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)};
+      scm) {
+    struct Named {
+      const wchar_t* service;
+      const char* shown;
+    };
+    for (const Named& named : {Named{L"LanmanServer", "общий доступ к файлам"},
+                               Named{L"RemoteRegistry", "удалённый реестр"},
+                               Named{L"TermService", "удалённый рабочий стол"}}) {
+      const SC_HANDLE service = OpenServiceW(scm.get(), named.service, SERVICE_QUERY_STATUS);
+      if (service == nullptr) {
+        continue;
+      }
+      SERVICE_STATUS status{};
+      if (QueryServiceStatus(service, &status) != 0 && status.dwCurrentState == SERVICE_RUNNING) {
+        facts.sharingServices.emplace_back(named.shown);
+      }
+      CloseServiceHandle(service);
+    }
+  }
+  DWORD bytes = 0;
+  GetExtendedTcpTable(nullptr, &bytes, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+  std::vector<unsigned char> buffer(bytes + 4096);
+  bytes = static_cast<DWORD>(buffer.size());
+  if (GetExtendedTcpTable(buffer.data(), &bytes, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0) == NO_ERROR) {
+    const auto* table = reinterpret_cast<const MIB_TCPTABLE_OWNER_PID*>(buffer.data());
+    for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+      if ((table->table[i].dwLocalAddr & 0xFF) != 127) {  // network order: the first octet is the low byte
+        ++facts.openPorts;
+      }
+    }
+  }
+  return facts;
+}
+
 struct Run {
   const DiagnoseInput& input;
   std::string exitIp;   // what foreign sites see
@@ -815,6 +871,7 @@ void RunChecks(const std::stop_token& stop, const std::vector<CheckId>& which, c
       case CheckId::DnsLatency: result = Run::DnsLatency(); break;
       case CheckId::Speed: result = run.Speed(); break;
       case CheckId::Route: result = run.Route(); break;
+      case CheckId::Exposure: result = JudgeExposure(CollectExposure()); break;
     }
     progress(id, result);
   }

@@ -191,6 +191,24 @@ void TestRoutes() {
   CHECK(r.summary == "ya.ru → через VPN · chatgpt.com → не видно · nx.example → не находится");
 }
 
+void TestExposure() {
+  using Status = CheckResult::Status;
+  ExposureFacts facts;
+  CHECK(JudgeExposure(facts).status == Status::Ok);
+  facts.openPorts = 23;
+  CHECK(JudgeExposure(facts).status == Status::Ok);  // ports alone are counted, not judged
+  facts.sharingServices = {"LanmanServer"};
+  CHECK(JudgeExposure(facts).status == Status::Warn);
+  facts.profiles[2].inboundBlocked = false;
+  CHECK(JudgeExposure(facts).status == Status::Fail);  // worse than a service
+  facts.profiles[2].inboundBlocked = true;
+  facts.profiles[1].firewallOn = false;
+  CHECK(JudgeExposure(facts).status == Status::Fail);
+  facts.profiles[1].firewallOn = true;
+  facts.profiles[1].inboundBlocked = false;  // off firewall's flag is moot, on with allow is not
+  CHECK(JudgeExposure(facts).status == Status::Fail);
+}
+
 void TestRules() {
   RoutingSettings routing;
   routing.rules.push_back(*ParseRule("qwen.ai, alicdn.com ~tracker 10.0.0.1", RouteRule::Action::Direct));
@@ -216,6 +234,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestDnsLeak();
     TestRoutes();
     TestRules();
+    TestExposure();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 1;

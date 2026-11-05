@@ -133,6 +133,26 @@ CheckResult JudgeRoutes(const std::vector<SiteWay>& sites, const RoutingSettings
 // none does.
 std::string ClientRuleFor(std::string_view host, const RoutingSettings& routing);
 
+// What the computer shows to the local network (the Exposure check), as
+// read off the system.
+struct ExposureFacts {
+  // Per profile (domain, private, public): the firewall on, and what it does
+  // with inbound connections no rule names (absent in the registry = block).
+  struct Profile {
+    bool firewallOn = true;
+    bool inboundBlocked = true;
+  };
+  std::array<Profile, 3> profiles{};
+  std::vector<std::string> sharingServices;  // running: file sharing, remote registry, remote desktop
+  std::size_t openPorts = 0;                 // TCP listeners on all addresses (not loopback)
+};
+
+// Fail: a firewall profile is off, or lets unnamed inbound through; Warn: a
+// sharing service is running (anyone on the network can try its door);
+// otherwise Ok. Open ports alone are only counted - programs listen for
+// reasons, the firewall is what shuts them.
+CheckResult JudgeExposure(const ExposureFacts& facts);
+
 // Megabits per second for `bytes` in `seconds`.
 double Mbps(std::uint64_t bytes, double seconds);
 

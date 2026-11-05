@@ -88,8 +88,8 @@ func TestBlockedRecent(t *testing.T) {
 	w.count("ads", "old.example.com", "", false, at)
 	w.count("ads", "ads.example.com", "", false, at.Add(time.Minute))
 	w.count("trackers", "pixel.example.net", "", false, at.Add(time.Minute+time.Second))
-	w.count("ads", "ads.example.com", "", false, at.Add(2*time.Minute)) // again: the newest now
-	w.count("ads", "", "", false, at.Add(2*time.Minute))                 // no name: nothing to list
+	w.count("ads", "ads.example.com", "", false, at.Add(2*time.Minute))      // again: the newest now
+	w.count("ads", "", "", false, at.Add(2*time.Minute))                     // no name: nothing to list
 	w.count("malware", "bank.example.org", "", false, at.Add(2*time.Minute)) // never in a bunch
 	w.mu.Unlock()
 	now := at.Add(2*time.Minute + time.Second)

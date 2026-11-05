@@ -302,11 +302,16 @@ ExposureFacts CollectExposure() {
       CloseServiceHandle(service);
     }
   }
-  DWORD bytes = 0;
-  GetExtendedTcpTable(nullptr, &bytes, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
-  std::vector<unsigned char> buffer(bytes + 4096);
-  bytes = static_cast<DWORD>(buffer.size());
-  if (GetExtendedTcpTable(buffer.data(), &bytes, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0) == NO_ERROR) {
+  // A buffer that is already big enough for the header (the analyzer wants it); too small: asked again, with the size it said.
+  std::vector<unsigned char> buffer(16384);
+  DWORD bytes = static_cast<DWORD>(buffer.size());
+  DWORD got = GetExtendedTcpTable(buffer.data(), &bytes, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+  if (got == ERROR_INSUFFICIENT_BUFFER) {
+    buffer.resize(static_cast<std::size_t>(bytes) + 4096);
+    bytes = static_cast<DWORD>(buffer.size());
+    got = GetExtendedTcpTable(buffer.data(), &bytes, FALSE, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+  }
+  if (got == NO_ERROR) {
     const auto* table = reinterpret_cast<const MIB_TCPTABLE_OWNER_PID*>(buffer.data());
     for (DWORD i = 0; i < table->dwNumEntries; ++i) {
       if ((table->table[i].dwLocalAddr & 0xFF) != 127) {  // network order: the first octet is the low byte

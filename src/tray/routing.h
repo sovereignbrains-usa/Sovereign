@@ -166,6 +166,11 @@ struct RoutingSettings {
   std::string remoteDnsCustom;            // RemoteDns::Custom's address, as typed
   std::string localDnsCustom;             // LocalDns::Custom's
   bool ipv4Only = true;
+  // Not a setting and not kept: the tray sets it when the computer has no
+  // IPv6 of its own (diagnose.h HasNativeIpv6). Names resolved for a direct
+  // connection then get IPv4 addresses only - an IPv6 one would be reset at
+  // once, and a program that picks IPv6 itself (curl) would stop there.
+  bool directIpv4Only = false;
   std::vector<RouteRule> rules;  // the user's, first of all
   std::vector<ServiceRoute> services;  // after the user's rules
 

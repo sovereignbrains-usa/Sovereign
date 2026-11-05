@@ -59,4 +59,9 @@ using DiagnoseProgress = std::function<void(CheckId, const CheckResult&)>;
 void RunChecks(const std::stop_token& stop, const std::vector<CheckId>& which, const DiagnoseInput& input,
                const DiagnoseProgress& progress);
 
+// Whether an adapter of the computer (not the tunnel) has a global IPv6
+// address: where a direct connection could go out over IPv6. Without one,
+// an IPv6 answer for a direct name is a reset waiting (05.11.2026: ya.ru).
+bool HasNativeIpv6();
+
 }  // namespace sovereign::tray

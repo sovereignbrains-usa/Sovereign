@@ -552,6 +552,29 @@ void TestOwn() {
   CHECK(!d["dns"].contains("strategy"));
   CHECK(d["dns"]["servers"][1]["server"] == "8.8.8.8" && d["dns"]["servers"][1]["type"] == "https");
 
+  // No IPv6 on the computer (the tray sets directIpv4Only): the names that go
+  // out directly get IPv4 addresses only, the rest of the dns block as it was.
+  {
+    RoutingSettings v4 = s;
+    v4.directIpv4Only = true;
+    const json w = json::parse(ApplyRouting(direct.config.value_or("{}"), v4, Files()));
+    CHECK(!w["dns"].contains("strategy"));
+    int local = 0;
+    for (const json& rule : w["dns"]["rules"]) {
+      if (rule.value("server", "") == "sov-local" && rule.contains("domain_suffix")) {
+        ++local;
+        CHECK(rule.value("strategy", "") == "ipv4_only");
+      } else if (rule.contains("server") && rule["server"] != "sov-local") {
+        CHECK(!rule.contains("strategy"));
+      }
+    }
+    CHECK(local >= 1);
+    // The user's own IPv4-only choice, or IPv6 present: nothing added.
+    for (const json& rule : d["dns"]["rules"]) {
+      CHECK(!rule.contains("strategy"));
+    }
+  }
+
   // "В обход блокировок": everything else to the core's sov-smart, directly
   // first, then the proxy; sniffed before it. (Not for `sing-box check`: the
   // type is the core's own.)

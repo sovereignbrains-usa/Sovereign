@@ -1041,6 +1041,7 @@ class Worker {
       }
       // The client's rules first in whatever runs (routing.h).
       quicBlocked_ = sovereign::tray::QuicBlocked(routing, *combined.config);
+      routing.directIpv4Only = !sovereign::tray::HasNativeIpv6();
       combined.config = sovereign::tray::ApplyRouting(*combined.config, routing, ruleFiles_);
     }
     combined_ = combined.config;

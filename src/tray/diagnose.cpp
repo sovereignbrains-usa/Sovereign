@@ -768,6 +768,8 @@ struct Run {
 
 }  // namespace
 
+bool HasNativeIpv6() { return !NativeIpv6Prefixes().empty(); }
+
 void RunChecks(const std::stop_token& stop, const std::vector<CheckId>& which, const DiagnoseInput& input,
                const DiagnoseProgress& progress) {
   WSADATA wsa{};

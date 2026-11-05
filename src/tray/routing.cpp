@@ -186,6 +186,16 @@ std::vector<std::string> Strings(const Json& value) {
 // The own frame's DNS strategy: IPv4 only, or nothing when IPv6 is allowed.
 const char* DnsStrategy(const RoutingSettings& s) { return s.ipv4Only ? "ipv4_only" : nullptr; }
 
+// A DNS rule for a name that goes out directly: the local DNS answers, and
+// with no IPv6 on the computer only with IPv4 addresses - the whole dns block
+// stays as the user set it (05.11.2026: ya.ru over IPv6 reset at once).
+void ToLocalDns(Json& rule, const RoutingSettings& s) {
+  rule["server"] = kLocalDns;
+  if (s.directIpv4Only && !s.ipv4Only) {
+    rule["strategy"] = "ipv4_only";
+  }
+}
+
 const char* ActionName(RouteRule::Action action) {
   switch (action) {
     case RouteRule::Action::Direct: return "direct";
@@ -1758,7 +1768,7 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     if (r.action == RouteRule::Action::Block) {
       SetNoAddress(rule);
     } else if (r.action == RouteRule::Action::Direct) {
-      rule["server"] = kLocalDns;
+      ToLocalDns(rule, settings);
     } else if (const std::string remote = Str(dns, "final"); !remote.empty()) {
       // Through the proxy or WARP: the config's own DNS - said here, ahead of
       // the ads lists' "no addresses", so an ad name sent there gets through.
@@ -1791,7 +1801,9 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
       continue;
     }
     if (s.way == ServiceRoute::Way::Direct) {
-      dnsRules.push_back(Json{{"rule_set", tag}, {"server", kLocalDns}});
+      Json viaLocal{{"rule_set", tag}};
+      ToLocalDns(viaLocal, settings);
+      dnsRules.push_back(std::move(viaLocal));
     } else if (s.way == ServiceRoute::Way::Block) {
       Json blocked{{"rule_set", tag}};
       SetNoAddress(blocked);
@@ -1805,7 +1817,7 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
       if (settings.russia == RouteRule::Action::Block) {
         SetNoAddress(rule);
       } else {
-        rule["server"] = kLocalDns;
+        ToLocalDns(rule, settings);
       }
       dnsRules.push_back(std::move(rule));
     };

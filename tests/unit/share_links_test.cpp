@@ -136,6 +136,20 @@ void TestHysteria2AndTuic() {
   const json multi = Outbound("hysteria2://p@h.example.com:443,5000-6000");
   CHECK(multi["server_ports"] == json::array({"443:443", "5000:6000"}));
 
+  // Our own parameters: the hop pace and the server key's SHA-256.
+  const std::string key = EncodeBase64(std::string(32, '\x07'));
+  const json own = Outbound("hy2://p@1.2.3.4:443?mport=20000-20100&hop-interval=20s&hop-interval-max=60&insecure=1&pubkey-sha256=" + key);
+  CHECK(own["hop_interval"] == "20s");
+  CHECK(own["hop_interval_max"] == "1m0s");
+  CHECK(own["tls"]["certificate_public_key_sha256"] == key);
+  CHECK(!own["tls"].contains("insecure"));  // the key is checked: nothing taken on trust
+  const json hexPin = Outbound("hy2://p@1.2.3.4:443?pubkey-sha256=" + std::string(32, 'a') + std::string(32, '0'));
+  CHECK(hexPin["tls"]["certificate_public_key_sha256"] == EncodeBase64(std::string(16, '\xAA') + std::string(16, '\0')));
+  CHECK(!ParseShareLink("hy2://p@1.2.3.4:443?pubkey-sha256=abc").outbound);       // not 32 bytes
+  CHECK(!ParseShareLink("hy2://p@1.2.3.4:443?hop-interval=soon").outbound);       // not a duration
+  CHECK(!ParseShareLink("hy2://p@1.2.3.4:443?pinSHA256=ab:cd&insecure=1").outbound);  // a certificate pin: not checked
+  CHECK(ParseShareLink("hy2://p@h.example.com:443?pinSHA256=ab:cd").outbound);    // the name is checked still
+
   const json tuic = Outbound(kTuic);
   CHECK(tuic["uuid"] == "11111111-2222-3333-4444-555555555555");
   CHECK(tuic["password"] == "pw");

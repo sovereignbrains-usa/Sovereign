@@ -9,6 +9,7 @@
 #include <array>
 #include <charconv>
 #include <cstdint>
+#include <exception>
 #include <format>
 #include <initializer_list>
 #include <optional>
@@ -577,6 +578,43 @@ opt::OutboundTLSOptions QuicTls(const Uri& uri, std::vector<std::string> default
   return tls;
 }
 
+// The SHA-256 of the server's public key (its SPKI) for sing-box's
+// certificate_public_key_sha256: base64 or hex, 32 bytes. Empty when it's
+// neither.
+std::string PublicKeyPin(std::string text) {
+  std::erase(text, ':');
+  const bool hex = text.size() == 64 && std::ranges::all_of(text, [](char c) {
+                     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                   });
+  std::string bytes;
+  if (hex) {
+    for (std::size_t i = 0; i < text.size(); i += 2) {
+      unsigned value = 0;
+      std::from_chars(text.data() + i, text.data() + i + 2, value, 16);
+      bytes.push_back(static_cast<char>(value));
+    }
+  } else if (const auto decoded = DecodeBase64(text)) {
+    bytes = *decoded;
+  }
+  return bytes.size() == 32 ? EncodeBase64(bytes) : std::string();
+}
+
+// "30s", "1m" or bare seconds ("30"); nullopt when it's none of them.
+std::optional<adapters::Duration> HopInterval(const std::string& text) {
+  if (!text.empty() && std::ranges::all_of(text, [](char c) { return c >= '0' && c <= '9'; })) {
+    return HopInterval(text + "s");
+  }
+  try {
+    const auto value = adapters::ParseDuration(text);
+    if (value.count() <= 0) {
+      return std::nullopt;
+    }
+    return adapters::Duration(value);
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
 std::string Hysteria2(const Uri& uri, Json& out) {
   opt::Hysteria2OutboundOptions hy2;
   if (std::string error = SetHoppingServer(hy2, uri); !error.empty()) {
@@ -589,7 +627,41 @@ std::string Hysteria2(const Uri& uri, Json& out) {
     o.password = uri.Get("obfs-password");
     hy2.obfs = std::move(o);
   }
+  // Port hopping's pace: hop-interval (and hop-interval-max for a random one
+  // between the two). Not in the official format; ours, like the pin below.
+  const auto interval = [](const std::string& text, adapters::Duration& field) {
+    if (text.empty()) {
+      return true;
+    }
+    const auto value = HopInterval(text);
+    if (value) {
+      field = *value;
+    }
+    return value.has_value();
+  };
+  if (const std::string text = uri.Any({"hop-interval", "hop_interval", "hopinterval"}); !interval(text, hy2.hopInterval)) {
+    return std::format("непонятный интервал смены порта: {}", text);
+  }
+  if (const std::string text = uri.Any({"hop-interval-max", "hop_interval_max", "hopintervalmax"});
+      !interval(text, hy2.hopIntervalMax)) {
+    return std::format("непонятный интервал смены порта: {}", text);
+  }
   hy2.tls = QuicTls(uri, {});
+  // pubkey-sha256: the server's own key, so a self-signed certificate is
+  // checked rather than taken on trust (the name then doesn't matter).
+  if (const std::string text = uri.Any({"pubkey-sha256", "pubkey_sha256", "pinpubkey"}); !text.empty()) {
+    const std::string pin = PublicKeyPin(text);
+    if (pin.empty()) {
+      return "хеш ключа сервера (pubkey-sha256) не 32 байта в base64 или hex";
+    }
+    hy2.tls->certificatePublicKeySHA256 = std::vector<std::string>{pin};
+    hy2.tls->insecure = false;
+  } else if (!uri.Get("pinsha256").empty() && hy2.tls->insecure) {
+    // pinSHA256 is the hash of the whole certificate: sing-box can't check
+    // it, and with insecure the server would be checked by nothing at all.
+    return "ссылка закрепляет сертификат (pinSHA256), а Sovereign умеет только хеш ключа сервера "
+           "(pubkey-sha256): без него сервер не проверялся бы вовсе";
+  }
   out = Written("hysteria2", hy2);
   return {};
 }

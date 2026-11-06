@@ -5084,7 +5084,7 @@ UiContent ContentFrom(const View& v) {
   c.exitPending = v.exitIp.pending;
   c.hideExitIp = v.hideExitIp;
   c.delaysDetailed = v.delaysDetailed;
-  c.serversByDelay = v.serversByDelay;
+  c.serversByDelay = true;  // the page has one order: fastest first
   c.connectAtStartup = v.connectAtStartup;
   c.routingMore = v.routingMore;
   c.lockedOut = v.lockedOut;

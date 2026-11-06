@@ -2791,19 +2791,6 @@ class Painter {
     if (order.empty()) {
       return y - kGap;
     }
-    if (order.size() > 1) {
-      // Fastest first, by the last test, or as the subscription lists them.
-      const float mid = (x0 + x1) / 2;
-      Item fastest = CommandItem(Kind::Segment, {x0, y, mid - 4, y + 32}, L"Быстрые сверху", nullptr,
-                                 UiCommand::SetServerOrder, 0);
-      fastest.checked = c.serversByDelay;
-      Item listed = CommandItem(Kind::Segment, {mid + 4, y, x1, y + 32}, L"Как в подписке", nullptr,
-                                UiCommand::SetServerOrder, 1);
-      listed.checked = !c.serversByDelay;
-      l.items.push_back(std::move(fastest));
-      l.items.push_back(std::move(listed));
-      y += 32 + kGap;
-    }
     // One physical server is one entry: its protocols are rows under one header (the exit's address
     // tells them apart; without it, network and country; without those, a server of its own).
     const auto groupKey = [&](std::size_t i) -> std::wstring {

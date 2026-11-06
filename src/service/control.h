@@ -137,7 +137,7 @@ class ControlHandler {
 
   std::string Dispatch(const std::string& request, Outcome& outcome);
   // The kill switch's rules for `settings` over the running config's tunnel.
-  std::string ApplyKillSwitch(const KillSwitchSettings& settings);
+  [[nodiscard]] std::string ApplyKillSwitch(const KillSwitchSettings& settings);
 
   ICore* core_;
   const LogRing& coreLog_;

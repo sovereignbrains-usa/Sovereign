@@ -66,7 +66,10 @@ func startSeen() {
 				boxMu.Lock()
 				traffic := boxTraffic
 				boxMu.Unlock()
-				sampleSeen(traffic, now)
+				func() {
+					defer catchPanic("seen sampler", nil) // a tick lost, not the service
+					sampleSeen(traffic, now)
+				}()
 			}
 		}()
 	})

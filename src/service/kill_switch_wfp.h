@@ -20,7 +20,7 @@ class WfpKillSwitch final : public IKillSwitch {
   // `corePath`: sovereign-core.exe's full path - its connections pass.
   explicit WfpKillSwitch(std::wstring corePath);
 
-  std::string Apply(const std::vector<KillSwitchRule>& rules) override;
+  [[nodiscard]] std::string Apply(const std::vector<KillSwitchRule>& rules) override;
   bool Active() override;
 
  private:
@@ -29,6 +29,6 @@ class WfpKillSwitch final : public IKillSwitch {
 
 // Lifts the kill switch, whatever state the service is in (--uninstall,
 // --unblock). Empty on success, including when there was nothing to lift.
-std::string RemoveKillSwitch();
+[[nodiscard]] std::string RemoveKillSwitch();
 
 }  // namespace sovereign::service

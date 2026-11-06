@@ -55,6 +55,6 @@ struct MergedConfig {
 // new version's elements with the user's additions and removals applied,
 // the additions after the element they followed. nullopt if any of the
 // three isn't a JSON object or nests deeper than kMaxConfigDepth.
-std::optional<MergedConfig> MergeConfigs(std::string_view base, std::string_view mine, std::string_view theirs);
+[[nodiscard]] std::optional<MergedConfig> MergeConfigs(std::string_view base, std::string_view mine, std::string_view theirs);
 
 }  // namespace sovereign::tray

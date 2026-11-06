@@ -76,7 +76,8 @@ void RefreshAutostart() {
   if (RegGetValueW(HKEY_CURRENT_USER, kRunKey, kValueName, RRF_RT_REG_SZ, nullptr, command.data(), &size) ==
           ERROR_SUCCESS &&
       std::wstring_view(command.data()).find(kBackgroundArg) == std::wstring_view::npos) {
-    SetAutostart(true);
+    // Old command line rewritten; if the registry refuses, the old one still starts us.
+    static_cast<void>(SetAutostart(true));
   }
 }
 

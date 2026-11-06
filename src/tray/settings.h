@@ -132,13 +132,13 @@ std::optional<std::chrono::hours> RuleSetAge(const std::string& tag, std::string
 
 // A profile's files, in `dir` (ProfileDir). config.json's text, or nullopt
 // if there is none.
-std::optional<std::string> LoadConfig(const std::filesystem::path& dir);
+[[nodiscard]] std::optional<std::string> LoadConfig(const std::filesystem::path& dir);
 // Atomic, like SaveSettings.
 void SaveConfig(const std::filesystem::path& dir, const std::string& text);
 
-std::optional<std::string> LoadOriginal(const std::filesystem::path& dir);
+[[nodiscard]] std::optional<std::string> LoadOriginal(const std::filesystem::path& dir);
 void SaveOriginal(const std::filesystem::path& dir, const std::string& text);
-std::optional<std::string> LoadPending(const std::filesystem::path& dir);
+[[nodiscard]] std::optional<std::string> LoadPending(const std::filesystem::path& dir);
 void SavePending(const std::filesystem::path& dir, const std::string& text);
 void ClearPending(const std::filesystem::path& dir);   // no error if there is none
 void ClearOriginal(const std::filesystem::path& dir);  // likewise: no subscription, no base

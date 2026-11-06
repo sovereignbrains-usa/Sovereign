@@ -18,10 +18,10 @@ using Json = nlohmann::ordered_json;
 // and v2rayN's list of them, SIP008, sing-box outbounds without a config
 // around them. False, with `items` untouched, when `document` is none of these
 // or lists no server - a whole sing-box config among them.
-bool ImportJson(const Json& document, ImportItems& items);
+[[nodiscard]] bool ImportJson(const Json& document, ImportItems& items);
 
 // A line that starts "proxies:" or "proxy-providers:".
 bool LooksLikeClashYaml(std::string_view text);
-bool ImportYaml(std::string_view text, ImportItems& items);
+[[nodiscard]] bool ImportYaml(std::string_view text, ImportItems& items);
 
 }  // namespace sovereign::tray::detail

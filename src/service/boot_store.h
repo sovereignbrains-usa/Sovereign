@@ -26,11 +26,11 @@ class IBootStore {
   IBootStore& operator=(IBootStore&&) = delete;
 
   // Keeps `config` for the next boot, replacing the one there: "" or why not.
-  virtual std::string Save(const std::string& config) = 0;
+  [[nodiscard]] virtual std::string Save(const std::string& config) = 0;
   // No config at boot any more. Nothing kept is fine.
   virtual void Forget() = 0;
   // The kept config; nullopt - none, or unreadable (then it's as if none).
-  virtual std::optional<std::string> Load() = 0;
+  [[nodiscard]] virtual std::optional<std::string> Load() = 0;
 };
 
 // Who may touch the file: SYSTEM and Administrators, nothing inherited.
@@ -45,9 +45,9 @@ class FileBootStore final : public IBootStore {
   // own in tests (they don't run as SYSTEM).
   FileBootStore(std::wstring path, std::wstring sddl);
 
-  std::string Save(const std::string& config) override;
+  [[nodiscard]] std::string Save(const std::string& config) override;
   void Forget() override;
-  std::optional<std::string> Load() override;
+  [[nodiscard]] std::optional<std::string> Load() override;
 
  private:
   std::wstring path_;

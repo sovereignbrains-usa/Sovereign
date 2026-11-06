@@ -158,6 +158,14 @@ func (s *stunSession) send(index int) error {
 }
 
 func (s *stunSession) read() {
+	// The outbound's packet code runs here, on a goroutine of ours: a panic
+	// in it ends the reading as an error would, not the service.
+	defer catchPanic("udp test: read", func(message string) {
+		s.mu.Lock()
+		s.readErr = errors.New(message)
+		s.mu.Unlock()
+		s.signal()
+	})
 	buffer := make([]byte, 1500)
 	for {
 		n, _, err := s.conn.ReadFrom(buffer)

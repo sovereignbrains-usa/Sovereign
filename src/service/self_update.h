@@ -25,7 +25,7 @@ class IUpdateRunner {
   // word is taken for nothing, any user may ask. Afterwards the tray comes
   // back in `session`. "" once the installer runs (it stops this service
   // next), or why not.
-  virtual std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) = 0;
+  [[nodiscard]] virtual std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) = 0;
 
   // The kill switch held on for an update (control.h's update_install): a
   // mark that outlives this service - the next one, the installer's, finds

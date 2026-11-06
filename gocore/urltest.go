@@ -118,7 +118,8 @@ type urlTestRequest struct {
 // freed with box_free.
 //
 //export box_urltest
-func box_urltest(requestJSON *C.char) *C.char {
+func box_urltest(requestJSON *C.char) (reply *C.char) {
+	defer catchPanic("box_urltest", func(message string) { reply = C.CString(message) })
 	var request urlTestRequest
 	if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &request); err != nil {
 		return C.CString(fmt.Sprintf("parse request: %s", err))
@@ -167,9 +168,13 @@ func box_urltest(requestJSON *C.char) *C.char {
 					udpDone := make(chan struct{})
 					go func() {
 						defer close(udpDone)
+						defer catchPanic("udp test of "+tag, func(message string) { udp = udpResult{Error: message} })
 						udp = probeOutboundUDP(ctx, outbound)
 					}()
-					result = probe(ctx, request.URL, outbound, timeout, cold)
+					func() {
+						defer catchPanic("url test of "+tag, func(message string) { result = delayResult{Error: message} })
+						result = probe(ctx, request.URL, outbound, timeout, cold)
+					}()
 					<-udpDone
 					result.Tag = tag
 					if result.Error == "" {
@@ -394,7 +399,8 @@ func millis(d time.Duration) uint16 {
 // true}]}, in the order tags were first tested. Freed with box_free.
 //
 //export box_delays
-func box_delays() *C.char {
+func box_delays() (reply *C.char) {
+	defer catchPanic("box_delays", func(string) { reply = C.CString(`{"results":[]}`) })
 	delayMu.Lock()
 	results := make([]delayResult, 0, len(delayOrder))
 	for _, tag := range delayOrder {
@@ -420,7 +426,8 @@ func box_delays() *C.char {
 // not; freed with box_free.
 //
 //export box_select
-func box_select(selectorTag *C.char, outboundTag *C.char) *C.char {
+func box_select(selectorTag *C.char, outboundTag *C.char) (reply *C.char) {
+	defer catchPanic("box_select", func(message string) { reply = C.CString(message) })
 	boxMu.Lock()
 	instance := boxInstance
 	boxMu.Unlock()

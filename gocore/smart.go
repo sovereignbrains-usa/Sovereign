@@ -282,6 +282,19 @@ func smartKey(metadata *adapter.InboundContext) string {
 }
 
 func (s *smartOutbound) NewConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
+	// Every connection the smart route takes runs this on sing-box's own
+	// goroutine, where nothing would stop a panic short of the service: it
+	// ends this connection instead. Once: whoever got onClose before the
+	// panic may have called it already.
+	if onClose != nil {
+		onClose = N.OnceClose(onClose)
+	}
+	defer catchPanic("smart: "+metadata.Destination.String(), func(message string) {
+		conn.Close()
+		if onClose != nil {
+			onClose(E.New(message))
+		}
+	})
 	key := smartKey(&metadata)
 	now := time.Now()
 	if tag, ok := verdictOf(&metadata, now); ok {
@@ -647,7 +660,10 @@ func smartGrace(wait time.Duration) time.Duration {
 	return min(smartGraceWait, wait/3)
 }
 
-func tryWay(ctx context.Context, index int, dialer N.Dialer, destination M.Socksaddr, hello []byte, wait time.Duration) wayAnswer {
+func tryWay(ctx context.Context, index int, dialer N.Dialer, destination M.Socksaddr, hello []byte, wait time.Duration) (answer wayAnswer) {
+	// A goroutine of raceWays, around the outbound's code: a panic in it is
+	// this way failing, not the service.
+	defer catchPanic("smart: a way", func(string) { answer = wayAnswer{index: index, why: "panic"} })
 	conn, err := dialer.DialContext(ctx, N.NetworkTCP, destination)
 	if err != nil {
 		return wayAnswer{index: index, why: "dial"}
@@ -812,7 +828,8 @@ func smartReport(now time.Time) []smartLine {
 // "way","why","at"}]}, newest first. Freed with box_free.
 //
 //export box_smart
-func box_smart() *C.char {
+func box_smart() (reply *C.char) {
+	defer catchPanic("box_smart", func(string) { reply = C.CString(`{"learned":[]}`) })
 	out, err := json.Marshal(map[string]any{"learned": smartReport(time.Now())})
 	if err != nil {
 		return C.CString(`{"learned":[]}`)

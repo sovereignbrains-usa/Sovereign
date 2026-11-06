@@ -21,7 +21,7 @@ bool AutostartEnabled();
 
 // Writes the Run value pointing at this exe with kBackgroundArg, or deletes
 // it. False if the registry refused.
-bool SetAutostart(bool enabled);
+[[nodiscard]] bool SetAutostart(bool enabled);
 
 // An enabled Run value written by an older tray (no kBackgroundArg, so the
 // window would open at every sign-in) is rewritten; anything else is left as

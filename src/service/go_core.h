@@ -34,20 +34,20 @@ class GoCore final : public ICore {
   // allocator; each is copied into a std::string and freed via the DLL's own
   // box_free — never via the host's CRT free(), which would be undefined
   // behavior across the CRT boundary.
-  std::string Ping() override;
-  std::string Start(const std::string& configJson) override;
-  std::string Stop() override;
+  [[nodiscard]] std::string Ping() override;
+  [[nodiscard]] std::string Start(const std::string& configJson) override;
+  [[nodiscard]] std::string Stop() override;
   CoreStats Stats() override;
   std::vector<FlowTotal> Flows() override;
   std::optional<RouteSeen> RouteOf(const std::vector<std::string>& targets) override;
   std::vector<SmartVerdict> SmartLearned() override;
   std::map<std::string, std::uint64_t> BlockedCounts() override;
   BlockedWho BlockedByWho() override;
-  std::string StartUrlTest(const UrlTestRequest& request) override;
+  [[nodiscard]] std::string StartUrlTest(const UrlTestRequest& request) override;
   std::vector<DelayResult> Delays() override;
   ExitIp LookupExitIp(const std::string& tag, bool refresh) override;
   SiteResults LookupSites(const std::string& tag, bool refresh) override;
-  std::string Select(const std::string& selector, const std::string& outbound) override;
+  [[nodiscard]] std::string Select(const std::string& selector, const std::string& outbound) override;
   void SetLogSink(LogSink sink) override;
 
  private:

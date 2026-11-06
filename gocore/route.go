@@ -117,7 +117,8 @@ func shortened(text string, limit int) string {
 // nothing runs. Freed with box_free.
 //
 //export box_route
-func box_route(targets *C.char) *C.char {
+func box_route(targets *C.char) (reply *C.char) {
+	defer catchPanic("box_route", func(string) { reply = C.CString(`{}`) })
 	var list []string
 	if targets == nil || json.Unmarshal([]byte(C.GoString(targets)), &list) != nil {
 		return C.CString(`{}`)

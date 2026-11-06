@@ -1298,7 +1298,8 @@ class Worker {
         break;
       case RoutingChange::What::EditRule:
         if (change.index >= 0) {
-          sovereign::tray::EditRule(r.rules, static_cast<std::size_t>(change.index), change.text);
+          // False: nothing understood - the rule stays as it was.
+          static_cast<void>(sovereign::tray::EditRule(r.rules, static_cast<std::size_t>(change.index), change.text));
         }
         break;
       case RoutingChange::What::AddToRule:

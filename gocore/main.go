@@ -53,7 +53,8 @@ var (
 // sing-box's version constant.
 //
 //export box_ping
-func box_ping() *C.char {
+func box_ping() (reply *C.char) {
+	defer catchPanic("box_ping", func(message string) { reply = C.CString(message) })
 	return C.CString(fmt.Sprintf("pong (sing-box %s)", constant.Version))
 }
 
@@ -67,7 +68,8 @@ func box_ping() *C.char {
 // expected to box_stop first.
 //
 //export box_start
-func box_start(configJSON *C.char) *C.char {
+func box_start(configJSON *C.char) (reply *C.char) {
+	defer catchPanic("box_start", func(message string) { reply = C.CString(message) })
 	boxMu.Lock()
 	defer boxMu.Unlock()
 
@@ -139,7 +141,8 @@ func box_start(configJSON *C.char) *C.char {
 // doesn't track whether Start ever succeeded.
 //
 //export box_stop
-func box_stop() *C.char {
+func box_stop() (reply *C.char) {
+	defer catchPanic("box_stop", func(message string) { reply = C.CString(message) })
 	boxMu.Lock()
 	defer boxMu.Unlock()
 
@@ -170,7 +173,8 @@ func box_stop() *C.char {
 // generation, which keeps the last value).
 //
 //export box_stats
-func box_stats(uplink *C.int64_t, downlink *C.int64_t, connections *C.int64_t, generation *C.int64_t) C.int {
+func box_stats(uplink *C.int64_t, downlink *C.int64_t, connections *C.int64_t, generation *C.int64_t) (running C.int) {
+	defer catchPanic("box_stats", func(string) { running = 0 })
 	boxMu.Lock()
 	defer boxMu.Unlock()
 
@@ -197,6 +201,7 @@ func box_stats(uplink *C.int64_t, downlink *C.int64_t, connections *C.int64_t, g
 //
 //export box_set_log_callback
 func box_set_log_callback(fn C.sovereign_log_fn, ctx unsafe.Pointer) {
+	defer catchPanic("box_set_log_callback", nil)
 	setLogCallback(fn, ctx)
 }
 
@@ -209,6 +214,7 @@ func box_set_log_callback(fn C.sovereign_log_fn, ctx unsafe.Pointer) {
 //
 //export box_free
 func box_free(ptr *C.char) {
+	defer catchPanic("box_free", nil)
 	C.free(unsafe.Pointer(ptr))
 }
 

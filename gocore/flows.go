@@ -50,7 +50,8 @@ func FlowTotals(connections ...[]*trafficcontrol.TrackerMetadata) map[string][2]
 // box_free.
 //
 //export box_flows
-func box_flows() *C.char {
+func box_flows() (reply *C.char) {
+	defer catchPanic("box_flows", func(string) { reply = C.CString(`{"flows":{}}`) })
 	boxMu.Lock()
 	defer boxMu.Unlock()
 	flows := map[string][2]int64{}

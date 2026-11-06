@@ -99,7 +99,7 @@ class IKillSwitch {
 
   // Replaces whatever is in force with `rules` (none: lifts it). Empty on
   // success, otherwise why not - the old rules stay then.
-  virtual std::string Apply(const std::vector<KillSwitchRule>& rules) = 0;
+  [[nodiscard]] virtual std::string Apply(const std::vector<KillSwitchRule>& rules) = 0;
   // Whether filters of the kill switch are in place (a service restart
   // finds them there: they're persistent).
   virtual bool Active() = 0;

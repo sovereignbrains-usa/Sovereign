@@ -159,14 +159,14 @@ class ICore {
   ICore& operator=(ICore&&) = delete;
 
   // A short liveness/identity string (e.g. which engine and version).
-  virtual std::string Ping() = 0;
+  [[nodiscard]] virtual std::string Ping() = 0;
 
   // Starts the engine from a full sing-box config document. Returns an empty
   // string on success or an error message. Fails if already running.
-  virtual std::string Start(const std::string& configJson) = 0;
+  [[nodiscard]] virtual std::string Start(const std::string& configJson) = 0;
 
   // Stops the engine. Empty string on success, including when not running.
-  virtual std::string Stop() = 0;
+  [[nodiscard]] virtual std::string Stop() = 0;
 
   virtual CoreStats Stats() = 0;
 
@@ -196,7 +196,7 @@ class ICore {
   // string once it runs, otherwise why not (e.g. the engine isn't running).
   // A test takes seconds, and the service answers its pipe clients one at a
   // time - so the results come from Delays(), polled.
-  virtual std::string StartUrlTest(const UrlTestRequest& request) = 0;
+  [[nodiscard]] virtual std::string StartUrlTest(const UrlTestRequest& request) = 0;
   // Every tag tested since the last Start(), in the order first tested; a
   // retest replaces the tag's result.
   virtual std::vector<DelayResult> Delays() = 0;
@@ -217,7 +217,7 @@ class ICore {
 
   // Switches the selector outbound `selector` to its option `outbound`, for
   // new connections, without a restart. Empty string, or why not.
-  virtual std::string Select(const std::string& selector, const std::string& outbound) = 0;
+  [[nodiscard]] virtual std::string Select(const std::string& selector, const std::string& outbound) = 0;
 
   // Installs (or, with an empty sink, removes) the log sink. After this
   // returns, the previous sink is never called again.

@@ -83,6 +83,6 @@ class Updater {
 // Runs a downloaded installer elevated (UAC) and without its wizard: it
 // stops the tray and the service, replaces the files and starts both again.
 // Empty on success, otherwise why not ("отменено" when the user said no).
-std::string LaunchInstaller(HWND owner, const std::wstring& path);
+[[nodiscard]] std::string LaunchInstaller(HWND owner, const std::wstring& path);
 
 }  // namespace sovereign::tray

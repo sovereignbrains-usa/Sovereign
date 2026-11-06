@@ -16,7 +16,8 @@ import (
 // refused in the last two minutes, newest first. Freed with box_free.
 //
 //export box_blocked
-func box_blocked() *C.char {
+func box_blocked() (reply *C.char) {
+	defer catchPanic("box_blocked", func(string) { reply = C.CString(`{"counts":{}}`) })
 	out, err := json.Marshal(blockedAnswer())
 	if err != nil {
 		return C.CString(`{"counts":{}}`)

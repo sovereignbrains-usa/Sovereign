@@ -235,11 +235,11 @@ std::string RuleInput(const RouteRule& rule);
 // The rule at `index` holding what `text` says instead (ParseRule's), its
 // way and name kept; another rule for the same things gives way. False:
 // nothing understood (or no such rule), nothing changed.
-bool EditRule(std::vector<RouteRule>& rules, std::size_t index, std::string_view text);
+[[nodiscard]] bool EditRule(std::vector<RouteRule>& rules, std::size_t index, std::string_view text);
 // `exe` added to the rule at `index` (not twice, case-blind): the app with
 // its sites, either matching. A rule that was that program alone goes - it's
 // part of this one now. False: not an exe's name, or no such rule.
-bool AddProgramToRule(std::vector<RouteRule>& rules, std::size_t index, std::string_view exe);
+[[nodiscard]] bool AddProgramToRule(std::vector<RouteRule>& rules, std::size_t index, std::string_view exe);
 // A rule's name as kept: one line, spaces trimmed, at most 40 characters.
 std::string CleanRuleName(std::string_view name);
 

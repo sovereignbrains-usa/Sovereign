@@ -356,7 +356,7 @@ class GoCoreDriver final : public Driver {
   }
   // Straight to the core: Handle() builds JSON and may throw, a destructor
   // mustn't.
-  ~GoCoreDriver() override { core_.Stop(); }
+  ~GoCoreDriver() override { static_cast<void>(core_.Stop()); }
   GoCoreDriver(const GoCoreDriver&) = delete;
   GoCoreDriver& operator=(const GoCoreDriver&) = delete;
   GoCoreDriver(GoCoreDriver&&) = delete;

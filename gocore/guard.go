@@ -155,7 +155,8 @@ func newBlock(ctx context.Context, _ log.ContextLogger, tag string, options bloc
 func (t *blockTransport) Start(adapter.StartStage, *adapter.Scope) error { return nil }
 func (t *blockTransport) Reset()                                         {}
 
-func (t *blockTransport) Exchange(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
+func (t *blockTransport) Exchange(ctx context.Context, message *mDNS.Msg) (answer *mDNS.Msg, err error) {
+	defer catchPanic("dns block", func(why string) { answer, err = nil, E.New(why) })
 	name := questionName(message)
 	category := t.match.category(name)
 	if category == "" {
@@ -246,7 +247,10 @@ func (t *guardTransport) cloaked(response *mDNS.Msg) (category string) {
 	return ""
 }
 
-func (t *guardTransport) Exchange(ctx context.Context, message *mDNS.Msg) (*mDNS.Msg, error) {
+func (t *guardTransport) Exchange(ctx context.Context, message *mDNS.Msg) (answer *mDNS.Msg, err error) {
+	// Every name looked up passes here, on sing-box's goroutines: a panic
+	// fails this lookup, not the service.
+	defer catchPanic("dns guard", func(why string) { answer, err = nil, E.New(why) })
 	inner := t.innerTransport()
 	if inner == nil {
 		return nil, E.New("DNS server ", t.inner, " is not there")

@@ -678,15 +678,20 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     if (const std::string error = updates_->Install(version.get<std::string>(), installer.get<std::string>(),
                                                     static_cast<std::uint32_t>(session.get<std::uint64_t>()));
         !error.empty()) {
+      std::string reply = error;
       if (before) {
         const std::scoped_lock lock(stateMutex_);
         if (heldSince_) {
-          ApplyKillSwitch(*before);
+          // Put back as it was; if that fails too, the tray hears it too:
+          // the filters hold on, for nothing now.
+          if (const std::string restoreError = ApplyKillSwitch(*before); !restoreError.empty()) {
+            reply += "; kill switch not put back: " + restoreError;
+          }
           heldSince_.reset();
           updates_->Hold(false);
         }
       }
-      return fail(error);
+      return fail(reply);
     }
     Json response;
     response["cmd"] = "update_install";

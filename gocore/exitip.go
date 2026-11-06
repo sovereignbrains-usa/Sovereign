@@ -101,8 +101,9 @@ type exitIPRequest struct {
 // by the service). Freed with box_free.
 //
 //export box_exitip
-func box_exitip(requestJSON *C.char) *C.char {
+func box_exitip(requestJSON *C.char) (reply *C.char) {
 	var request exitIPRequest
+	defer catchPanic("box_exitip", func(message string) { reply = marshalExitIP(exitIPState{Tag: request.Tag, Error: message}) })
 	if err := json.Unmarshal([]byte(C.GoString(requestJSON)), &request); err != nil {
 		return marshalExitIP(exitIPState{Error: fmt.Sprintf("parse request: %s", err)})
 	}
@@ -136,7 +137,11 @@ func box_exitip(requestJSON *C.char) *C.char {
 	entry.state = exitIPState{Tag: request.Tag, Pending: true}
 	go func() {
 		exitSlots <- struct{}{}
-		result := lookupExitIP(ctx, outbound)
+		var result exitIPState
+		func() {
+			defer catchPanic("exit lookup", func(message string) { result = exitIPState{Error: message} })
+			result = lookupExitIP(ctx, outbound)
+		}()
 		<-exitSlots
 		result.Tag = request.Tag
 		exitMu.Lock()

@@ -27,27 +27,27 @@ struct FetchResult {
 // body capped at kMaxSubscriptionBytes), with `hwid` as x-hwid when it is
 // one (profiles.h IsHwid). The error is for the user and never contains the
 // URL - it carries the subscription token. Blocking: call it off the UI thread.
-std::expected<FetchResult, std::string> FetchSubscription(const std::wstring& url, const std::wstring& userAgent,
+[[nodiscard]] std::expected<FetchResult, std::string> FetchSubscription(const std::wstring& url, const std::wstring& userAgent,
                                                           std::string_view hwid);
 
 // The same through the subscription relay (relay.h): the subscription's server
 // sees the relay's address (Cloudflare's), never the user's. A big answer is
 // fetched piece by piece, a connection each. The errors never carry the URL
 // or the key.
-std::expected<FetchResult, std::string> FetchSubscriptionViaRelay(const std::string& relayUrl, const std::string& relayKey,
+[[nodiscard]] std::expected<FetchResult, std::string> FetchSubscriptionViaRelay(const std::string& relayUrl, const std::string& relayKey,
                                                                   const std::wstring& url, const std::wstring& userAgent,
                                                                   std::string_view hwid);
 
 // Any other GET over https, same client, the body capped at maxBytes; an
 // error for anything but a 200. Blocking: call it off the UI thread.
-std::expected<std::string, std::string> Download(const std::wstring& url, const std::wstring& userAgent,
+[[nodiscard]] std::expected<std::string, std::string> Download(const std::wstring& url, const std::wstring& userAgent,
                                                  std::size_t maxBytes,
                                                  const std::function<void(std::size_t)>& progress = {});
 
 // Any request over https with `headers` ("Name: value", CRLF between),
 // same client; the answer's body, an error for anything but a 200.
 // Blocking: call it off the UI thread.
-std::expected<std::string, std::string> HttpsSend(const std::wstring& url, const std::wstring& userAgent,
+[[nodiscard]] std::expected<std::string, std::string> HttpsSend(const std::wstring& url, const std::wstring& userAgent,
                                                   const wchar_t* method, std::string_view body,
                                                   const std::wstring& headers, std::size_t maxBytes);
 
@@ -58,7 +58,7 @@ std::expected<std::string, std::string> HttpsSend(const std::wstring& url, const
 // connection of its own. Blocking: off the UI thread.
 class SpeedServer {
  public:
-  static std::expected<SpeedServer, std::string> Open(const std::wstring& host, const std::wstring& userAgent);
+  [[nodiscard]] static std::expected<SpeedServer, std::string> Open(const std::wstring& host, const std::wstring& userAgent);
   SpeedServer(SpeedServer&&) noexcept;
   SpeedServer& operator=(SpeedServer&&) noexcept;
   ~SpeedServer();
@@ -67,13 +67,13 @@ class SpeedServer {
   // told how many came so far after each piece and says whether to go on.
   // The bytes that came; an error only if none did (a server cutting a long
   // stream off, a 3 s stall, is the end of it).
-  std::expected<std::uint64_t, std::string> Stream(const std::wstring& path,
+  [[nodiscard]] std::expected<std::uint64_t, std::string> Stream(const std::wstring& path,
                                                    const std::function<bool(std::uint64_t)>& onBytes) const;
 
   // A POST of `body` to `path`, written piece by piece, done when the server
   // has answered; an error for anything but a 200. The upload is these timed
   // to the answer: written pieces are counted before they leave.
-  std::expected<void, std::string> Upload(const std::wstring& path, std::string_view body) const;
+  [[nodiscard]] std::expected<void, std::string> Upload(const std::wstring& path, std::string_view body) const;
 
  private:
   struct Handles;

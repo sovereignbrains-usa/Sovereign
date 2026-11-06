@@ -108,6 +108,8 @@ struct UiProfile {
   std::wstring ownProbe;   // what the last look at the server over ssh said
   bool ownProbing = false; // a look is on its way
   std::wstring ownHost;    // set: a server of the user's own, at this host (profiles.h OwnServer)
+  bool ownInstalling = false;  // the installer is on its way; ownProbe says its step
+  bool ownInstalled = false;   // the installer has put the VPN on it once
   bool failed = false;     // its last refresh failed
   std::wstring host;       // the subscription server's name only - the URL's path is a secret
   std::wstring updated;    // "30.09 14:20" / "ещё не загружена"
@@ -439,6 +441,7 @@ enum class UiCommand : std::uint8_t {
   LanAdd,             // anchor: who to let into the closed network - a device around, an address typed
   AddLanHostText,     // text: the address
   PaidMenu,           // index: a configuration; what the user paid its server till - typed, a month more, none
+  InstallOwnServer,   // index: a server of the user's own: put the VPN on it over ssh (own_install.h)
   ProbeOwnServer,     // index: a server of the user's own: look at it over ssh (the system, the user, the ports)
   ToggleOwnServer,    // index: a configuration of the user's own: mark it as their server (host from its servers) or not
   PaidDateText,       // index: a configuration; text: the date, "15.11" or "15.11.2026"

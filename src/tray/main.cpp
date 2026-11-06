@@ -67,6 +67,7 @@
 #include "effective_config.h"
 #include "exit_ip.h"
 #include "fetch.h"
+#include "own_install.h"
 #include "ssh_probe.h"
 #include "ssh_run.h"
 #include "protocol_choice.h"
@@ -329,6 +330,8 @@ struct View {
     std::int64_t paidTill = 0;     // the user's own say (profiles.h)
     std::string ownProbe;          // what the last look over ssh said; "__probing__" while it is on its way
     std::string ownHost;           // set: a server of the user's own (profiles.h OwnServer), at this host
+    bool ownInstalling = false;    // the installer is on its way; ownProbe says its step
+    bool ownInstalled = false;     // the installer has put the VPN on it once
   };
   std::vector<ProfileView> profiles;
   // A balloon to show once: the UI shows it when noticeId changes.
@@ -401,6 +404,9 @@ struct ProfileChange {
     PaidTill,    // text: unix seconds the user paid their server till; "" = not said
     OwnProbe,    // ask the server over ssh what it is (a worker thread); the answer comes back as OwnProbeResult
     OwnProbeResult,  // on: the server fits; text: what to say
+    OwnInstall,  // put the VPN on the server over ssh (own_install.h; a worker thread): OwnInstallStep..., OwnInstallResult
+    OwnInstallStep,    // hours: the step that began
+    OwnInstallResult,  // on: it went; text: what to say, then on success a NUL and the client's outbounds
     OwnServer,   // on: this config is a server of the user's own (its host taken from its servers); off: not
   };
   std::string id;
@@ -974,6 +980,7 @@ class Worker {
     std::vector<std::string> mergeNotes;  // where the last carry-over met changes on both sides
     std::string ownProbe;                 // what the last look at its own server said (ssh_probe.h)
     bool ownProbing = false;              // a look is on its way
+    bool ownInstalling = false;           // the installer is on its way; ownProbe says its step
     std::optional<std::string> seenOriginal;  // the texts below were computed from
     std::optional<std::string> seenConfig;
     bool edited = false;   // config.json differs from the subscription it's based on
@@ -1498,6 +1505,58 @@ class Worker {
     }
   }
 
+  // The installer (own_install.h) on a thread of its own: the script over ssh, its steps to the page as
+  // they come, install.log in the configuration's folder (the client's keys cut out), the result
+  // through the change queue - the config is written on the tray's side, not here.
+  static void InstallOwnServer(const std::string& id, const sovereign::tray::OwnServer& own) {
+    const std::string command = sovereign::tray::InstallCommand(own);
+    sovereign::tray::SshResult got;
+    if (!command.empty()) {
+      got = sovereign::tray::RunSsh(own, {}, command, sovereign::tray::kInstallTimeoutSeconds,
+                                    sovereign::tray::InstallScript(), [&id](std::string_view line) {
+                                      const auto event = sovereign::tray::ParseInstallLine(line);
+                                      if (event.kind == sovereign::tray::InstallEvent::Kind::Step) {
+                                        RequestProfileChange({.id = id, .what = ProfileChange::What::OwnInstallStep,
+                                                              .on = false, .text = {}, .hours = event.step});
+                                      }
+                                    });
+    }
+    const sovereign::tray::InstallOutcome outcome = sovereign::tray::ReadInstallOutput(got.output);
+    const std::string summary =
+        command.empty() ? std::string("Адрес сервера не годится для ssh")
+                        : sovereign::tray::InstallSummary(outcome, outcome.lastStep == 0 ? sovereign::tray::SshProblem(got)
+                                                                                         : std::string(),
+                                                          got.error);
+    try {
+      const auto dir = DirOf(id);
+      if (dir) {
+        std::filesystem::create_directories(*dir);
+        std::ofstream log(*dir / "install.log", std::ios::binary | std::ios::trunc);
+        const std::time_t now = std::time(nullptr);
+        std::tm local{};
+        localtime_s(&local, &now);
+        char when[32]{};
+        std::strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", &local);
+        log << "Sovereign " << Narrow(SOVEREIGN_VERSION_W) << ", " << when << ": " << own.sshUser << "@" << own.host << ":"
+            << own.sshPort << "\n"
+            << "ssh: started " << got.started << ", exit " << got.exitCode << (got.timedOut ? ", timed out" : "")
+            << "\n\n"
+            << outcome.log << "\n--- ssh stderr ---\n"
+            << got.error << "\n--- result ---\n"
+            << summary << "\n";
+      }
+    } catch (...) {
+      LOG_CAUGHT_EXCEPTION_MSG("writing install.log failed");
+    }
+    std::string text = summary;
+    if (outcome.done) {
+      text.push_back('\0');
+      text += outcome.outbounds;
+    }
+    RequestProfileChange(
+        {.id = id, .what = ProfileChange::What::OwnInstallResult, .on = outcome.done, .text = std::move(text), .hours = 0});
+  }
+
   // config.json becomes `text`; the one it replaces goes to history.
   static void ReplaceConfig(const std::filesystem::path& dir, const std::optional<std::string>& old,
                             const std::string& text) {
@@ -1852,7 +1911,7 @@ class Worker {
         break;
       case ProfileChange::What::OwnProbe: {
         ProfileRuntime& state = runtime_[change.id];
-        if (!profile->own || state.ownProbing) {
+        if (!profile->own || state.ownProbing || state.ownInstalling) {
           return;
         }
         state.ownProbing = true;
@@ -1877,6 +1936,51 @@ class Worker {
         state.ownProbing = false;
         state.ownProbe = change.text;
         return;
+      }
+      case ProfileChange::What::OwnInstall: {
+        ProfileRuntime& state = runtime_[change.id];
+        if (!profile->own || state.ownProbing || state.ownInstalling) {
+          return;
+        }
+        state.ownInstalling = true;
+        state.ownProbe = sovereign::tray::InstallProgressText(0);
+        std::thread([id = change.id, own = *profile->own] { InstallOwnServer(id, own); }).detach();
+        return;
+      }
+      case ProfileChange::What::OwnInstallStep: {
+        ProfileRuntime& state = runtime_[change.id];
+        if (state.ownInstalling) {
+          state.ownProbe = sovereign::tray::InstallProgressText(change.hours);
+        }
+        return;
+      }
+      case ProfileChange::What::OwnInstallResult: {
+        ProfileRuntime& state = runtime_[change.id];
+        state.ownInstalling = false;
+        const std::size_t nul = change.text.find('\0');
+        state.ownProbe = change.text.substr(0, nul);
+        if (!change.on || nul == std::string::npos || !profile->own) {
+          return;
+        }
+        // The client's side of what went on the server: this configuration's config from now on.
+        const auto made = sovereign::tray::ConfigFromSubscription(std::string_view(change.text).substr(nul + 1));
+        const auto dir = DirOf(change.id);
+        if (!made.config || !dir) {
+          state.ownProbe = "Сервер готов, но его ответ не разобрать: " +
+                           (made.errors.empty() ? std::string("не конфиг sing-box") : made.errors.front());
+          return;
+        }
+        try {
+          ReplaceConfig(*dir, sovereign::tray::LoadConfig(*dir), *made.config);
+        } catch (...) {
+          LOG_CAUGHT_EXCEPTION_MSG("saving the own server's config failed");
+          state.ownProbe = "Сервер готов, но config.json не записался в %LOCALAPPDATA%\\Sovereign";
+          return;
+        }
+        profile->own->protocols = sovereign::tray::InstalledProtocols();
+        profile->enabled = true;
+        delays_.clear();  // new servers: measured afresh
+        break;
       }
       case ProfileChange::What::OwnServer:
         if (!change.on) {
@@ -3025,7 +3129,9 @@ class Worker {
                                 .expire = profile.expire,
                                 .paidTill = profile.paidTill,
                                 .ownProbe = runtime_[profile.id].ownProbe,
-                                .ownHost = profile.own ? profile.own->host : std::string()};
+                                .ownHost = profile.own ? profile.own->host : std::string(),
+          .ownInstalling = runtime_[profile.id].ownInstalling,
+          .ownInstalled = profile.own && !profile.own->protocols.empty()};
         for (const auto& server : state.servers) {
           shown.servers.push_back(
               {.tag = server.tag, .label = server.label, .enabled = sovereign::tray::IsServerEnabled(profile, server.tag)});
@@ -4805,6 +4911,8 @@ UiContent ContentFrom(const View& v) {
     shown.subscription = !profile.url.empty();
     shown.ownHost = Widen(profile.ownHost);
     shown.ownProbing = profile.ownProbe == "__probing__";
+    shown.ownInstalling = profile.ownInstalling;
+    shown.ownInstalled = profile.ownInstalled;
     shown.ownProbe = shown.ownProbing ? std::wstring() : Widen(profile.ownProbe);
     shown.failed = !profile.error.empty();
     shown.host = sovereign::tray::UrlHost(Widen(profile.url));
@@ -5455,6 +5563,9 @@ void OnProfileCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
     }
     case UiCommand::ProbeOwnServer:
       RequestProfileChange({.id = profile.id, .what = ProfileChange::What::OwnProbe, .on = false, .text = {}, .hours = 0});
+      break;
+    case UiCommand::InstallOwnServer:
+      RequestProfileChange({.id = profile.id, .what = ProfileChange::What::OwnInstall, .on = false, .text = {}, .hours = 0});
       break;
     case UiCommand::ToggleOwnServer:
       RequestProfileChange({.id = profile.id, .what = ProfileChange::What::OwnServer, .on = profile.ownHost.empty(),
@@ -6270,6 +6381,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::PaidDateText:
     case UiCommand::ToggleOwnServer:
     case UiCommand::ProbeOwnServer:
+    case UiCommand::InstallOwnServer:
     case UiCommand::CopyProfileLink:
     case UiCommand::RemoveProfile:
     case UiCommand::ToggleServer:

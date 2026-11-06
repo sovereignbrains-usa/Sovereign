@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -15,13 +16,16 @@ struct SshResult {
   bool started = false;    // ssh.exe could be run at all
   bool timedOut = false;   // killed after `timeoutSeconds`
   int exitCode = -1;       // ssh's own: 255 = it couldn't connect
-  std::string output;      // stdout, at most 64 KB
-  std::string error;       // stderr, at most 64 KB
+  std::string output;      // stdout, at most 256 KB
+  std::string error;       // stderr, at most 256 KB
 };
 
 // `remote` is the shell line to run there; `identityFile` empty = ssh's defaults.
+// `input` goes to its stdin, which is then closed (none: stdin on NUL); `onLine` gets each
+// line of its stdout as it comes, on a thread of RunSsh's own.
 SshResult RunSsh(const OwnServer& server, std::string_view identityFile, std::string_view remote,
-                 int timeoutSeconds);
+                 int timeoutSeconds, std::string_view input = {},
+                 const std::function<void(std::string_view)>& onLine = {});
 
 // The words for a result that isn't an answer: "" when it is one (exit 0).
 std::string SshProblem(const SshResult& result);

@@ -3168,12 +3168,24 @@ class Painter {
 
     // A server of their own: a look at it over ssh - what the system is, whether the installer can go on.
     if (!p.subscription && !p.ownHost.empty()) {
-      Item probe = CommandItem(Kind::Button, {x0, y, x1, y + kButton},
+      const bool busy = p.ownProbing || p.ownInstalling;
+      Item probe = CommandItem(Kind::Button, {x0, y, mid - 4, y + kButton},
                                p.ownProbing ? L"Смотрю на сервер…" : L"Проверить сервер", nullptr,
                                UiCommand::ProbeOwnServer, index);
       probe.tip = L"Зайти по ssh (ключ из ssh-agent или ~\\.ssh) и посмотреть: система, root, занятые порты";
-      probe.enabled = !p.ownProbing;
+      probe.enabled = !busy;
       l.items.push_back(std::move(probe));
+      // The installer (own_install.h): the VPN on the server, the config here becomes its client side.
+      Item install = CommandItem(Kind::Button, {mid + 4, y, x1, y + kButton},
+                                 p.ownInstalling ? L"Ставлю…"
+                                 : p.ownInstalled ? L"Переустановить VPN"
+                                                  : L"Поставить VPN",
+                                 nullptr, UiCommand::InstallOwnServer, index);
+      install.tip = L"Поставить на сервер sing-box с Hysteria2 и AnyTLS + REALITY на 443 и взять их в этот конфиг. "
+                    L"Конфиг sing-box на сервере заменится, старый останется в config.json.before-sovereign; "
+                    L"при сбое сервер вернётся как был. Журнал — install.log в папке конфигурации";
+      install.enabled = !busy;
+      l.items.push_back(std::move(install));
       y += kButton + 8;
       if (!p.ownProbe.empty()) {
         y = Paragraph(l, Kind::Caption, p.ownProbe, x0 + 4, x1, y) + kGap;

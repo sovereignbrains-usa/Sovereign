@@ -3197,9 +3197,10 @@ class Painter {
                                  : p.ownInstalled ? L"Переустановить VPN"
                                                   : L"Поставить VPN",
                                  nullptr, UiCommand::InstallOwnServer, index);
-      install.tip = L"Поставить на сервер sing-box с Hysteria2 и AnyTLS + REALITY на 443 и взять их в этот конфиг. "
-                    L"Конфиг sing-box на сервере заменится, старый останется в config.json.before-sovereign; "
-                    L"при сбое сервер вернётся как был. Журнал — install.log в папке конфигурации";
+      install.tip = L"Поставить на сервер packetlab: Hysteria2 с salamander на 443/UDP и перескоком портов, "
+                    L"REALITY и AnyTLS + REALITY на 443/TCP — и взять их в этот конфиг. Только на чистый Debian: "
+                    L"firewall сервера packetlab настроит заново, ssh останется открыт. Сбой — нажми ещё раз, "
+                    L"установка продолжится. Журнал — install.log в папке конфигурации";
       install.enabled = !busy;
       l.items.push_back(std::move(install));
       y += kButton + 8;

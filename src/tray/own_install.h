@@ -7,20 +7,20 @@
 #include "profiles.h"
 
 // Step 3 of docs/design/self-hosted.md: putting the VPN on a server of the user's own.
-// The script (tools/selfhost/hy2-setup.sh and lab-setup.sh made one, kept here) goes
-// to the server on ssh's stdin (`sh -s`) and says how it goes in "@@sov" lines:
+// The script (packetlab from a fixed commit, wrapped: own_install.cpp) goes to the
+// server on ssh's stdin (`sh -s`) and says how it goes in "@@sov" lines:
 //   @@sov step <n> <of> <name>   a step begins
 //   @@sov why <text>             why it stops (UTF-8, for the page)
-//   @@sov fail <n>               it stopped at step n; what it changed is put back
-//   @@sov rolled-back            ... and was
+//   @@sov fail <n>               it stopped at step n; what went up stays, a run again goes on
+//   @@sov rolled-back            ... and what it changed was put back (version 1's script)
 //   @@sov config / @@sov end     the client's outbounds (JSON) between them - the secrets
 //   @@sov done                   all of it went
 // The pure part, unit-tested in tests/unit/own_install_test.cpp; main.cpp runs it.
 
 namespace sovereign::tray {
 
-inline constexpr int kInstallSteps = 7;
-inline constexpr int kInstallTimeoutSeconds = 900;  // apt on a slow VPS takes minutes
+inline constexpr int kInstallSteps = 6;
+inline constexpr int kInstallTimeoutSeconds = 1800;  // a fresh system's apt upgrade on a slow VPS, then packetlab
 
 // The script itself.
 std::string_view InstallScript();
@@ -42,10 +42,10 @@ struct InstallEvent {
 // One line of the script's output; anything else is Kind::None (a line for the log).
 InstallEvent ParseInstallLine(std::string_view line);
 
-// A step's name for the page: "ставлю sing-box".
+// A step's name for the page: "ставлю packetlab".
 std::string InstallStepName(int step);
 
-// "Шаг 3 из 7 · ставлю sing-box".
+// "Шаг 3 из 6 · ставлю packetlab".
 std::string InstallProgressText(int step);
 
 struct InstallOutcome {

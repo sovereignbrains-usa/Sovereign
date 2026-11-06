@@ -17,9 +17,8 @@ std::string Lower(std::string_view text) {
 bool Contains(std::string_view text, std::string_view part) { return text.find(part) != std::string_view::npos; }
 
 bool ToInt(std::string_view text, int& out) {
-  const auto* end = text.data() + text.size();
-  const auto [at, error] = std::from_chars(text.data(), end, out);
-  return error == std::errc() && at == end;
+  const auto [at, error] = std::from_chars(text.data(), text.data() + text.size(), out);
+  return error == std::errc() && at == text.data() + text.size();
 }
 
 }  // namespace
@@ -161,15 +160,16 @@ ProbeVerdict JudgeProbe(const ServerFacts& facts) {
   if (facts.uid != 0) {
     return {false, "Вход не под root: для установки нужен root (или пользователь с полным sudo — пока не умею)"};
   }
-  if (arch != "x86_64" && arch != "aarch64") {
-    return {false, "Процессор " + facts.arch + ": сборок для него нет"};
+  // The installer is packetlab's (own_install.cpp): Debian on x86_64 and nothing else.
+  if (arch != "x86_64") {
+    return {false, "Процессор " + facts.arch + ": packetlab ставится только на x86_64"};
   }
-  const bool known = os.starts_with("ubuntu-") || os.starts_with("debian-");
+  const bool known = os.starts_with("debian-");
   std::string text = "Сервер подходит: " + facts.os + ", " + facts.arch;
   const bool p443 = std::find(facts.ports.begin(), facts.ports.end(), 443) != facts.ports.end();
   const bool p80 = std::find(facts.ports.begin(), facts.ports.end(), 80) != facts.ports.end();
   if (!known) {
-    text = "Система " + facts.os + " не из проверенных (Debian, Ubuntu): может не встать";
+    text = "Система " + facts.os + ": packetlab ставится только на Debian (лучше 13)";
   }
   if (p443 || p80) {
     text += std::string(", занят порт ") + (p443 && p80 ? "80 и 443" : p443 ? "443" : "80");

@@ -70,8 +70,10 @@ void TestProbe() {
 void TestVerdict() {
   const auto judge = [](const char* output) { return JudgeProbe(ParseProbe(output)); };
   CHECK(judge("os=debian-12\narch=x86_64\nuid=0\nports=22,").ok);
-  CHECK(judge("os=ubuntu-22.04\narch=aarch64\nuid=0\nports=22,443,").ok);
-  CHECK(judge("os=ubuntu-22.04\narch=aarch64\nuid=0\nports=22,443,").text.find("443") != std::string::npos);
+  CHECK(judge("os=debian-13\narch=x86_64\nuid=0\nports=22,443,").ok);
+  CHECK(judge("os=debian-13\narch=x86_64\nuid=0\nports=22,443,").text.find("443") != std::string::npos);
+  CHECK(!judge("os=debian-13\narch=aarch64\nuid=0\nports=22,").ok);  // packetlab: x86_64 only
+  CHECK(!judge("os=ubuntu-24.04\narch=x86_64\nuid=0\nports=22,").ok);  // ... and Debian only
   CHECK(!judge("os=debian-12\narch=x86_64\nuid=1000\nports=22,").ok);  // not root
   CHECK(!judge("os=debian-12\narch=mips\nuid=0\nports=").ok);
   CHECK(!judge("os=alpine-3.20\narch=x86_64\nuid=0\nports=").ok);  // unknown system: said, not run

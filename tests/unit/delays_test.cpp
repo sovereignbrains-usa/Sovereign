@@ -5,6 +5,7 @@
 
 #include "check.h"
 #include "delays.h"
+#include "ui_content.h"
 
 namespace {
 
@@ -143,6 +144,54 @@ void TestParsesSites() {
   CHECK(!ParseSitesResponse("not json"));
 }
 
+// UDP through a server and what it carried for real (gocore/udpprobe.go, seen.go).
+void TestParsesUdpAndSeen() {
+  const auto delays = ParseDelaysResponse(
+      R"({"cmd":"box_delays","results":[)"
+      R"({"tag":"hy2","delay":48,"udp_delay":50,"udp_jitter":4,"udp_loss":300,"udp_error":"ignored","seen_down":90000,"seen_up":2000},)"
+      R"({"tag":"naive","delay":60,"udp_error":"no udp"},)"
+      R"({"tag":"tuic","error":"timeout","udp_delay":9,"seen_down":5000},)"
+      R"({"tag":"de","pending":true,"seen_down":-5}]})");
+  CHECK(delays && delays->size() == 4);
+  if (!delays || delays->size() < 4) {
+    return;
+  }
+  const Delay& hy2 = delays->at("hy2");
+  CHECK(hy2.udpMs == 50 && hy2.udpJitter == 4 && hy2.udpLoss == 100 && hy2.udpError.empty());
+  CHECK(hy2.seenDownKbps == 90000 && hy2.seenUpKbps == 2000);
+  CHECK(delays->at("naive").udpMs == 0 && delays->at("naive").udpError == "no udp");
+  const Delay& tuic = delays->at("tuic");
+  CHECK(tuic.state == Delay::State::Failed && tuic.udpMs == 0 && tuic.seenDownKbps == 5000);
+  CHECK(delays->at("de").seenDownKbps == 0);
+}
+
+// What the servers page says of UDP and of the rate seen.
+void TestUdpDetail() {
+  CHECK(MbitText(2'460) == L"2,5 Мбит/с");
+  CHECK(MbitText(90'400) == L"90 Мбит/с");
+  UiDelay delay{.state = UiDelay::State::Ok, .ms = 48, .udpMs = 50, .udpJitter = 4};
+  CHECK(UdpDetail(delay, false).empty());  // fine: nothing to read past
+  CHECK(UdpDetail(delay, true) == L"UDP 50 мс ±4");
+  delay.udpLoss = 5;
+  CHECK(UdpDetail(delay, false).empty() && UdpDetail(delay, true) == L"UDP 50 мс ±4, теряет 5%");
+  delay.udpLoss = 20;
+  CHECK(UdpDetail(delay, false) == L"UDP теряет 20%");
+  const UiDelay naive{.state = UiDelay::State::Ok, .ms = 60, .udpError = L"no udp"};
+  CHECK(UdpDetail(naive, false) == L"без UDP" && DelayDetail(naive, false) == L"без UDP");
+  UiDelay broken{.state = UiDelay::State::Ok,
+                 .ms = 60,
+                 .udpError = L"dial udp [2001:db8::1]:19302: connect: network is unreachable"};
+  CHECK(UdpDetail(broken, false) == L"UDP не отвечает");
+  CHECK(UdpDetail(broken, true) == L"UDP: network is unreachable");
+  broken.udpError = L"no answer";
+  CHECK(UdpDetail(broken, true) == L"UDP не отвечает");
+  const UiDelay failed{.state = UiDelay::State::Failed, .error = L"i/o timeout", .udpError = L"no udp"};
+  CHECK(UdpDetail(failed, false).empty());
+  UiDelay seen{.state = UiDelay::State::Ok, .ms = 48, .udpMs = 50, .udpJitter = 4, .seenDownKbps = 90'000};
+  CHECK(DelayDetail(seen, false).empty());
+  CHECK(DelayDetail(seen, true) == L"UDP 50 мс ±4 · качал до 90 Мбит/с");
+}
+
 // The user's own network, judged by the way around the proxy.
 void TestLocalNetwork() {
   Delay direct{.state = Delay::State::Ok, .ms = 12};
@@ -172,6 +221,8 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestNextWarpServer();
     TestLocalNetwork();
     TestParsesSites();
+    TestParsesUdpAndSeen();
+    TestUdpDetail();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 2;

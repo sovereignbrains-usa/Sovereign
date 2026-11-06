@@ -323,10 +323,18 @@ std::vector<DelayResult> GoCore::Delays() {
       result.jitterMs = number("jitter", 65535);
       result.lossPercent = number("loss", 100);
       result.samples = number("samples", 255);
+      result.udpMs = number("udp_delay", 65535);
+      result.udpJitterMs = number("udp_jitter", 65535);
+      result.udpLossPercent = number("udp_loss", 100);
+      if (item.contains("udp_error") && item["udp_error"].is_string()) {
+        result.udpError = item["udp_error"].get<std::string>();
+      }
     } else if (item.contains("error") && item["error"].is_string()) {
       result.state = DelayResult::State::Failed;
       result.error = item["error"].get<std::string>();
     }
+    result.seenDownKbps = number("seen_down", 100'000'000);
+    result.seenUpKbps = number("seen_up", 100'000'000);
     results.push_back(std::move(result));
   }
   return results;

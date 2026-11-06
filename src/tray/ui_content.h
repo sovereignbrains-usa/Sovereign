@@ -33,6 +33,13 @@ struct UiDelay {
   int samples = 0;       // Ok: round trips measured
   int connect = 0;       // a connection with TLS and a first request; 0 if unknown
   std::wstring error{};  // Failed
+  // Ok: UDP through it (delays.h Delay): the median, the step between round trips, percent lost;
+  // or why not ("no udp": the protocol carries none). 0/empty: not measured.
+  int udpMs = 0;
+  int udpJitter = 0;
+  int udpLoss = 0;
+  std::wstring udpError{};
+  int seenDownKbps = 0;  // what it carried for real, the peak of the last hour; 0: too little to say
 };
 
 // Where the updater is (updater.h), as the windows show it.
@@ -560,12 +567,57 @@ inline std::wstring ShortDelayError(const std::wstring& error) {
   return quote == std::wstring::npos ? error : error.substr(quote + 3);
 }
 
+// A rate in kbit/s as people say it: "2,5 Мбит/с", "90 Мбит/с".
+inline std::wstring MbitText(int kbps) {
+  if (kbps < 10'000) {
+    const int tenths = (kbps + 50) / 100;
+    return std::format(L"{},{} Мбит/с", tenths / 10, tenths % 10);
+  }
+  return std::format(L"{} Мбит/с", (kbps + 500) / 1000);
+}
+
+// What UDP through a server comes to - games and calls go by it: "без UDP"
+// (the protocol carries none: naive) and a UDP that doesn't answer or loses
+// a tenth always, they set the server apart; `detailed`, the figures -
+// "UDP 48 мс ±5", the step being the one between consecutive round trips,
+// what a game feels as stutter.
+inline std::wstring UdpDetail(const UiDelay& delay, bool detailed) {
+  if (delay.state != UiDelay::State::Ok) {
+    return {};
+  }
+  if (delay.udpError == L"no udp") {
+    return L"без UDP";
+  }
+  if (delay.udpMs > 0) {
+    if (delay.udpLoss >= 10) {
+      return detailed ? std::format(L"UDP {} мс ±{}, теряет {}%", delay.udpMs, delay.udpJitter, delay.udpLoss)
+                      : std::format(L"UDP теряет {}%", delay.udpLoss);
+    }
+    if (!detailed) {
+      return {};
+    }
+    return delay.udpLoss > 0 ? std::format(L"UDP {} мс ±{}, теряет {}%", delay.udpMs, delay.udpJitter, delay.udpLoss)
+                             : std::format(L"UDP {} мс ±{}", delay.udpMs, delay.udpJitter);
+  }
+  if (delay.udpError.empty()) {
+    return {};
+  }
+  const auto has = [&delay](const wchar_t* part) { return delay.udpError.find(part) != std::wstring::npos; };
+  if (!detailed || has(L"no answer") || has(L"deadline") || has(L"timeout") || has(L"timed out")) {
+    return L"UDP не отвечает";
+  }
+  // A Go error, "dial udp [2001:...]: connect: <the system's words>": the last part says it.
+  const auto colon = delay.udpError.rfind(L": ");
+  return L"UDP: " + (colon == std::wstring::npos ? delay.udpError : delay.udpError.substr(colon + 2));
+}
+
 // What a measurement says: "стабильный" - and, `detailed`, what it is made of:
 // "замеров: 9 · соединение 412 мс" - or why there was no answer (the core's
 // words as they are, `detailed`).
 // 06.11.2026: only what sets a server apart - "стабильный · замеров: 9" on every row was noise to
 // read past; the verdict shows when it's not steady, and the connection time when it's slow
 // (TUIC's 3.4 s), the error always short.
+// Then UDP (UdpDetail) and, `detailed`, the most it carried in the last hour: "качал до 90 Мбит/с".
 inline std::wstring DelayDetail(const UiDelay& delay, bool detailed) {
   if (delay.state == UiDelay::State::Failed) {
     return ShortDelayError(delay.error);
@@ -577,9 +629,18 @@ inline std::wstring DelayDetail(const UiDelay& delay, bool detailed) {
   if (text == L"стабильный") {
     text.clear();
   }
+  const auto add = [&text](const std::wstring& part) {
+    if (!part.empty()) {
+      text += (text.empty() ? L"" : L" · ") + part;
+    }
+  };
   if (detailed && delay.connect > 0 && delay.connect >= 2 * delay.ms + 500) {
     const int tenths = (delay.connect + 50) / 100;
-    text += std::format(L"{}соединяется долго: {},{} с", text.empty() ? L"" : L" · ", tenths / 10, tenths % 10);
+    add(std::format(L"соединяется долго: {},{} с", tenths / 10, tenths % 10));
+  }
+  add(UdpDetail(delay, detailed));
+  if (detailed && delay.seenDownKbps > 0) {
+    add(L"качал до " + MbitText(delay.seenDownKbps));
   }
   return text;
 }

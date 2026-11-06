@@ -5038,6 +5038,11 @@ UiContent ContentFrom(const View& v) {
       d.samples = delay->samples;
       d.connect = delay->connect;
       d.error = Widen(delay->error);
+      d.udpMs = delay->udpMs;
+      d.udpJitter = delay->udpJitter;
+      d.udpLoss = delay->udpLoss;
+      d.udpError = Widen(delay->udpError);
+      d.seenDownKbps = delay->seenDownKbps;
     }
     c.delays.push_back(d);
   }

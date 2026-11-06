@@ -15,7 +15,12 @@ package main
 // connection is made again. A server's first test after a start makes one
 // connection first and throws it away: the first is cold - the server's
 // name looked up, its ECH config fetched - and read 1.5 s where the next
-// read 110 ms (09.10.2026).
+// read 110 ms (09.10.2026). After the round trips, fresh connections till
+// there are openSamples: "connect" is their median (06.11.2026) - what
+// opening a site through the server costs, the figure browsing feels, and it
+// differs between the protocols of one server where the round trip doesn't.
+// UDP is measured alongside (udpprobe.go), and what the server carried for
+// real comes with the results (seen.go).
 //
 // A test takes seconds and the service answers its pipe clients one at a
 // time, so box_urltest only starts one and returns; box_delays reports how
@@ -53,6 +58,7 @@ const urlTestParallel = 8
 const (
 	minSamples    = 5
 	maxSamples    = 15
+	openSamples   = 3                // fresh connections: "connect" is their median
 	probeBudget   = 12 * time.Second // one outbound's test, all of it
 	sampleSpacing = 120 * time.Millisecond
 )
@@ -63,9 +69,17 @@ type delayResult struct {
 	Jitter  uint16 `json:"jitter,omitempty"`  // ms: half the interquartile range
 	Loss    uint8  `json:"loss,omitempty"`    // percent of the requests lost
 	Samples uint8  `json:"samples,omitempty"` // requests that came back
-	Connect uint16 `json:"connect,omitempty"` // ms: a connection through the server, TLS and the first request
+	Connect uint16 `json:"connect,omitempty"` // ms: a connection through the server, TLS and the first request (median)
 	Error   string `json:"error,omitempty"`   // set when none came back
 	Pending bool   `json:"pending,omitempty"` // still running
+	// UDP, for games and calls (udpprobe.go): set when the TCP test got through.
+	UDPDelay  uint16 `json:"udp_delay,omitempty"`  // ms: the median round trip
+	UDPJitter uint16 `json:"udp_jitter,omitempty"` // ms: one round trip against the one before, on average
+	UDPLoss   uint8  `json:"udp_loss,omitempty"`   // percent lost
+	UDPError  string `json:"udp_error,omitempty"`  // "no udp": the protocol carries none; else why none came back
+	// What it carried for real, the peak of the last hour (seen.go), kbit/s.
+	SeenDown uint32 `json:"seen_down,omitempty"`
+	SeenUp   uint32 `json:"seen_up,omitempty"`
 }
 
 // delayMu guards the results. They belong to one box_start (resetDelays) and
@@ -147,8 +161,23 @@ func box_urltest(requestJSON *C.char) *C.char {
 					cold := !delayWarmed[tag]
 					delayWarmed[tag] = true
 					delayMu.Unlock()
+					// UDP beside TCP, not after it: the test takes no longer
+					// (20 packets of 20 bytes in a second don't disturb it).
+					var udp udpResult
+					udpDone := make(chan struct{})
+					go func() {
+						defer close(udpDone)
+						udp = probeOutboundUDP(ctx, outbound)
+					}()
 					result = probe(ctx, request.URL, outbound, timeout, cold)
+					<-udpDone
 					result.Tag = tag
+					if result.Error == "" {
+						result.UDPDelay = millis(udp.Delay)
+						result.UDPJitter = millis(udp.Jitter)
+						result.UDPLoss = uint8(udp.Loss)
+						result.UDPError = udp.Error
+					}
 				}
 				delayMu.Lock()
 				defer delayMu.Unlock()
@@ -290,6 +319,22 @@ func probe(ctx context.Context, link string, outbound adapter.Outbound, timeout 
 	if client != nil {
 		client.close()
 	}
+	// Fresh connections till openSamples of them: "connect" is what opening a
+	// site through the server costs, and one connection of it may be luck.
+	// One that fails is lost, unless the budget ran out under it.
+	for tries := 0; len(rtts) > 0 && len(connects) < openSamples && tries < openSamples && probeCtx.Err() == nil; tries++ {
+		fresh := newProbeClient(ctx, outbound, destination, timeout)
+		took, err := fresh.head(probeCtx, link)
+		fresh.close()
+		if err != nil {
+			if probeCtx.Err() == nil {
+				lost++
+				lastErr = err
+			}
+			continue
+		}
+		connects = append(connects, took)
+	}
 
 	result := delayResult{}
 	if len(connects) > 0 {
@@ -306,7 +351,7 @@ func probe(ctx context.Context, link string, outbound adapter.Outbound, timeout 
 	result.Delay = max(millis(q2), 1)
 	result.Jitter = millis((q3 - q1) / 2)
 	result.Samples = uint8(len(rtts))
-	result.Loss = uint8(lost * 100 / (len(rtts) + lost))
+	result.Loss = uint8(lost * 100 / (len(rtts) + len(connects) + lost))
 	return result
 }
 
@@ -356,6 +401,10 @@ func box_delays() *C.char {
 		results = append(results, *delays[tag])
 	}
 	delayMu.Unlock()
+	now := time.Now()
+	for i := range results {
+		results[i].SeenDown, results[i].SeenUp = seenRate(results[i].Tag, now)
+	}
 	out, err := json.Marshal(struct {
 		Results []delayResult `json:"results"`
 	}{results})

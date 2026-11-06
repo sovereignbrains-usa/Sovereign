@@ -39,12 +39,23 @@ std::optional<std::map<std::string, Delay>> ParseDelaysResponse(std::string_view
       delay.jitter = count("jitter", 65535);
       delay.loss = count("loss", 100);
       delay.samples = count("samples", 255);
+      delay.udpMs = count("udp_delay", 65535);
+      delay.udpJitter = count("udp_jitter", 65535);
+      delay.udpLoss = count("udp_loss", 100);
+      if (delay.udpMs == 0) {
+        delay.udpError = Field<std::string>(item, "udp_error", {});
+        if (delay.udpError.size() > 200) {
+          delay.udpError.resize(200);
+        }
+      }
     } else if (!error.empty()) {
       delay.state = Delay::State::Failed;
       delay.error = error;
     } else if (!Field<bool>(item, "pending", false)) {
       continue;  // not a result
     }
+    delay.seenDownKbps = count("seen_down", 100'000'000);
+    delay.seenUpKbps = count("seen_up", 100'000'000);
     delays[tag] = std::move(delay);
   }
   return delays;

@@ -99,8 +99,17 @@ struct DelayResult {
   int jitterMs = 0;     // Ok: half the interquartile range of the round trips
   int lossPercent = 0;  // Ok: requests lost
   int samples = 0;      // Ok: requests that came back
-  int connectMs = 0;    // a connection through the outbound, TLS and a first request; 0 if none was made
+  int connectMs = 0;    // a connection through the outbound, TLS and a first request (median); 0 if none was made
   std::string error{};  // Failed: why
+  // UDP through the outbound (gocore/udpprobe.go), when the TCP test got through:
+  // a round trip and its spread, or why not ("no udp": the protocol carries none).
+  int udpMs = 0;
+  int udpJitterMs = 0;
+  int udpLossPercent = 0;
+  std::string udpError{};
+  // What it carried for real, the peak of the last hour (gocore/seen.go); 0: nothing worth saying.
+  int seenDownKbps = 0;
+  int seenUpKbps = 0;
 };
 
 // The address the internet sees through an outbound, its country and its

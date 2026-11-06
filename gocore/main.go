@@ -128,6 +128,7 @@ func box_start(configJSON *C.char) *C.char {
 	boxContext = ctx
 	resetDelays()
 	resetExitIP()
+	startSeen()
 	boxGeneration++
 	return C.CString("")
 }

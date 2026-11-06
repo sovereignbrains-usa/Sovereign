@@ -445,11 +445,22 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
           item["jitter"] = result.jitterMs;
           item["loss"] = result.lossPercent;
           item["samples"] = result.samples;
+          if (result.udpMs > 0) {
+            item["udp_delay"] = result.udpMs;
+            item["udp_jitter"] = result.udpJitterMs;
+            item["udp_loss"] = result.udpLossPercent;
+          } else if (!result.udpError.empty()) {
+            item["udp_error"] = result.udpError;
+          }
           break;
         case DelayResult::State::Failed: item["error"] = result.error; break;
       }
       if (result.connectMs > 0) {
         item["connect"] = result.connectMs;
+      }
+      if (result.seenDownKbps > 0 || result.seenUpKbps > 0) {
+        item["seen_down"] = result.seenDownKbps;
+        item["seen_up"] = result.seenUpKbps;
       }
       results.push_back(std::move(item));
     }

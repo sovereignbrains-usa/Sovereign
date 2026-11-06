@@ -43,7 +43,9 @@ class FakeCore final : public ICore {
   }
   std::vector<DelayResult> Delays() override {
     // Tags come from configs: any bytes, bad UTF-8 included.
-    return {{.tag = "nl", .state = DelayResult::State::Ok, .delayMs = 48, .jitterMs = 3, .samples = 9},
+    return {{.tag = "nl", .state = DelayResult::State::Ok, .delayMs = 48, .jitterMs = 3, .samples = 9, .udpMs = 50,
+             .udpJitterMs = 4, .seenDownKbps = 90'000},
+            {.tag = "naive", .state = DelayResult::State::Ok, .delayMs = 60, .udpError = "udp \xFD"},
             {.tag = "bad \xFF tag", .state = DelayResult::State::Failed, .connectMs = 700, .error = "err \xFE"},
             {.tag = "de", .state = DelayResult::State::Pending}};
   }

@@ -19,6 +19,16 @@ struct Delay {
   int samples = 0;      // Ok: round trips measured
   int connect = 0;      // a connection, TLS and a first request; 0 if unknown
   std::string error{};  // Failed
+  // Ok: UDP through it (STUN round trips, gocore/udpprobe.go) - the median,
+  // the mean step between consecutive ones (what a game feels), percent lost;
+  // or why there's none ("no udp": the protocol carries none). 0/empty: not measured.
+  int udpMs = 0;
+  int udpJitter = 0;
+  int udpLoss = 0;
+  std::string udpError{};
+  // What it carried for real, the peak of the last hour, kbit/s; 0: too little to say.
+  int seenDownKbps = 0;
+  int seenUpKbps = 0;
   int failedInRow = 0;  // the tray's count, not the service's: tests in a row this server failed
 };
 

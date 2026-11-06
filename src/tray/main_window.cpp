@@ -185,7 +185,8 @@ constexpr const wchar_t* kGlyphShield = L"\xEA18";
 constexpr const wchar_t* kGlyphSpeed = L"\xEC4A";
 constexpr const wchar_t* kGlyphLightning = L"\xE945";   // auto: the fastest server by itself
 constexpr const wchar_t* kGlyphDiagnostic = L"\xE9D9";  // the measurements in full
-constexpr const wchar_t* kGlyphReport = L"\xEBE8";  // Bug: "something's wrong", plainer than the feedback bubble
+constexpr const wchar_t* kGlyphReport = L"\xEBE8";
+constexpr const wchar_t* kGlyphServer = L"\xE839";  // Network: a server of one's own  // Bug: "something's wrong", plainer than the feedback bubble
 
 // The three ways to add a configuration, each a key of its own with its tip
 // where there was one "+" with a list dropping from it (his, 30.10.2026:
@@ -196,11 +197,13 @@ struct AddWay {
   UiCommand command;
   const wchar_t* tip;
 };
-const std::array<AddWay, 3> kAddWays = {{
+const std::array<AddWay, 4> kAddWays = {{
     {L"Вставить из буфера", kGlyphPaste, UiCommand::PasteSubscription,
      L"Вставить из буфера: ссылка подписки, ключ или конфиг"},
     {L"QR-код с экрана", kGlyphQrCode, UiCommand::ScanScreen, L"QR-код с экрана: найти его и добавить подписку"},
     {L"Из файла…", kGlyphFile, UiCommand::ImportFile, L"Из файла: конфиг, ключи или картинка с QR-кодом"},
+    {L"Свой сервер…", kGlyphServer, UiCommand::AddOwnServer,
+     L"Свой сервер: адрес VPS (root@1.2.3.4), клиент зайдёт по ssh-ключу и поставит на него VPN"},
 }};
 
 enum class Kind : std::uint8_t {
@@ -2264,7 +2267,11 @@ class Painter {
     }
     if (page == UiPage::Subscription) {
       // `keys` is read backwards, so the last way goes first: they stand paste, QR, file.
+      // A server of one's own is a row of the page's, not a key: four crowd the title.
       for (auto way = kAddWays.rbegin(); way != kAddWays.rend(); ++way) {
+        if (way->command == UiCommand::AddOwnServer) {
+          continue;
+        }
         Item add = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, way->name, way->glyph,
                                       way->command));
         add.tip = way->tip;
@@ -2995,6 +3002,15 @@ class Painter {
     }
     for (const std::wstring& note : c.combineNotes) {
       y = Paragraph(l, Kind::Caption, L"Не вошло: " + note, x0, x1, y) + 6;
+    }
+    // A server of the user's own: its address typed over this button (his,
+    // 06.11.2026: 'поставил нету кнопок и профиль я удалил').
+    {
+      Item own = CommandItem(Kind::Button, {x0, y, x1, y + kButton}, L"Свой сервер — поставить на него VPN",
+                             kGlyphServer, UiCommand::AddOwnServer);
+      own.tip = L"Адрес VPS (root@1.2.3.4): клиент зайдёт по ssh-ключу и поставит на него VPN";
+      l.items.push_back(std::move(own));
+      y += kButton + kGap;
     }
 
     // The subscription relay (relay.h), folded: the address and the key, each
@@ -5900,6 +5916,20 @@ struct MainWindow::Impl {
         } else if (anchor == UiCommand::ChipMenu) {
           // A chip: what's in it, or its name, across the scheme on its line.
           rect = {layout.boardLeft, it.rect.top, layout.boardRight, it.rect.top + kTag};
+        }
+        if (anchor == UiCommand::AddOwnServer && it.kind == Kind::IconButton) {
+          // The last of the add keys: the address is typed left of them all, over the label or the title.
+          constexpr float kRoom = 240;
+          float keysLeft = it.rect.left;
+          for (const Item& key : layout.items) {
+            const bool addKey = std::any_of(kAddWays.begin(), kAddWays.end(),
+                                            [&](const AddWay& way) { return way.command == key.command; });
+            if (addKey && key.action == ItemAction::Command && key.rect.top < it.rect.bottom &&
+                key.rect.bottom > it.rect.top) {
+              keysLeft = std::min(keysLeft, key.rect.left);
+            }
+          }
+          rect = {std::max(8.0F, keysLeft - kRoom), it.rect.top, keysLeft - 4, it.rect.bottom};
         }
         if (anchor == UiCommand::CheckRoute) {
           // Its button is an icon: the address is typed over the line's result.

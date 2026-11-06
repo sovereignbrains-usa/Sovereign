@@ -379,6 +379,8 @@ enum class UiCommand : std::uint8_t {
   ImportFile,        // a config, keys or a QR code's picture from a file
   ScanScreen,        // QR codes on the screen
   AddMenu,           // anchor: the three ways to add one - the clipboard, a QR code on the screen, a file
+  AddOwnServer,      // a server of the user's own: its address typed over the key
+  AddOwnServerText,  // text: [user@]host[:port] (profiles.h ParseOwnAddress)
   // A configuration's, by index into profiles:
   ToggleProfile,     // on or off
   RenameProfile,     // text: the name typed in place

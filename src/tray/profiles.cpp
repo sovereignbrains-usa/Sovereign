@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <format>
 
 namespace sovereign::tray {
@@ -148,6 +149,50 @@ bool IsOwnHost(std::string_view host) {
            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' ||
                   c == '-' || c == ':';
          });
+}
+
+std::optional<OwnServer> ParseOwnAddress(std::string_view text) {
+  text = Trim(text);
+  if (text.starts_with("ssh ")) {
+    text = Trim(text.substr(4));
+  }
+  OwnServer own;
+  if (const std::size_t at = text.rfind('@'); at != std::string_view::npos) {
+    own.sshUser = std::string(text.substr(0, at));
+    text.remove_prefix(at + 1);
+  }
+  std::string_view port;
+  if (text.starts_with('[')) {  // [2001:db8::1]:22
+    const std::size_t close = text.find(']');
+    if (close == std::string_view::npos) {
+      return std::nullopt;
+    }
+    std::string_view rest = text.substr(close + 1);
+    if (!rest.empty()) {
+      if (rest.front() != ':') {
+        return std::nullopt;
+      }
+      port = rest.substr(1);
+    }
+    text = text.substr(1, close - 1);
+  } else if (std::count(text.begin(), text.end(), ':') == 1) {  // host:port; more colons: a bare IPv6
+    const std::size_t colon = text.find(':');
+    port = text.substr(colon + 1);
+    text = text.substr(0, colon);
+  }
+  if (!port.empty()) {
+    int number = 0;
+    const auto [end, error] = std::from_chars(port.data(), port.data() + port.size(), number);
+    if (error != std::errc{} || end != port.data() + port.size() || number < 1 || number > 65535) {
+      return std::nullopt;
+    }
+    own.sshPort = number;
+  }
+  own.host = std::string(text);
+  if (!IsOwnHost(own.host) || !IsOwnHost(own.sshUser) || own.sshUser.find(':') != std::string::npos) {
+    return std::nullopt;
+  }
+  return own;
 }
 
 std::vector<std::string> SubscriptionHosts(const std::vector<Profile>& profiles) {

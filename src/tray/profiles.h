@@ -32,6 +32,11 @@ struct OwnServer {
 // or anything a command line would read - it ends up in one.
 bool IsOwnHost(std::string_view host);
 
+// What the user types to add a server of their own: [ssh ][user@]host[:port],
+// an IPv6 bare or as [addr]:port; no user is root, no port 22. Nothing when it
+// isn't that or the host or user wouldn't pass IsOwnHost.
+std::optional<OwnServer> ParseOwnAddress(std::string_view text);
+
 struct Profile {
   std::string id;             // its folder's name: [a-z0-9-], at most kMaxProfileId
   std::string name;           // what the window shows (UTF-8); the user may rename it

@@ -408,6 +408,7 @@ struct ProfileChange {
     OwnInstallStep,    // hours: the step that began
     OwnInstallResult,  // on: it went; text: what to say, then on success a NUL and the client's outbounds
     OwnServer,   // on: this config is a server of the user's own (its host taken from its servers); off: not
+    OwnAdd,      // text: [user@]host[:port] - a new configuration for a server of the user's own, nothing on it yet
   };
   std::string id;
   What what = What::Enabled;
@@ -1869,9 +1870,40 @@ class Worker {
            false, UiPage::Subscription);
   }
 
+  // A server of the user's own, typed in: a configuration with no config yet
+  // and off (it has no servers), its page opened - there 'Поставить VPN' puts
+  // them on it (his, 06.11.2026: 'поставил нету кнопок и профиль я удалил').
+  // The same address again: that one, opened.
+  void AddOwn(const std::string& typed) {
+    auto own = sovereign::tray::ParseOwnAddress(typed);
+    if (!own) {
+      return;
+    }
+    for (const Profile& existing : settings_.profiles) {
+      if (existing.own && existing.own->host == own->host) {
+        Notify(L"Sovereign: этот сервер уже есть", L"«" + Widen(existing.name) + L"» — там «Поставить VPN».", false,
+               UiPage::Subscription);
+        return;
+      }
+    }
+    Profile profile;
+    profile.id = sovereign::tray::NewProfileId(settings_.profiles, std::time(nullptr));
+    profile.name = sovereign::tray::UniqueProfileName(settings_.profiles, "Свой сервер " + own->host);
+    profile.enabled = false;
+    profile.own = std::move(own);
+    settings_.profiles.push_back(std::move(profile));
+    Save();
+    Notify(L"Sovereign: свой сервер добавлен",
+           L"Нажми «Поставить VPN» — клиент зайдёт по ssh-ключу и поставит всё сам.", false, UiPage::Subscription);
+  }
+
   // A change to one configuration from the window. A running box picks up
   // what changes the config (on/off, a server) through its hash.
   void Apply(const ProfileChange& change) {
+    if (change.what == ProfileChange::What::OwnAdd) {
+      AddOwn(change.text);
+      return;
+    }
     Profile* profile = sovereign::tray::FindProfile(settings_.profiles, change.id);
     if (profile == nullptr) {
       return;
@@ -1982,6 +2014,8 @@ class Worker {
         delays_.clear();  // new servers: measured afresh
         break;
       }
+      case ProfileChange::What::OwnAdd:  // made in AddOwn, no profile of its own yet
+        break;
       case ProfileChange::What::OwnServer:
         if (!change.on) {
           profile->own.reset();
@@ -6309,6 +6343,24 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
           case 1: ScanScreen(); break;
           default: ImportFile(owner); break;
         }
+      }
+      break;
+    }
+    case UiCommand::AddOwnServer:  // the address typed over its key; the profile made, the install a press away
+      if (g_mainWindow != nullptr) {
+        g_mainWindow->EditInPlace(UiCommand::AddOwnServer, 0, UiCommand::AddOwnServerText, L"root@", false);
+      }
+      break;
+    case UiCommand::AddOwnServerText: {
+      const std::string typed = Narrow(args.text);
+      if (!sovereign::tray::ParseOwnAddress(typed)) {
+        // Left as it was offered, or emptied: changed their mind, nothing to say.
+        const bool untouched = typed.find_first_not_of(" \t") == std::string::npos || typed == "root@";
+        if (g_trayIcon != nullptr && !untouched) {
+          g_trayIcon->Balloon(L"Sovereign", L"Не понял адрес: нужно root@1.2.3.4 или user@vpn.example.com:2222.");
+        }
+      } else {
+        RequestProfileChange({.id = {}, .what = ProfileChange::What::OwnAdd, .on = false, .text = typed, .hours = 0});
       }
       break;
     }

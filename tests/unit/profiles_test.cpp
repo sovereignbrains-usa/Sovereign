@@ -230,6 +230,20 @@ void TestOwnServer() {
   CHECK(first.host == "203.0.113.7" && first.sshPort == 2222 && first.sshUser == "admin");
   CHECK(first.keyRef == "key-1" && first.protocols.size() == 2);
 
+  // What is typed to add one.
+  const auto plain = ParseOwnAddress("  203.0.113.7 ");
+  CHECK(plain && plain->host == "203.0.113.7" && plain->sshUser == "root" && plain->sshPort == 22);
+  const auto full = ParseOwnAddress("ssh admin@vpn.example.com:2222");
+  CHECK(full && full->host == "vpn.example.com" && full->sshUser == "admin" && full->sshPort == 2222);
+  const auto v6 = ParseOwnAddress("root@2001:db8::1");
+  CHECK(v6 && v6->host == "2001:db8::1" && v6->sshPort == 22);
+  const auto v6port = ParseOwnAddress("[2001:db8::1]:2200");
+  CHECK(v6port && v6port->host == "2001:db8::1" && v6port->sshPort == 2200);
+  CHECK(!ParseOwnAddress("") && !ParseOwnAddress("root@") && !ParseOwnAddress("@host") &&
+        !ParseOwnAddress("host:0") && !ParseOwnAddress("host:70000") && !ParseOwnAddress("host:22x") &&
+        !ParseOwnAddress("-oProxyCommand=x") && !ParseOwnAddress("a b") && !ParseOwnAddress("[::1") &&
+        !ParseOwnAddress("ro;ot@host"));
+
   auto json = ProfilesToJson({server});
   json[0]["own"]["host"] = "x -oProxyCommand=y";
   const auto unsafe = ProfilesFromJson(json);

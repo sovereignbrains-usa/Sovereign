@@ -168,18 +168,19 @@ func SeenDeltas(last map[uuid.UUID][2]int64, connections ...[]*trafficcontrol.Tr
 
 // seenServer: the outbound a connection left through - the first of its
 // chain (sing-box keeps it from the server back to the rule's outbound); for
-// the smart outbound, the way it takes now, down its groups.
+// the smart outbound, the way it takes now, down its groups; for the core's
+// auto, the server it carries by now.
 func seenServer(m *trafficcontrol.TrackerMetadata) string {
 	if len(m.Chain) == 0 {
 		return m.Outbound
 	}
-	way, smart := smartWay(m.Chain[len(m.Chain)-1], &m.Metadata)
-	if !smart || way == nil {
-		return m.Chain[0]
-	}
 	network := N.NetworkTCP
 	if m.Metadata.Network == N.NetworkUDP {
 		network = N.NetworkUDP
+	}
+	way, smart := smartWay(m.Chain[len(m.Chain)-1], &m.Metadata)
+	if !smart || way == nil {
+		return autoWay(m.Chain[0], network) // the core's auto: the server it carries by
 	}
 	for range seenGroups {
 		group, isGroup := way.(adapter.OutboundGroup)
@@ -192,7 +193,7 @@ func seenServer(m *trafficcontrol.TrackerMetadata) string {
 		}
 		way = next
 	}
-	return way.Tag()
+	return autoWay(way.Tag(), network)
 }
 
 // seenRate: the highest rate `tag` carried in the last hour, kbit/s, down

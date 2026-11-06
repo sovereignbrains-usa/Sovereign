@@ -86,14 +86,19 @@ func registerSmart(registry *outbound.Registry) {
 	outbound.Register[smartOptions](registry, smartType, newSmart)
 }
 
-// coreContext is include.Context with one outbound type more, "sov-smart":
+// coreContext is include.Context with two outbound types more, "sov-smart"
+// and "sov-auto" (auto.go), and the DNS guard:
 // a config without it parses and runs exactly as `sing-box run` would.
 func coreContext(ctx context.Context) context.Context {
 	smartLiveMu.Lock()
 	smartLive = map[string]*smartOutbound{} // a new box: the old one's are gone
 	smartLiveMu.Unlock()
+	autoLiveMu.Lock()
+	autoLive = map[string]*autoOutbound{}
+	autoLiveMu.Unlock()
 	outbounds := include.OutboundRegistry()
 	registerSmart(outbounds)
+	registerAuto(outbounds)
 	transports := include.DNSTransportRegistry()
 	registerGuard(transports)
 	return box.Context(ctx, include.InboundRegistry(), outbounds, include.EndpointRegistry(),

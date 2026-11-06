@@ -279,4 +279,43 @@ std::string ApplyProtocolChoice(std::string_view config, const std::string& choi
   return json.dump();
 }
 
+std::string ApplyCoreAuto(std::string_view config) {
+  Json json = Json::parse(config, nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object()) {
+    return std::string(config);
+  }
+  const Json* selector = FindSelector(json);
+  if (selector == nullptr || !selector->contains("outbounds") || !(*selector)["outbounds"].is_array()) {
+    return std::string(config);
+  }
+  const Json options = (*selector)["outbounds"];
+  const auto titles = ServerTitles(config);
+  bool changed = false;
+  for (Json& o : json["outbounds"]) {
+    const std::string tag = Field<std::string>(o, "tag", {});
+    if (Field<std::string>(o, "type", {}) != "urltest" || std::find(options.begin(), options.end(), Json(tag)) == options.end() ||
+        !o.contains("outbounds") || !o["outbounds"].is_array() || o["outbounds"].empty()) {
+      continue;
+    }
+    Json hosts = Json::object();
+    for (const Json& member : o["outbounds"]) {
+      if (!member.is_string()) {
+        continue;
+      }
+      const auto title = titles.find(member.get<std::string>());
+      if (title != titles.end() && !title->second.host.empty()) {
+        hosts[member.get<std::string>()] = title->second.host;
+      }
+    }
+    Json auto_ = Json::object();
+    auto_["type"] = "sov-auto";
+    auto_["tag"] = tag;
+    auto_["outbounds"] = o["outbounds"];
+    auto_["hosts"] = std::move(hosts);
+    o = std::move(auto_);
+    changed = true;
+  }
+  return changed ? json.dump() : std::string(config);
+}
+
 }  // namespace sovereign::tray

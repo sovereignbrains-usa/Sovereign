@@ -110,6 +110,10 @@ struct DelayResult {
   // What it carried for real, the peak of the last hour (gocore/seen.go); 0: nothing worth saying.
   int seenDownKbps = 0;
   int seenUpKbps = 0;
+  // sov-auto (gocore/auto.go): when (unix s) and why it last failed to open a connection, so another way took over; and whether UDP goes through it.
+  std::int64_t failedAt = 0;
+  std::string failedWhy{};
+  bool udpWay = false;
 };
 
 // The address the internet sees through an outbound, its country and its

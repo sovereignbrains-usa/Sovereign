@@ -8,7 +8,7 @@ namespace sovereign::tray {
 
 std::string EffectiveConfig(std::string_view config, const ConfigAdditions& additions) {
   std::string effective = ApplyLogLevel(
-      ApplyAppRules(ApplyProtocolChoice(config, additions.protocol), additions.appsMode, additions.apps),
+      ApplyAppRules(ApplyCoreAuto(ApplyProtocolChoice(config, additions.protocol)), additions.appsMode, additions.apps),
       additions.logLevel);
   return additions.cacheFile.empty() ? effective : ApplyCacheFile(effective, additions.cacheFile);
 }

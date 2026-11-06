@@ -462,6 +462,13 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
         item["seen_down"] = result.seenDownKbps;
         item["seen_up"] = result.seenUpKbps;
       }
+      if (result.failedAt > 0) {
+        item["failed_at"] = result.failedAt;
+        item["failed_why"] = result.failedWhy;
+      }
+      if (result.udpWay) {
+        item["udp_way"] = true;
+      }
       results.push_back(std::move(item));
     }
     Json response;

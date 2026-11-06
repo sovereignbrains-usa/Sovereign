@@ -80,6 +80,12 @@ type delayResult struct {
 	// What it carried for real, the peak of the last hour (seen.go), kbit/s.
 	SeenDown uint32 `json:"seen_down,omitempty"`
 	SeenUp   uint32 `json:"seen_up,omitempty"`
+	// The core's auto (auto.go): a real connection it didn't open on this
+	// network in the last minutes - when (unix seconds) and how; and whether
+	// auto's UDP goes by it, not by the server its TCP goes by.
+	FailedAt  int64  `json:"failed_at,omitempty"`
+	FailedWhy string `json:"failed_why,omitempty"`
+	UDPWay    bool   `json:"udp_way,omitempty"`
 }
 
 // delayMu guards the results. They belong to one box_start (resetDelays) and
@@ -408,8 +414,12 @@ func box_delays() (reply *C.char) {
 	}
 	delayMu.Unlock()
 	now := time.Now()
+	states := autoStates(now)
 	for i := range results {
 		results[i].SeenDown, results[i].SeenUp = seenRate(results[i].Tag, now)
+		if s, ok := states[results[i].Tag]; ok {
+			results[i].FailedAt, results[i].FailedWhy, results[i].UDPWay = s.failedAt, s.failedWhy, s.udpWay
+		}
 	}
 	out, err := json.Marshal(struct {
 		Results []delayResult `json:"results"`

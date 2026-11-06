@@ -165,6 +165,20 @@ void TestParsesUdpAndSeen() {
   CHECK(delays->at("de").seenDownKbps == 0);
 }
 
+// What the core's sov-auto reports (gocore/auto.go): a way that failed, and the UDP way.
+void TestParsesAutoState() {
+  const auto delays = ParseDelaysResponse(
+      R"({"cmd":"box_delays","results":[)"
+      R"({"tag":"a","delay":40,"failed_at":1762400000,"failed_why":"connection refused","udp_way":true},)"
+      R"({"tag":"b","delay":50,"failed_at":-3,"failed_why":"x"}]})");
+  CHECK(delays && delays->size() == 2);
+  if (!delays || delays->size() < 2) {
+    return;
+  }
+  CHECK(delays->at("a").failedAt == 1762400000 && delays->at("a").failedWhy == "connection refused" && delays->at("a").udpWay);
+  CHECK(delays->at("b").failedAt == 0 && delays->at("b").failedWhy.empty() && !delays->at("b").udpWay);
+}
+
 // What the servers page says of UDP and of the rate seen.
 void TestUdpDetail() {
   CHECK(MbitText(2'460) == L"2,5 Мбит/с");
@@ -222,6 +236,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestLocalNetwork();
     TestParsesSites();
     TestParsesUdpAndSeen();
+    TestParsesAutoState();
     TestUdpDetail();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

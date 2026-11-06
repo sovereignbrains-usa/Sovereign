@@ -33,6 +33,14 @@ ProtocolChoices FindProtocolChoices(std::string_view config);
 // options, e.g. after the subscription dropped a protocol.
 std::string ApplyProtocolChoice(std::string_view config, const std::string& choice);
 
+// The service's core runs an "auto" option itself (gocore/auto.go): every URL
+// test that is an option of the selector becomes a sov-auto outbound over the
+// same servers, which opens each connection through the best one and, when
+// that fails, through the next at once (the same host first - `hosts` says
+// which servers share one). The tray still reads the original config for the
+// list; this is only what the box runs. Unchanged if there is no such group.
+std::string ApplyCoreAuto(std::string_view config);
+
 // What a server is, from its outbound - not from the name a subscription
 // gave it: "AnyTLS + REALITY", "Hysteria 2", "VLESS + Vision + REALITY",
 // "VLESS + WebSocket + TLS", "Shadowsocks 2022"; a URL test is "Авто".

@@ -29,6 +29,10 @@ struct Delay {
   // What it carried for real, the peak of the last hour, kbit/s; 0: too little to say.
   int seenDownKbps = 0;
   int seenUpKbps = 0;
+  // sov-auto: when (unix s) and why it last failed to open a connection and another way took over; UDP goes through it.
+  std::int64_t failedAt = 0;
+  std::string failedWhy{};
+  bool udpWay = false;
   int failedInRow = 0;  // the tray's count, not the service's: tests in a row this server failed
 };
 

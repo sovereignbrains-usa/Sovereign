@@ -2406,8 +2406,16 @@ class Worker {
       return;
     }
     lastSelectTry_ = now;
+    // An auto pick is the core's sov-auto (gocore/auto.go): the main selector
+    // stays on it, and what the tray's measurements chose is only the way it
+    // tries first - the next ones are its own, on a failure at once.
+    const std::string pick = choices.options[static_cast<std::size_t>(current)];
     selectError_ = ServiceCall(
-        nlohmann::json{{"cmd", "box_select"}, {"selector", choices.selector}, {"outbound", want}}, "box_selected");
+        nlohmann::json{{"cmd", "box_select"}, {"selector", choices.selector}, {"outbound", pick}}, "box_selected");
+    if (selectError_.empty() && want != pick) {
+      selectError_ =
+          ServiceCall(nlohmann::json{{"cmd", "box_select"}, {"selector", pick}, {"outbound", want}}, "box_selected");
+    }
     if (selectError_.empty()) {
       selected_ = want;
       selectedGeneration_ = stats->generation;
@@ -5044,6 +5052,8 @@ UiContent ContentFrom(const View& v) {
       d.udpLoss = delay->udpLoss;
       d.udpError = Widen(delay->udpError);
       d.seenDownKbps = delay->seenDownKbps;
+      d.failedRecently = delay->failedAt > 0 && std::time(nullptr) - delay->failedAt < 120;
+      d.udpWay = delay->udpWay;
     }
     c.delays.push_back(d);
   }

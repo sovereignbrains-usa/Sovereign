@@ -80,6 +80,17 @@ func RouteOf(targets []string, connections ...[]*trafficcontrol.TrackerMetadata)
 			seen.Chain = append(seen.Chain, newest.Chain[n-1])
 		}
 	}
+	if a := liveAuto(seen.Outbound); a != nil {
+		// The core's auto: the server it carries by, before it in the chain.
+		network := N.NetworkTCP
+		if newest.Metadata.Network == N.NetworkUDP {
+			network = N.NetworkUDP
+		}
+		if way := a.byTag(autoWay(a.Tag(), network)); way != nil {
+			seen.Outbound, seen.Type = way.Tag(), way.Type()
+			seen.Chain = append([]string{way.Tag()}, seen.Chain...)
+		}
+	}
 	if len(seen.Chain) > maxRouteChain {
 		seen.Chain = seen.Chain[:maxRouteChain]
 	}

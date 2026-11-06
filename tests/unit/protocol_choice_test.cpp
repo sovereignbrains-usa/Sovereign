@@ -125,6 +125,29 @@ void TestServerTitles() {
   CHECK(!NameIsTitle("Германия", "Hysteria 2") && !NameIsTitle("DE Frankfurt Hysteria2", "Hysteria 2"));
 }
 
+// The core runs "auto" itself: the URL test becomes sov-auto over the same
+// servers, with the host of each for "the same host first".
+void TestCoreAuto() {
+  constexpr std::string_view config = R"({"outbounds":[
+    {"type":"selector","tag":"proxy","outbounds":["auto","a","b"],"default":"auto"},
+    {"type":"urltest","tag":"auto","outbounds":["a","b"],"url":"http://x","interval":"3m","tolerance":50},
+    {"type":"urltest","tag":"other","outbounds":["a"]},
+    {"type":"anytls","tag":"a","server":"de1.example.com","server_port":443},
+    {"type":"tuic","tag":"b","server":"de1.example.com","server_port":8443},{"type":"direct","tag":"direct"}],
+    "route":{"final":"proxy"}})";
+  const json c = json::parse(ApplyCoreAuto(config));
+  CHECK(c["outbounds"][1]["type"] == "sov-auto" && c["outbounds"][1]["tag"] == "auto");
+  CHECK(c["outbounds"][1]["outbounds"] == json::array({"a", "b"}));
+  CHECK(c["outbounds"][1]["hosts"]["a"] == "de1.example.com" && c["outbounds"][1]["hosts"]["b"] == "de1.example.com");
+  CHECK(!c["outbounds"][1].contains("url") && !c["outbounds"][1].contains("interval"));
+  CHECK(c["outbounds"][2]["type"] == "urltest");  // not an option of the selector: left alone
+  CHECK(c["outbounds"][0] == json::parse(config)["outbounds"][0]);
+  // Nothing to do: handed back as it came.
+  CHECK(ApplyCoreAuto("not json") == "not json");
+  constexpr std::string_view plain = R"({"outbounds":[{"type":"selector","tag":"p","outbounds":["a"]},{"type":"direct","tag":"a"}]})";
+  CHECK(ApplyCoreAuto(plain) == plain);
+}
+
 int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
   try {
     TestFindsTheSelector();
@@ -134,6 +157,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestSelectorByFinalAndFallbacks();
     TestHostileTypes();
     TestServerTitles();
+    TestCoreAuto();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 2;

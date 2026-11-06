@@ -56,6 +56,11 @@ std::optional<std::map<std::string, Delay>> ParseDelaysResponse(std::string_view
     }
     delay.seenDownKbps = count("seen_down", 100'000'000);
     delay.seenUpKbps = count("seen_up", 100'000'000);
+    delay.failedAt = std::max<std::int64_t>(Field<std::int64_t>(item, "failed_at", 0), 0);
+    if (delay.failedAt > 0) {
+      delay.failedWhy = Field<std::string>(item, "failed_why", {}).substr(0, 200);
+    }
+    delay.udpWay = Field<bool>(item, "udp_way", false);
     delays[tag] = std::move(delay);
   }
   return delays;

@@ -335,6 +335,13 @@ std::vector<DelayResult> GoCore::Delays() {
     }
     result.seenDownKbps = number("seen_down", 100'000'000);
     result.seenUpKbps = number("seen_up", 100'000'000);
+    if (item.contains("failed_at") && item["failed_at"].is_number_unsigned()) {
+      result.failedAt = item["failed_at"].get<std::int64_t>();
+      if (item.contains("failed_why") && item["failed_why"].is_string()) {
+        result.failedWhy = item["failed_why"].get<std::string>().substr(0, 200);
+      }
+    }
+    result.udpWay = item.value("udp_way", false);
     results.push_back(std::move(result));
   }
   return results;

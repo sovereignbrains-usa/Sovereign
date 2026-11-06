@@ -40,6 +40,10 @@ struct UiDelay {
   int udpLoss = 0;
   std::wstring udpError{};
   int seenDownKbps = 0;  // what it carried for real, the peak of the last hour; 0: too little to say
+  // Auto (the core's sov-auto): it failed to open a connection in the last 2 minutes and another
+  // server took them; UDP goes through it rather than through the TCP pick.
+  bool failedRecently = false;
+  bool udpWay = false;
 };
 
 // Where the updater is (updater.h), as the windows show it.
@@ -638,7 +642,13 @@ inline std::wstring DelayDetail(const UiDelay& delay, bool detailed) {
     const int tenths = (delay.connect + 50) / 100;
     add(std::format(L"соединяется долго: {},{} с", tenths / 10, tenths % 10));
   }
+  if (delay.failedRecently) {
+    add(L"не открыл соединение - взял другой");
+  }
   add(UdpDetail(delay, detailed));
+  if (detailed && delay.udpWay) {
+    add(L"UDP идёт через него");
+  }
   if (detailed && delay.seenDownKbps > 0) {
     add(L"качал до " + MbitText(delay.seenDownKbps));
   }

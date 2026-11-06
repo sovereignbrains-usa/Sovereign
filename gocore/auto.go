@@ -68,8 +68,9 @@ func registerAuto(registry *outbound.Registry) {
 }
 
 type autoDown struct {
-	at  time.Time
-	why string // "silent", "reset" (smart.go failure)
+	at      time.Time
+	why     string // "failure text"
+	strikes int    // failures in a row (autoStrikeGap apart) since the last success: the hold doubles with each (autoHold)
 }
 
 type autoOutbound struct {
@@ -144,6 +145,21 @@ func (a *autoOutbound) switchNetwork(key string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.network = key
+	// What a run before (or an earlier stay) learned of this network's ways (auto_store.go).
+	if recalled := autoMemo.recall(key); len(recalled) > 0 {
+		down := a.down[key]
+		if down == nil {
+			down = map[string]autoDown{}
+			a.down[key] = down
+		}
+		for _, tag := range a.tags {
+			if d, ok := recalled[tag]; ok {
+				if have, exists := down[tag]; !exists || d.at.After(have.at) {
+					down[tag] = d
+				}
+			}
+		}
+	}
 }
 
 // The running box's auto outbounds by tag: what box_delays, box_route and the
@@ -249,7 +265,7 @@ func udpScore(d delayResult, ok bool) (int, bool) {
 // First the tray's pick (none yet: the best measured; for UDP another's when
 // clearly better, or the pick carries none), then the other protocols of its
 // machine, then the rest - each best measured first. A way that failed a
-// connection on this network in the last autoDownFor goes after the others.
+// connection on this network in the last autoHold goes after the others.
 func (a *autoOutbound) order(network string, now time.Time) []adapter.Outbound {
 	measured := measuredDelays(a.tags)
 	a.mu.Lock()
@@ -257,7 +273,7 @@ func (a *autoOutbound) order(network string, now time.Time) []adapter.Outbound {
 	down := a.down[a.network]
 	isDown := make(map[string]bool, len(down))
 	for tag, d := range down {
-		isDown[tag] = now.Sub(d.at) < autoDownFor
+		isDown[tag] = now.Sub(d.at) < autoHold(d.strikes)
 	}
 	a.mu.Unlock()
 
@@ -344,16 +360,30 @@ func (a *autoOutbound) reported(network string) func(adapter.Outbound, error) {
 			down = map[string]autoDown{}
 			a.down[a.network] = down
 		}
+		net := a.network
 		if err == nil {
+			_, had := down[way.Tag()]
 			delete(down, way.Tag())
 			a.mu.Unlock()
+			if had {
+				autoMemo.note(net, way.Tag(), autoDown{}, true)
+			}
 			return
 		}
 		was, known := down[way.Tag()]
 		why := failure(err)
-		down[way.Tag()] = autoDown{at: now, why: why}
+		strikes := 1
+		if known {
+			strikes = was.strikes
+			if now.Sub(was.at) >= autoStrikeGap {
+				strikes++
+			}
+		}
+		record := autoDown{at: now, why: why, strikes: strikes}
+		down[way.Tag()] = record
 		a.mu.Unlock()
-		if !known || now.Sub(was.at) >= autoDownFor {
+		autoMemo.note(net, way.Tag(), record, false)
+		if !known || now.Sub(was.at) >= autoHold(was.strikes) {
 			a.logger.Info("auto: ", way.Tag(), " did not open a ", network, " connection (", why, ": ", err, "), the next way takes them")
 		}
 	}
@@ -496,7 +526,7 @@ func autoStates(now time.Time) map[string]autoState {
 	for _, a := range live {
 		a.mu.Lock()
 		for tag, d := range a.down[a.network] {
-			if now.Sub(d.at) < autoDownFor {
+			if now.Sub(d.at) < autoHold(d.strikes) {
 				s := states[tag]
 				s.failedAt, s.failedWhy = d.at.Unix(), d.why
 				states[tag] = s

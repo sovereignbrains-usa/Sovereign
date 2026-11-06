@@ -73,6 +73,13 @@ class FakeCore final : public ICore {
     return result;
   }
 
+  sovereign::service::SpeedResult LookupSpeed(const std::string& tag) override {
+    speedAsked = tag;
+    sovereign::service::SpeedResult result = speed;
+    result.tag = tag;
+    return result;
+  }
+
   sovereign::service::SiteResults LookupSites(const std::string& tag, bool refresh) override {
     sitesAsked = {tag, refresh};
     sovereign::service::SiteResults result = sites;
@@ -111,6 +118,8 @@ class FakeCore final : public ICore {
   sovereign::service::ExitIp exitIp;
   std::optional<std::pair<std::string, bool>> exitIpAsked;
   sovereign::service::SiteResults sites;
+  sovereign::service::SpeedResult speed;
+  std::optional<std::string> speedAsked;
   std::optional<std::pair<std::string, bool>> sitesAsked;
   std::string startError;
   std::string stopError;
@@ -316,6 +325,20 @@ void TestExitIp() {
   core.exitIp = {.tag = {}, .pending = false, .ip = {}, .country = {}, .isp = {}, .error = "i/o timeout"};
   answer = Send(handler, R"({"cmd":"box_exitip","tag":"nl"})");
   CHECK(answer == json::parse(R"({"cmd":"box_exitip","tag":"nl","error":"i/o timeout"})"));
+
+  // box_speed: a tag, answered with what the core knows.
+  CHECK(Send(handler, R"({"cmd":"box_speed"})").value("cmd", "") == "error" && !core.speedAsked);
+  CHECK(Send(handler, R"({"cmd":"box_speed","tag":5})").value("cmd", "") == "error" && !core.speedAsked);
+  core.speed = {.tag = {}, .pending = true, .kbps = 0, .error = {}};
+  answer = Send(handler, R"({"cmd":"box_speed","tag":"nl"})");
+  CHECK(core.speedAsked == "nl");
+  CHECK(answer == json::parse(R"({"cmd":"box_speed","tag":"nl","pending":true})"));
+  core.speed = {.tag = {}, .pending = false, .kbps = 91234, .error = {}};
+  answer = Send(handler, R"({"cmd":"box_speed","tag":"nl"})");
+  CHECK(answer == json::parse(R"({"cmd":"box_speed","tag":"nl","kbps":91234})"));
+  core.speed = {.tag = {}, .pending = false, .kbps = 0, .error = "another run is going"};
+  answer = Send(handler, R"({"cmd":"box_speed","tag":"nl"})");
+  CHECK(answer == json::parse(R"({"cmd":"box_speed","tag":"nl","error":"another run is going"})"));
 
   // box_sites: checked like box_exitip, answered with what the core knows.
   const auto sitesRejected = [&](const std::string& request) {

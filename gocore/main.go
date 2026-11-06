@@ -81,6 +81,9 @@ func box_start(configJSON *C.char) (reply *C.char) {
 	if path := smartStorePath(); path != "" {
 		smartMemo.open(path, time.Now()) // what the last run learned (once)
 	}
+	if path := autoMemoPath(); path != "" {
+		autoMemo.open(path, time.Now()) // the ways a network cut (once)
+	}
 	var options option.Options
 	if err := singjson.UnmarshalContext(ctx, prepareBlocker([]byte(C.GoString(configJSON))), &options); err != nil {
 		return C.CString(fmt.Sprintf("parse config: %s", err))
@@ -130,6 +133,8 @@ func box_start(configJSON *C.char) (reply *C.char) {
 	boxContext = ctx
 	resetDelays()
 	resetExitIP()
+	resetSites()
+	resetSpeed()
 	startSeen()
 	boxGeneration++
 	return C.CString("")

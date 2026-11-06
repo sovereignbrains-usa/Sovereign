@@ -127,6 +127,15 @@ __declspec(dllexport) char* __cdecl box_exitip(const char* request) {
   return Allocate(R"({"tag":"nl","ip":"185.12.34.56","country":"NL","isp":"Hetzner Online GmbH"})");
 }
 
+// A fixed answer: a finished run for nl, a running one for fi.
+__declspec(dllexport) char* __cdecl box_speed(const char* request) {
+  const std::string text = request != nullptr ? request : "";
+  if (text.find("\"tag\":\"fi\"") != std::string::npos) {
+    return Allocate(R"({"tag":"fi","pending":true})");
+  }
+  return Allocate(R"({"tag":"nl","kbps":91234})");
+}
+
 // A fixed answer, like box_exitip's; "junk" gets entries of the wrong shapes.
 __declspec(dllexport) char* __cdecl box_sites(const char* request) {
   const std::string text = request != nullptr ? request : "";

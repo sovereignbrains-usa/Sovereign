@@ -222,7 +222,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
   const std::string cmd = parsed.value("cmd", "");
   for (const std::string_view known :
        {"box_ping", "box_start", "box_stop", "box_stats", "box_logs", "box_urltest", "box_delays", "box_exitip",
-        "box_sites", "box_select", "box_route", "box_smart", "box_blocked", "box_boot", "kill_switch", "update_install"}) {
+        "box_sites", "box_speed", "box_select", "box_route", "box_smart", "box_blocked", "box_boot", "kill_switch", "update_install"}) {
     if (cmd == known) {
       outcome.cmd = known;
     }
@@ -233,7 +233,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
 
   const bool isCoreCommand = cmd == "box_ping" || cmd == "box_start" || cmd == "box_stop" ||
                              cmd == "box_stats" || cmd == "box_urltest" || cmd == "box_delays" ||
-                             cmd == "box_exitip" || cmd == "box_sites" || cmd == "box_select" || cmd == "box_route" ||
+                             cmd == "box_exitip" || cmd == "box_sites" || cmd == "box_speed" || cmd == "box_select" || cmd == "box_route" ||
                              cmd == "box_smart" || cmd == "box_blocked";
   if (isCoreCommand && core_ == nullptr) {
     return fail("gocore not loaded");
@@ -521,6 +521,27 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     }
     if (!exit.error.empty()) {
       response["error"] = exit.error;
+    }
+    return Dump(response);
+  }
+
+  if (cmd == "box_speed") {
+    const Json tag = parsed.value("tag", Json());
+    if (!tag.is_string() || tag.get<std::string>().empty() || tag.get<std::string>().size() > kMaxTagBytes) {
+      return fail("tag must be a non-empty string");
+    }
+    const SpeedResult speed = core_->LookupSpeed(tag.get<std::string>());
+    Json response;
+    response["cmd"] = "box_speed";
+    response["tag"] = speed.tag;
+    if (speed.pending) {
+      response["pending"] = true;
+    }
+    if (speed.kbps > 0) {
+      response["kbps"] = speed.kbps;
+    }
+    if (!speed.error.empty()) {
+      response["error"] = speed.error;
     }
     return Dump(response);
   }

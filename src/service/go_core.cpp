@@ -97,6 +97,10 @@ GoCore::GoCore(const std::wstring& dllPath) {
     boxSites_ = reinterpret_cast<BoxSitesFn>(  // NOLINT(performance-no-int-to-ptr)
         reinterpret_cast<std::uintptr_t>(sites));
   }
+  if (const FARPROC speed = GetProcAddress(module_.get(), "box_speed")) {
+    boxSpeed_ = reinterpret_cast<BoxSpeedFn>(  // NOLINT(performance-no-int-to-ptr)
+        reinterpret_cast<std::uintptr_t>(speed));
+  }
   boxSelect_ = ResolveExport<BoxSelectFn>(module_.get(), "box_select");
   boxSetLogCallback_ = ResolveExport<BoxSetLogCallbackFn>(module_.get(), "box_set_log_callback");
   boxFree_ = ResolveExport<BoxFreeFn>(module_.get(), "box_free");
@@ -412,6 +416,34 @@ SiteResults GoCore::LookupSites(const std::string& tag, bool refresh) {
         result.results.push_back(std::move(site));
       }
     }
+  }
+  return result;
+}
+
+SpeedResult GoCore::LookupSpeed(const std::string& tag) {
+  SpeedResult result;
+  result.tag = tag;
+  if (boxSpeed_ == nullptr) {
+    result.error = "not supported by this core";
+    return result;
+  }
+  nlohmann::json request;
+  request["tag"] = tag;
+  const auto json =
+      nlohmann::json::parse(TakeOwnedString(boxSpeed_(request.dump().c_str())), nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object()) {
+    result.error = "unexpected answer from the core";
+    return result;
+  }
+  const auto error = json.find("error");
+  if (error != json.end() && error->is_string()) {
+    result.error = error->get<std::string>().substr(0, 200);
+  }
+  const auto pending = json.find("pending");
+  result.pending = pending != json.end() && pending->is_boolean() && pending->get<bool>();
+  const auto kbps = json.find("kbps");
+  if (kbps != json.end() && kbps->is_number_unsigned()) {
+    result.kbps = static_cast<std::int64_t>(std::min<std::uint64_t>(kbps->get<std::uint64_t>(), 100'000'000));
   }
   return result;
 }

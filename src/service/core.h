@@ -134,6 +134,14 @@ struct SiteResult {
   std::string state;  // "ok", "blocked" (it answered, but not this exit) or "fail" (no answer)
   std::string error;  // fail: why, short
 };
+// The speed of a download through an outbound, on the user's click (gocore/speed.go).
+struct SpeedResult {
+  std::string tag;
+  bool pending = false;   // a run goes
+  std::int64_t kbps = 0;  // the best three seconds of it, kbit/s; 0 with no error: nothing yet
+  std::string error;      // why there is none
+};
+
 struct SiteResults {
   std::string tag;
   bool pending = false;  // a check runs; `results` may be partial
@@ -216,7 +224,14 @@ class ICore {
   // in the background). An engine that can't tell - or an older DLL - says so
   // in `error`.
   virtual SiteResults LookupSites(const std::string& tag, bool /*refresh*/) {
-    return {.tag = tag, .error = "not supported by this engine"};
+    return {.tag = tag, .pending = false, .results = {}, .error = "not supported by this engine"};
+  }
+
+  // The speed of a download through the outbound `tag`: a run (about 8 s) starts
+  // when none goes, and is polled like LookupExitIp. An engine that can't - or an
+  // older DLL - says so in `error`.
+  virtual SpeedResult LookupSpeed(const std::string& tag) {
+    return {.tag = tag, .pending = false, .kbps = 0, .error = "not supported by this engine"};
   }
 
   // Switches the selector outbound `selector` to its option `outbound`, for

@@ -6607,8 +6607,8 @@ void OnUpdateLaunched(HWND trayWindow) {
     return;
   }
   if (error && error->empty()) {
-    g_installerLaunched = true;
-    DestroyWindow(trayWindow);
+    g_installerLaunched = true;  // the window stays with 'ставлю X': the installer closes it itself
+    UpdateWindows();
     return;
   }
   const auto update = g_updater->Get();
@@ -6617,8 +6617,8 @@ void OnUpdateLaunched(HWND trayWindow) {
     if (const std::string uac = sovereign::tray::LaunchInstaller(owner, update.installer); !uac.empty()) {
       g_updater->LaunchFailed(uac);
     } else {
-      g_installerLaunched = true;
-      DestroyWindow(trayWindow);  // the installer starts the new tray when it's done
+      g_installerLaunched = true;  // the installer closes the tray and starts the new one when it's done
+      UpdateWindows();
       return;
     }
   } else {

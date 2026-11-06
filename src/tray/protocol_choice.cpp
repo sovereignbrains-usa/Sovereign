@@ -201,6 +201,7 @@ bool NameIsTitle(std::string_view name, std::string_view title) {
       "anytls", "vless", "vmess", "trojan", "shadowsocks", "ss", "ssr", "shadowsocksr", "hysteria", "hysteria2",
       "hy2",    "tuic",  "wireguard", "wg", "naive", "naiveproxy", "shadowtls", "reality", "vision", "tls",
       "ws",     "grpc",  "ech",       "tcp", "udp", "quic", "http", "https", "socks", "ssh", "tor",
+      "hop",  // a ShadowTLS under Shadowsocks, port hopping: the config's word, not a name ("ShadowTLS-hop", 06.11.2026)
   };
   std::string word;
   bool own = false;

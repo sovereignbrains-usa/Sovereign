@@ -122,6 +122,7 @@ void TestServerTitles() {
   // Protocol words, a country code and numbers only: nothing the title doesn't say (29.10.2026, the servers page).
   CHECK(NameIsTitle("REALITY", "VLESS + Vision + REALITY") && NameIsTitle("NL-Naive", "NaïveProxy") &&
         NameIsTitle("AnyTLS-REALITY 2", "AnyTLS + REALITY") && NameIsTitle("🇳🇱 NL-TUIC", "TUIC"));
+  CHECK(NameIsTitle("ShadowTLS-hop", "ShadowTLS") && NameIsTitle("hy2-hop", "Hysteria 2"));
   CHECK(!NameIsTitle("Германия", "Hysteria 2") && !NameIsTitle("DE Frankfurt Hysteria2", "Hysteria 2"));
 }
 

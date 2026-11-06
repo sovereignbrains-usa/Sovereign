@@ -96,6 +96,19 @@ std::optional<SiteChecks> ParseSitesResponse(std::string_view response) {
   return checks;
 }
 
+std::optional<SpeedRun> ParseSpeedResponse(std::string_view response) {
+  const auto json = nlohmann::json::parse(response, nullptr, /*allow_exceptions=*/false);
+  if (Field<std::string>(json, "cmd", {}) != "box_speed") {
+    return std::nullopt;
+  }
+  SpeedRun run;
+  run.pending = Field<bool>(json, "pending", false);
+  const auto kbps = Field<std::int64_t>(json, "kbps", 0);
+  run.kbps = kbps > 0 && kbps <= 100'000'000 ? static_cast<int>(kbps) : 0;
+  run.error = Field<std::string>(json, "error", {}).substr(0, 200);
+  return run;
+}
+
 int DelayScore(const Delay& delay) { return delay.ms + 2 * delay.jitter + 10 * delay.loss; }
 
 std::string BestServer(const std::vector<std::string>& members, const std::map<std::string, Delay>& delays) {

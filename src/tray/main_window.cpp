@@ -245,7 +245,9 @@ enum class Kind : std::uint8_t {
   GhostAdd,      // a dashed key adding to a way (rail: the way); its text empty: a square "+"
   Menu,          // a dropped menu's panel (the routing mode's), over the page
   MenuItem,      // a choice on it: its way's dot (rail), a title, what it means (detail), a check (`checked`)
-  ServerColumns, // the heads of the servers' columns (text: the latency's, detail: the failures'), right-aligned over them
+  ServerColumns, // the heads of a server's ways' columns: ОТКРЫТИЕ, ИГРЫ, СКОРОСТЬ, over them
+  Way,           // a way to a server (index: protocols; checked: the traffic goes by it, sub 1: pinned by hand): dot, name, figures
+  Link,          // a word that is a button, in the VPN's blue (a way's "замерить")
 };
 
 // The servers' columns at a Choice's right edge, from the edge in: the failures (a dot and a count), then the
@@ -1376,7 +1378,10 @@ class Painter {
       case Kind::ValueRow:
       case Kind::CheckRow:
       case Kind::AppRow:
-      case Kind::ServerCard: return at(left, 4) && at(right, 4);
+      case Kind::ServerCard:
+      case Kind::ServerColumns:
+      case Kind::Way: return at(left, 4) && at(right, 4);
+      case Kind::Link: return right >= 16 - 0.5f;  // in a way's speed cell, on the row's inner edge
       case Kind::ProfileRow: return at(left, 4) && right >= 4 - 0.5f;  // cut short by its switch
       case Kind::Toggle: return at(right, 8);  // a plate 64 wide round a switch 40: the switch's ink on 20
       case Kind::Divider: return at(left, 20) && at(right, 20);
@@ -1397,15 +1402,15 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 42> kNames = {
+    static constexpr std::array<const wchar_t*, 44> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
         L"AppTitle", L"Speed",    L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
-        L"Menu",     L"MenuItem", L"Columns"};
+        L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
-    static_assert(kNames.size() == static_cast<std::size_t>(Kind::ServerColumns) + 1);
+    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Link) + 1);
     std::wstring out;
     for (std::size_t i = 0; i < l.items.size(); ++i) {
       const Item& it = l.items[i];
@@ -1433,6 +1438,11 @@ class Painter {
           break;
         case Kind::Switch: room = w - 16 - 76; need = TextWidth(it.text, body_.get()); break;
         case Kind::Choice: room = w - 42 - (kDelayColNarrow + kFailCol + kColSplit + kColGap) - 8; need = TextWidth(it.text, body_.get()); break;
+        case Kind::Way:
+          room = it.stacked ? w - kWayLeft - kColGap : w - kWayLeft - WayColumnsWidth() - 8;
+          need = TextWidth(it.text, body_.get());
+          break;
+        case Kind::Link: room = w; need = TextWidth(it.text, trailing_.get()); break;
         case Kind::ProfileRow: room = w - 14 - 28; need = TextWidth(it.text, body_.get()); break;
         case Kind::ServerCard: room = w - 16 - 34; need = TextWidth(it.text, heading_.get()); break;
         case Kind::ValueRow:
@@ -1468,6 +1478,7 @@ class Painter {
           // routing mode's choices.
           const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer || o.kind == Kind::MenuItem ||
                                (o.kind == Kind::IconButton && (it.kind == Kind::Title || it.kind == Kind::Card)) ||
+                               (o.kind == Kind::Link && it.kind == Kind::Way) ||
                                ((o.kind == Kind::Muted || o.kind == Kind::Button) && it.kind == Kind::Card);
           overlaps = overlaps || (over && !allowed);
         }
@@ -2693,7 +2704,10 @@ class Painter {
     return i < c.protocols.size() ? c.protocols[i] : std::wstring();
   }
 
-  // The servers of the subscription's selector, with their latency.
+  // The servers of the subscription's selector (06.11.2026, docs/design/servers-concept.html): a
+  // server is a machine - one card, its latency, a click takes its fastest way; its protocols are
+  // ways to it, laid out under the one in use: whether each works here (the dot), how fast it opens
+  // a site, how steady its UDP is for games, its speed. The other servers are a line each.
   float Servers(Layout& l, const UiContent& c, float x0, float x1, float y) const {
     // What the measuring says now, over the list (its key is the title bar's).
     std::wstring note;
@@ -2715,84 +2729,31 @@ class Painter {
                              c.hasConfig ? L"В конфиге нет выбора сервера." : L"Ни одна конфигурация не включена."));
       return y + 56;
     }
-    // Returns how much taller than kLatencyRow the row is: its detail wraps (never cut to "…") when it
-    // does not fit under the name.
-    // `twin`: another row of its group has the same title ("Hysteria 2" twice) - its name tells them apart.
-    const auto row = [&](std::size_t i, float top, bool grouped = false, bool twin = false) -> float {
-      // Where the server is, once known: its country's flag in place of any
-      // its name has, and the network it's in ahead of the measurement.
-      const UiLocation* location = i < c.locations.size() ? &c.locations[i] : nullptr;
-      const std::wstring flag = location != nullptr && location->country.size() == 2
-                                    ? FlagEmojiFor(std::string{static_cast<char>(location->country[0]),
-                                                               static_cast<char>(location->country[1])})
-                                    : std::wstring();
-      const std::wstring title = OptionTitle(c, i);
-      std::wstring name = grouped ? WithoutFlagEmoji(title)
-                                        : flag.empty() ? title : flag + L" " + WithoutFlagEmoji(title);
-      std::wstring isp = location != nullptr && !grouped ? location->isp : std::wstring();
-      if (twin) {
-        name = WithoutFlagEmoji(title) + L" · " + c.protocols[i];
-      } else if (i < c.protocolNotes.size() && !c.protocolNotes[i].empty()) {
-        std::wstring note = WithoutFlagEmoji(c.protocolNotes[i]);
-        note.erase(0, note.find_first_not_of(L' '));
-        isp += (isp.empty() ? L"" : L" · ") + note;
-      }
-      Item choice = CommandItem(Kind::Choice, {x0 + 4, top + 3, x1 - 4, top + kLatencyRow - 3}, name, nullptr,
-                                UiCommand::SetProtocol, static_cast<int>(i));
-      choice.checked = static_cast<int>(i) == c.protocol;
-      // On auto, the server it took is the marked one: no mark anywhere left one guessing (06.11.2026).
-      const bool autoHere = c.autoOption >= 0 && c.protocol == c.autoOption && !c.autoServer.empty() &&
-                            i < c.protocols.size() && c.protocols[i] == c.autoServer;
-      if (autoHere) {
-        choice.checked = true;
-      }
-      if (static_cast<int>(i) == c.autoOption) {
-        const auto at = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
-        const std::wstring server =
-            at == c.protocols.end() ? c.autoServer : OptionTitle(c, static_cast<std::size_t>(at - c.protocols.begin()));
-        choice.detail = c.autoServer.empty() ? std::wstring(L"выберет лучший после первого замера")
-                                             : c.autoIsBest
-                                                   ? L"сейчас " + server + L" — лучший по замерам"
-                                                   : L"сейчас " + server + L" — другой сервер чуть быстрее, но разница мала";
-      } else if (i < c.delays.size()) {
-        choice.detail = DelayDetail(c.delays[i], c.delaysDetailed);
-      }
-      if (!isp.empty() && static_cast<int>(i) != c.autoOption) {
-        choice.detail = choice.detail.empty() ? isp : isp + L" · " + choice.detail;
-      }
-      if (autoHere) {
-        choice.detail = choice.detail.empty() ? std::wstring(L"выбран автоматически") : L"выбран автоматически · " + choice.detail;
-      }
-      float grown = 0;
-      if (!choice.detail.empty()) {
-        const float room = (x1 - 4) - (x0 + 4) - 42 - 12;  // DrawItem's detail line
-        if (std::ceil(TextWidth(choice.detail, caption_.get())) + 2 > room) {
-          grown = std::max(0.0f, TextHeight(choice.detail, captionWrap_.get(), room) - 18.0f);
-          choice.stacked = grown > 0;
-          choice.rect.bottom += grown;
-        }
-      }
-      l.items.push_back(std::move(choice));
-      return grown;
-    };
-    // Auto is a key in the title bar; here only what it picked now, while it's the choice.
-    // Once it took one that's listed, its row is marked "выбран автоматически" - this line only repeated it.
-    if (c.autoOption >= 0 && c.protocol == c.autoOption &&
-        std::find(c.protocols.begin(), c.protocols.end(), c.autoServer) == c.protocols.end()) {
+    const bool onAuto = c.autoOption >= 0 && c.protocol == c.autoOption;
+    // The way the traffic goes by now: auto's pick, or the one picked by hand.
+    int now = c.protocol;
+    if (onAuto) {
       const auto at = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
-      const std::wstring server =
-          at == c.protocols.end() ? c.autoServer : OptionTitle(c, static_cast<std::size_t>(at - c.protocols.begin()));
-      const std::wstring line = c.autoServer.empty() ? std::wstring(L"Авто: выберет лучший после первого замера")
-                                : c.autoIsBest       ? L"Авто: сейчас " + server + L" — лучший по замерам"
-                                                     : L"Авто: сейчас " + server + L" — другой чуть быстрее, но разница мала";
+      now = at == c.protocols.end() ? -1 : static_cast<int>(at - c.protocols.begin());
+    }
+    // Auto is a key in the title bar; here what it took and why, in words.
+    if (onAuto) {
+      std::wstring line = L"Авто: выберет лучший после первого замера";
+      if (!c.autoServer.empty()) {
+        std::wstring where = c.autoServer;
+        if (now >= 0) {
+          const auto i = static_cast<std::size_t>(now);
+          const UiLocation* loc = i < c.locations.size() ? &c.locations[i] : nullptr;
+          where = (loc != nullptr && !loc->isp.empty() ? loc->isp + L" · " : L"") + WithoutFlagEmoji(OptionTitle(c, i));
+        }
+        line = L"Авто: сейчас " + where +
+               (c.autoIsBest ? L" — лучший по замерам" : L" — другой чуть быстрее, но разница мала");
+      }
       y = Paragraph(l, Kind::Caption, line, x0, x1, y) + kGap;
     }
     const std::vector<std::size_t> order = c.serverOrder.empty() ? ServerOrder(c) : c.serverOrder;
-    if (order.empty()) {
-      return y - kGap;
-    }
-    // One physical server is one entry: its protocols are rows under one header (the exit's address
-    // tells them apart; without it, network and country; without those, a server of its own).
+    // One physical server is one card: the exit's address tells them apart; without it, network and
+    // country; without those, a server of its own.
     const auto groupKey = [&](std::size_t i) -> std::wstring {
       const UiLocation* loc = i < c.locations.size() ? &c.locations[i] : nullptr;
       if (loc != nullptr && !loc->ip.empty()) {
@@ -2803,10 +2764,10 @@ class Painter {
       }
       return L"#" + std::to_wstring(i);
     };
-    std::vector<std::wstring> keys;           // groups in the order of their first (fastest) member
+    std::vector<std::wstring> keys;  // groups in the order of their first (fastest) member
     std::vector<std::vector<std::size_t>> members;
     for (const std::size_t i : order) {
-      if (i >= c.protocols.size()) {
+      if (i >= c.protocols.size() || static_cast<int>(i) == c.autoOption) {
         continue;
       }
       const std::wstring key = groupKey(i);
@@ -2818,47 +2779,179 @@ class Painter {
         members[static_cast<std::size_t>(at - keys.begin())].push_back(i);
       }
     }
-    const std::size_t listCard = l.items.size();
-    l.items.push_back(Make(Kind::Card, {x0, y, x1, y + static_cast<float>(order.size()) * kLatencyRow}));
-    float top = y;
-    constexpr float kGroupHead = 30;
-    const bool columns = AnyDelayAnswered(c);  // the latency and failures columns' heads over each group
-    for (std::size_t g = 0; g < members.size(); ++g) {
-      const std::size_t first = members[g].front();
-      if (g > 0) {
-        l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
-      }
-      const UiLocation* loc = first < c.locations.size() ? &c.locations[first] : nullptr;
-      std::wstring head;
-      if (loc != nullptr && loc->country.size() == 2) {
-        head = FlagEmojiFor(std::string{static_cast<char>(loc->country[0]), static_cast<char>(loc->country[1])}) + L" ";
-      }
-      // Without a network the head would only repeat the row's name under it ("ShadowTLS" over
-      // "ShadowTLS"): such a group has none, unless the columns' heads need its line.
-      const bool named = loc != nullptr && !loc->isp.empty();
-      if (named) {
-        head += loc->isp;
-        l.items.push_back(Make(Kind::Caption, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, head));
-      }
-      if (columns && g == 0) {
-        Item heads = Make(Kind::ServerColumns, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, L"ОТКЛИК");
-        heads.detail = AnyDelayFailures(c) ? L"СБОИ" : L"";
-        l.items.push_back(std::move(heads));
-      }
-      if (named || (columns && g == 0)) {
-        top += kGroupHead;
-      }
-      for (std::size_t m = 0; m < members[g].size(); ++m) {
-        const std::size_t i = members[g][m];
-        const bool twin = std::count_if(members[g].begin(), members[g].end(), [&](std::size_t o) {
-                            return WithoutFlagEmoji(OptionTitle(c, o)) == WithoutFlagEmoji(OptionTitle(c, i));
-                          }) > 1;
-        top += kLatencyRow + row(i, top, true, twin);
+    if (members.empty()) {
+      return y - kGap;
+    }
+    // Open: the server the traffic goes to; none yet - the fastest.
+    std::size_t open = 0;
+    for (std::size_t g = 0; g < members.size() && now >= 0; ++g) {
+      if (std::find(members[g].begin(), members[g].end(), static_cast<std::size_t>(now)) != members[g].end()) {
+        open = g;
       }
     }
-    const float h = top - y;
-    l.items[listCard].rect.bottom = y + h;
-    return y + h;
+    const bool columns = AnyDelayAnswered(c);
+    for (std::size_t g = 0; g < members.size(); ++g) {
+      const std::vector<std::size_t>& ways = members[g];
+      const std::size_t first = ways.front();  // the fastest of them: the order is
+      const UiLocation* loc = first < c.locations.size() ? &c.locations[first] : nullptr;
+      const std::wstring flag = loc != nullptr && loc->country.size() == 2
+                                    ? FlagEmojiFor(std::string{static_cast<char>(loc->country[0]),
+                                                               static_cast<char>(loc->country[1])})
+                                    : std::wstring();
+      // Its name: the network it's in; a lone way not placed yet goes by its own.
+      std::wstring name = loc != nullptr && !loc->isp.empty() ? loc->isp
+                          : ways.size() == 1                 ? WithoutFlagEmoji(OptionTitle(c, first))
+                          : loc != nullptr && !loc->ip.empty() ? loc->ip
+                                                               : WithoutFlagEmoji(OptionTitle(c, first));
+      if (!flag.empty()) {
+        name = std::format(L"{} {}", flag, name);
+      }
+      const bool expanded = g == open;
+      const std::wstring ip = loc != nullptr && !loc->ip.empty() && !c.hideExitIp && name.find(loc->ip) == std::wstring::npos
+                                  ? loc->ip
+                                  : std::wstring();
+      const std::size_t card = l.items.size();
+      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kLatencyRow}));
+      Item head = CommandItem(Kind::Choice, {x0 + 4, y + 3, x1 - 4, y + kLatencyRow - 3}, name, nullptr,
+                              UiCommand::SetProtocol, static_cast<int>(first));
+      head.checked = now >= 0 && std::find(ways.begin(), ways.end(), static_cast<std::size_t>(now)) != ways.end();
+      head.detail = expanded ? ip : ServerSummary(c, ways);
+      if (!expanded && !ip.empty()) {
+        head.detail = head.detail.empty() ? ip : ip + L" · " + head.detail;
+      }
+      head.tip = L"Взять этот сервер: самый быстрый способ до него";
+      l.items.push_back(std::move(head));
+      float top = y + kLatencyRow;
+      if (expanded) {
+        l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
+        top += 4;
+        if (columns) {
+          l.items.push_back(Make(Kind::ServerColumns, {x0 + 4, top, x1 - 4, top + 20}, L""));
+          top += 20;
+        }
+        for (const std::size_t i : ways) {
+          top = Way(l, c, i, now, onAuto, x0 + 4, x1 - 4, top);
+        }
+        top += 6;
+      }
+      l.items[card].rect.bottom = top;
+      y = top + (g + 1 < members.size() ? kGap : 0.0f);
+    }
+    return y;
+  }
+
+  // The columns of a way, right to left from its row's `right`: what a new site waits (ОТКРЫТИЕ),
+  // UDP's spread (ИГРЫ), the speed (СКОРОСТЬ) - their right edges and widths.
+  static constexpr float kWayOpen = 46;
+  static constexpr float kWayGames = 56;
+  static constexpr float kWaySpeed = 76;
+  static constexpr float kWaySplit = 6;
+  static constexpr float kWayLeft = 38;  // the name's left, after the dot
+  static constexpr float kWayLine = 30;  // a way's line; a note under it, kWayNote more
+  static constexpr float kWayNote = 18;
+  static std::array<D2D1_RECT_F, 3> WayCells(float right, float top, float bottom) {
+    const float speed = right - kColGap;
+    const float games = speed - kWaySpeed - kWaySplit;
+    const float open = games - kWayGames - kWaySplit;
+    return {D2D1_RECT_F{open - kWayOpen, top, open, bottom}, D2D1_RECT_F{games - kWayGames, top, games, bottom},
+            D2D1_RECT_F{speed - kWaySpeed, top, speed, bottom}};
+  }
+  static float WayColumnsWidth() { return kWayOpen + kWayGames + kWaySpeed + 2 * kWaySplit + kColGap; }
+
+  // A way to the open server: its row (a click pins it), and "замерить" where its speed is unknown.
+  float Way(Layout& l, const UiContent& c, std::size_t i, int now, bool onAuto, float left, float right, float top) const {
+    const UiDelay none{};
+    const UiDelay& delay = i < c.delays.size() ? c.delays[i] : none;
+    Item way = CommandItem(Kind::Way, {left, top, right, top + kWayLine}, WithoutFlagEmoji(OptionTitle(c, i)), nullptr,
+                           UiCommand::SetProtocol, static_cast<int>(i));
+    if (i < c.protocolNotes.size() && !c.protocolNotes[i].empty()) {
+      way.text2 = WithoutFlagEmoji(c.protocolNotes[i]);
+      way.text2.erase(0, way.text2.find_first_not_of(L' '));
+    }
+    way.checked = static_cast<int>(i) == now;
+    way.sub = way.checked && !onAuto ? 1 : 0;  // picked by hand: pinned
+    // No room beside the columns for the name: it takes a line of its own over them.
+    const float room = right - left - kWayLeft - WayColumnsWidth() - 8 - (way.checked ? 72.0f : 0.0f);
+    way.stacked = std::ceil(TextWidth(way.text, body_.get())) > room;
+    float h = kWayLine + (way.stacked ? kWayNote + 4 : 0.0f);
+    way.detail = WayNote(delay);
+    if (!way.detail.empty()) {
+      h += kWayNote;
+    }
+    way.rect.bottom = top + h;
+    way.tip = way.sub == 1 ? L"Закреплён: авто его не сменит. Авто — ключ в заголовке" : L"Закрепить этот способ";
+    const float line = way.stacked ? top + kWayLine - 4 : top;  // the columns' line
+    l.items.push_back(std::move(way));
+    if (c.canTestDelays && delay.state == UiDelay::State::Ok && SpeedText(delay).empty()) {
+      const D2D1_RECT_F cell = WayCells(right, line, line + kWayLine)[2];
+      Item measure = CommandItem(Kind::Link, {cell.left + 8, cell.top + 4, cell.right, cell.bottom - 4}, L"замерить",
+                                 nullptr, UiCommand::MeasureSpeed, static_cast<int>(i));
+      measure.tip = L"8 секунд загрузки через этот способ (до 100 МБ)";
+      l.items.push_back(std::move(measure));
+    }
+    return top + h;
+  }
+
+  // A way's row (Servers' Way): the dot of whether it works here, its name - "сейчас" or
+  // "закреплён" after it, its note dimmer - and its three figures; what's wrong with it under them.
+  void DrawWay(const Canvas& k, const Item& it, const UiContent& c, float hoverAlpha) const {
+    const D2D1_RECT_F r = Seen(it);
+    if (it.checked) {
+      k.Round(r, 6, Rgb(255, 255, 255, 0.035f));
+    }
+    if (hoverAlpha > 0) {
+      k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
+    }
+    const UiDelay none{};
+    const UiDelay& delay = it.index >= 0 && static_cast<std::size_t>(it.index) < c.delays.size()
+                               ? c.delays[static_cast<std::size_t>(it.index)]
+                               : none;
+    const D2D1_COLOR_F primary = FromColorRef(ui::kPrimaryText);
+    const D2D1_COLOR_F secondary = FromColorRef(ui::kSecondaryText);
+    const D2D1_COLOR_F dim = FromColorRef(ui::kSecondaryText, 0.6f);
+    const WayTone tone = WayToneOf(delay);
+    const D2D1_COLOR_F toneInk = tone == WayTone::Ok     ? FromColorRef(ui::kUpload)
+                                 : tone == WayTone::Warn ? FromColorRef(ui::kWarning)
+                                 : tone == WayTone::Bad  ? FromColorRef(ui::kDanger)
+                                                         : dim;
+    const D2D1_RECT_F first{r.left, r.top, r.right, r.top + kWayLine};
+    const float cy = (first.top + first.bottom) / 2;
+    k.t->FillEllipse(D2D1::Ellipse({r.left + 22, cy}, 4, 4), k.Color(toneInk));
+    const D2D1_RECT_F figures = it.stacked ? D2D1_RECT_F{r.left, first.bottom - 4, r.right, first.bottom + kWayLine - 4}
+                                           : first;
+    const float nameRight = it.stacked ? r.right - kColGap : WayCells(r.right, 0, 0)[0].left - 8;
+    float x = r.left + kWayLeft;
+    const float nameWidth = std::min(std::ceil(TextWidth(it.text, body_.get())) + 2, nameRight - x);
+    k.Text(it.text, body_.get(), {x, first.top, x + nameWidth, first.bottom}, primary);
+    x += nameWidth + 8;
+    if (it.checked) {
+      const std::wstring badge = it.sub == 1 ? L"закреплён" : L"сейчас";
+      const float w = std::ceil(TextWidth(badge, pill_.get())) + 10;
+      if (x + w <= nameRight) {
+        const D2D1_RECT_F b{x, cy - 9, x + w, cy + 9};
+        k.Round(b, 4, FromColorRef(ui::kLit));
+        k.Text(badge, pill_.get(), {b.left + 5, b.top, b.right, b.bottom}, FromColorRef(ui::kLitInk));
+        x += w + 8;
+      }
+    }
+    if (!it.text2.empty() && x < nameRight) {
+      k.Text(it.text2, caption_.get(), {x, first.top, nameRight, first.bottom}, secondary);
+    }
+    const auto cells = WayCells(r.right, figures.top, figures.bottom);
+    const std::wstring open = OpenText(delay);
+    const std::wstring games = GamesText(delay);
+    const std::wstring speed = SpeedText(delay);
+    const std::wstring dash = delay.state == UiDelay::State::Failed ? L"—" : L"";
+    k.Text(open.empty() ? dash : open, trailing_.get(), cells[0], open.empty() ? dim : (delay.connect >= 1500 ? FromColorRef(ui::kWarning) : primary));
+    k.Text(games.empty() ? dash : games, trailing_.get(), cells[1],
+           games.empty() || games == L"нет UDP" ? dim : (GamesWarn(delay) || games == L"не отвечает" ? FromColorRef(ui::kWarning) : primary));
+    k.Text(speed.empty() ? dash : speed, trailing_.get(), cells[2], delay.measuring || speed.empty() ? dim : primary);
+    if (!it.detail.empty()) {
+      const D2D1_COLOR_F ink = tone == WayTone::Bad    ? FromColorRef(ui::kDanger)
+                               : tone == WayTone::Warn ? FromColorRef(ui::kWarning)
+                                                       : secondary;
+      k.Text(it.detail, caption_.get(), {r.left + kWayLeft, r.bottom - kWayNote - 4, r.right - kColGap, r.bottom - 2}, ink);
+    }
   }
 
   float Subscription(Layout& l, const UiContent& c, float x0, float x1, float y) const {
@@ -4012,14 +4105,18 @@ class Painter {
         k.Text(it.detail, body_.get(), {r.left + 110, r.top, r.right, r.bottom}, primary);
         break;
       case Kind::ServerColumns: {
-        // Over the Choice's columns: this rect ends at x1 - 20, the Choice's at x1 - 4, and its columns end kColGap in.
-        const float failRight = r.right + 16 - kColGap;
-        const float delayRight = it.detail.empty() ? failRight : failRight - kFailCol - kColSplit;
-        k.Text(it.detail, trailing_.get(), {failRight - 2 * kFailCol, r.top, failRight, r.bottom}, secondary);  // wider than its column: it has the width of its word
-        k.Text(it.text, trailing_.get(), {delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow), r.top, delayRight - 8, r.bottom},
-               secondary);
+        // Over a Way's figures, right-aligned as they are; a head wider than its column reaches left.
+        const auto cells = WayCells(r.right, r.top, r.bottom);
+        const D2D1_COLOR_F ink = FromColorRef(ui::kSecondaryText, 0.75f);
+        k.Text(L"ОТКРЫТИЕ", trailing_.get(), {cells[0].right - 90, r.top, cells[0].right, r.bottom}, ink);
+        k.Text(L"ИГРЫ", trailing_.get(), {cells[1].right - 60, r.top, cells[1].right, r.bottom}, ink);
+        k.Text(L"СКОРОСТЬ", trailing_.get(), {cells[2].right - 80, r.top, cells[2].right, r.bottom}, ink);
         break;
       }
+      case Kind::Way: DrawWay(k, it, c, hoverAlpha); break;
+      case Kind::Link:
+        k.Text(it.text, trailing_.get(), r, FromColorRef(ui::kVpn, pressed ? 0.7f : (hovered ? 1.0f : 0.85f)));
+        break;
       case Kind::Power: DrawPower(k, it, c, hovered, pressed); break;
       case Kind::SpeedGraph: DrawSpeed(k, it, c); break;
       case Kind::Question: DrawQuestion(k, c); break;
@@ -4142,9 +4239,7 @@ class Painter {
         // green opens, red answers "not from here", dim doesn't answer.
         const bool isServer = it.command == UiCommand::SetProtocol && it.index >= 0 &&
                               static_cast<std::size_t>(it.index) < c.delays.size();
-        const bool failCol = isServer && AnyDelayFailures(c);  // a column of zeros said nothing (06.11.2026)
-        const float failRight = line.right - kColGap;
-        const float delayRight = failCol ? failRight - kFailCol - kColSplit : failRight;
+        const float delayRight = line.right - kColGap;  // the failures' column went with the ways' figures (06.11.2026)
         const float delayLeft = delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow);
         float nameRight = delayLeft;  // "48 ±3 мс" and "нет ответа" fit between here and the failures
         if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.sites.size()) {
@@ -4175,17 +4270,6 @@ class Painter {
                          static_cast<UINT32>(dimDigits), secondary);
           } else {
             k.Text(label, delay_.get(), cell, FromColorRef(ui::DelayColor(delay)));
-          }
-          if (failCol && delay.state == UiDelay::State::Ok) {
-            // The requests that got no answer: green none, amber a few, red a tenth or more of them.
-            const int lost = DelayFailures(delay);
-            const D2D1_COLOR_F ink = lost == 0       ? FromColorRef(ui::kUpload)
-                                     : delay.loss >= 10 ? FromColorRef(ui::kDanger)
-                                                        : FromColorRef(ui::kWarning);
-            const float cy = (line.top + line.bottom) / 2;
-            k.t->FillEllipse(D2D1::Ellipse({failRight - kFailCol + 6, cy}, 3, 3), k.Color(ink));
-            k.Text(std::to_wstring(lost), trailing_.get(), {failRight - kFailCol + 12, line.top, failRight, line.bottom},
-                   lost == 0 ? secondary : primary);
           }
         }
         break;

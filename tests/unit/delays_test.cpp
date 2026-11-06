@@ -206,6 +206,49 @@ void TestUdpDetail() {
   CHECK(DelayDetail(seen, true) == L"UDP 50 мс ±4 · качал до 90 Мбит/с");
 }
 
+// The answer to "замерить".
+void TestParsesSpeed() {
+  const auto done = ParseSpeedResponse(R"({"cmd":"box_speed","tag":"nl","kbps":91234})");
+  CHECK(done && !done->pending && done->kbps == 91234 && done->error.empty());
+  const auto going = ParseSpeedResponse(R"({"cmd":"box_speed","tag":"nl","pending":true})");
+  CHECK(going && going->pending && going->kbps == 0);
+  const auto busy = ParseSpeedResponse(R"({"cmd":"box_speed","tag":"fi","error":"another run is going","kbps":-5})");
+  CHECK(busy && busy->error == "another run is going" && busy->kbps == 0);
+  CHECK(!ParseSpeedResponse(R"({"cmd":"box_sites"})") && !ParseSpeedResponse("junk"));
+}
+
+// The servers page's columns and its folded servers' line.
+void TestWays() {
+  UiDelay way{.state = UiDelay::State::Ok, .ms = 180, .connect = 194, .udpMs = 182, .udpJitter = 3};
+  CHECK(WayToneOf(way) == WayTone::Ok && WayNote(way).empty());
+  CHECK(OpenText(way) == L"0,19 с" && GamesText(way) == L"±3 мс" && !GamesWarn(way));
+  CHECK(SpeedText(way).empty());  // nothing seen: the page offers "замерить"
+  way.seenDownKbps = 60'000;
+  CHECK(SpeedText(way) == L"60 Мбит/с");
+  way.measuredKbps = 140'000;
+  CHECK(SpeedText(way) == L"140 Мбит/с");  // the run's figure over the seen one
+  way.measuring = true;
+  CHECK(SpeedText(way) == L"меряю…");
+  way.udpJitter = 24;
+  CHECK(GamesWarn(way));
+  way.failedRecently = true;
+  CHECK(WayToneOf(way) == WayTone::Warn && WayNote(way) == L"не открыл соединение — взял другой");
+  const UiDelay naive{.state = UiDelay::State::Ok, .ms = 190, .connect = 1'204, .udpError = L"no udp"};
+  CHECK(GamesText(naive) == L"нет UDP" && OpenText(naive) == L"1,20 с");
+  const UiDelay dead{.state = UiDelay::State::Failed, .error = L"connection refused"};
+  CHECK(WayToneOf(dead) == WayTone::Bad && WayNote(dead) == L"сервер отклонил соединение" && OpenText(dead).empty());
+  CHECK(WayToneOf(UiDelay{}) == WayTone::Idle);
+  CHECK(std::wstring(WaysWord(1)) == L"способ" && std::wstring(WaysWord(3)) == L"способа" &&
+        std::wstring(WaysWord(5)) == L"способов" && std::wstring(WaysWord(12)) == L"способов");
+  UiContent c;
+  c.delays = {UiDelay{.state = UiDelay::State::Ok, .ms = 185, .connect = 412},
+              UiDelay{.state = UiDelay::State::Ok, .ms = 186, .connect = 350}, dead};
+  CHECK(ServerSummary(c, {0, 1}) == L"2 способа, оба работают · открытие от 0,35 с");
+  CHECK(ServerSummary(c, {0, 1, 2}) == L"3 способа, работают 2 · открытие от 0,35 с");
+  CHECK(ServerSummary(c, {2}) == L"сервер отклонил соединение");
+  CHECK(ServerSummary(c, {0}) == L"открытие 0,41 с");
+}
+
 // The user's own network, judged by the way around the proxy.
 void TestLocalNetwork() {
   Delay direct{.state = Delay::State::Ok, .ms = 12};
@@ -238,6 +281,8 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestParsesUdpAndSeen();
     TestParsesAutoState();
     TestUdpDetail();
+    TestWays();
+    TestParsesSpeed();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 2;

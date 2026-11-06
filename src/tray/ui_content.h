@@ -44,6 +44,10 @@ struct UiDelay {
   // server took them; UDP goes through it rather than through the TCP pick.
   bool failedRecently = false;
   bool udpWay = false;
+  // The user's speed run through it ("замерить", the core's box_speed): its figure, running, or why not.
+  int measuredKbps = 0;
+  bool measuring = false;
+  std::wstring speedError{};
 };
 
 // Where the updater is (updater.h), as the windows show it.
@@ -454,6 +458,7 @@ enum class UiCommand : std::uint8_t {
   ChooseStartup,       // anchor: where to open the menu
   OpenWithoutVpn,      // off: the kill switch's filters go with it
   TestDelays,
+  MeasureSpeed,  // index into protocols: a speed run through it, by the click on "замерить"
   CheckUpdate,
   InstallUpdate,
   ChooseUpdateQuiet,   // anchor: where to open the menu - the minutes without input before installing unasked
@@ -689,6 +694,135 @@ inline std::vector<std::size_t> ServerOrder(const UiContent& c) {
   };
   std::stable_sort(order.begin(), order.end(), [&rank](std::size_t a, std::size_t b) { return rank(a) < rank(b); });
   return order;
+}
+
+// The servers page (06.11.2026, docs/design/servers-concept.html): a server is a machine, its
+// protocols are ways to it. Each way's dot says whether it works here, its columns what it's like.
+enum class WayTone : std::uint8_t { Ok, Warn, Bad, Idle };  // works, works with trouble, doesn't pass here, not known
+
+inline WayTone WayToneOf(const UiDelay& delay) {
+  if (delay.state == UiDelay::State::Failed) {
+    return WayTone::Bad;
+  }
+  if (delay.state != UiDelay::State::Ok) {
+    return WayTone::Idle;
+  }
+  return delay.failedRecently || delay.loss >= 10 ? WayTone::Warn : WayTone::Ok;
+}
+
+// What's wrong with a way, in words, under it; empty when nothing is.
+inline std::wstring WayNote(const UiDelay& delay) {
+  if (delay.state == UiDelay::State::Failed) {
+    return ShortDelayError(delay.error);
+  }
+  std::wstring text;
+  const auto add = [&text](const std::wstring& part) { text += (text.empty() ? L"" : L" · ") + part; };
+  if (delay.state == UiDelay::State::Ok) {
+    if (delay.failedRecently) {
+      add(L"не открыл соединение — взял другой");
+    }
+    if (delay.loss >= 10) {
+      add(std::format(L"теряет {}% запросов", delay.loss));
+    }
+    if (delay.udpWay) {
+      add(L"игры и звонки идут через него");
+    }
+  }
+  if (!delay.speedError.empty()) {
+    add(L"замер не вышел: " + ShortDelayError(delay.speedError));
+  }
+  return text;
+}
+
+// ОТКРЫТИЕ: how long a new site waits for its first byte through the way - "0,19 с"; empty: not known.
+inline std::wstring OpenText(const UiDelay& delay) {
+  if (delay.state != UiDelay::State::Ok || delay.connect <= 0) {
+    return {};
+  }
+  const int hundredths = (delay.connect + 5) / 10;
+  return std::format(L"{},{:02} с", hundredths / 100, hundredths % 100);
+}
+
+// ИГРЫ: the spread of UDP through it, what a game feels - "±3 мс"; "нет UDP" (naive carries none),
+// "не отвечает"; empty: not measured.
+inline std::wstring GamesText(const UiDelay& delay) {
+  if (delay.state != UiDelay::State::Ok) {
+    return {};
+  }
+  if (delay.udpError == L"no udp") {
+    return L"нет UDP";
+  }
+  if (delay.udpMs > 0) {
+    return delay.udpLoss >= 10 ? std::format(L"−{}%", delay.udpLoss) : std::format(L"±{} мс", delay.udpJitter);
+  }
+  return delay.udpError.empty() ? std::wstring() : std::wstring(L"не отвечает");
+}
+
+// The games' figure is one to mind: a stutter (from 15 ms) or a tenth lost.
+inline bool GamesWarn(const UiDelay& delay) {
+  return delay.state == UiDelay::State::Ok && delay.udpMs > 0 && (delay.udpJitter >= 15 || delay.udpLoss >= 10);
+}
+
+// СКОРОСТЬ: the run's figure, else the most it carried for real in the last hour; "меряю…" while
+// a run goes; empty: nothing to say (the page offers "замерить" there).
+inline std::wstring SpeedText(const UiDelay& delay) {
+  if (delay.measuring) {
+    return L"меряю…";
+  }
+  const int kbps = delay.measuredKbps > 0 ? delay.measuredKbps : delay.seenDownKbps;
+  return kbps > 0 ? MbitText(kbps) : std::wstring();
+}
+
+// "способ", "способа" or "способов" after the number `n`.
+inline const wchar_t* WaysWord(std::size_t n) {
+  const std::size_t last = n % 10;
+  const std::size_t lastTwo = n % 100;
+  if (last == 1 && lastTwo != 11) {
+    return L"способ";
+  }
+  return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? L"способа" : L"способов";
+}
+
+// A folded server in one line: "2 способа, оба работают · открытие от 0,35 с"; one that answers
+// on none of them, why ("сервер отклонил соединение").
+inline std::wstring ServerSummary(const UiContent& c, const std::vector<std::size_t>& ways) {
+  std::size_t ok = 0;
+  std::size_t failed = 0;
+  int fastest = 0;
+  const UiDelay* firstFailed = nullptr;
+  for (const std::size_t i : ways) {
+    if (i >= c.delays.size()) {
+      continue;
+    }
+    const UiDelay& delay = c.delays[i];
+    if (delay.state == UiDelay::State::Ok) {
+      ++ok;
+      if (delay.connect > 0 && (fastest == 0 || delay.connect < fastest)) {
+        fastest = delay.connect;
+      }
+    } else if (delay.state == UiDelay::State::Failed) {
+      ++failed;
+      firstFailed = firstFailed != nullptr ? firstFailed : &delay;
+    }
+  }
+  const std::size_t n = ways.size();
+  if (failed == n && firstFailed != nullptr) {
+    return ShortDelayError(firstFailed->error);
+  }
+  std::wstring text;
+  if (n > 1) {
+    text = std::format(L"{} {}", n, WaysWord(n));
+    if (ok == n) {
+      text += n == 2 ? L", оба работают" : L", все работают";
+    } else if (ok > 0 || failed > 0) {
+      text += std::format(L", работают {}", ok);
+    }
+  }
+  if (fastest > 0) {
+    const std::wstring open = OpenText({.state = UiDelay::State::Ok, .connect = fastest});
+    text += (text.empty() ? L"открытие " : (n > 1 ? L" · открытие от " : L" · открытие ")) + open;
+  }
+  return text;
 }
 
 // "день", "дня" or "дней" after the number `n`.

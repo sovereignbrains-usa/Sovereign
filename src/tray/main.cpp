@@ -355,6 +355,7 @@ struct View {
   sovereign::tray::ExitIp exitIp;  // through the server in use; empty while off
   std::vector<sovereign::tray::ExitIp> locations;  // per protocol: where it is, once known
   std::vector<sovereign::tray::SiteChecks> sites;  // per protocol: which sites open through it, once known
+  std::vector<sovereign::tray::SpeedRun> speeds;   // per protocol: the user's speed run through it, if any
   bool hideExitIp = false;
   bool delaysDetailed = false;
   bool serversByDelay = true;
@@ -509,6 +510,7 @@ struct Shared {
   bool pendingRefreshDirect = false;           // ...directly: the user said so, its server sees their IP
   std::optional<RelayChange> pendingRelay;
   bool pendingUrlTest = false;
+  std::optional<std::string> pendingSpeed;  // a way to run a speed test through ("замерить")
   bool pendingToggleExitIp = false;
   bool pendingToggleDelayDetails = false;
   std::optional<bool> pendingServersByDelay;
@@ -539,7 +541,7 @@ struct Shared {
     return pendingWant || pendingImport || pendingLocalConfig || !pendingChanges.empty() || !pendingRouting.empty() ||
            pendingRemove ||
            pendingRefresh || pendingRelay ||
-           pendingUrlTest || pendingToggleExitIp || pendingToggleDelayDetails || pendingServersByDelay.has_value() || pendingConnectAtStartup.has_value() || pendingUpdates.has_value() || pendingUpdateQuiet.has_value() || pendingToggleRoutingMore || pendingLogLevel || pendingToggleKillSwitch || pendingReconnect || pendingRecheck || pendingProtectionAlert.has_value() ||
+           pendingUrlTest || pendingSpeed.has_value() || pendingToggleExitIp || pendingToggleDelayDetails || pendingServersByDelay.has_value() || pendingConnectAtStartup.has_value() || pendingUpdates.has_value() || pendingUpdateQuiet.has_value() || pendingToggleRoutingMore || pendingLogLevel || pendingToggleKillSwitch || pendingReconnect || pendingRecheck || pendingProtectionAlert.has_value() ||
            pendingToggleLanClosed || !pendingLan.empty() || pendingApps || pendingProtocol ||
            pendingChoice;
   }
@@ -724,6 +726,7 @@ class Worker {
       bool refreshDirect = false;
       std::optional<RelayChange> relay;
       bool urlTest = false;
+      std::optional<std::string> speed;
       bool toggleExitIp = false;
       bool toggleDelayDetails = false;
       std::optional<bool> serversByDelay;
@@ -754,6 +757,7 @@ class Worker {
         refreshDirect = std::exchange(shared.pendingRefreshDirect, false);
         relay = std::exchange(shared.pendingRelay, std::nullopt);
         urlTest = std::exchange(shared.pendingUrlTest, false);
+        speed = std::exchange(shared.pendingSpeed, std::nullopt);
         toggleExitIp = std::exchange(shared.pendingToggleExitIp, false);
         toggleDelayDetails = std::exchange(shared.pendingToggleDelayDetails, false);
         serversByDelay = std::exchange(shared.pendingServersByDelay, std::nullopt);
@@ -866,6 +870,7 @@ class Worker {
       UpdateExitIp(stats);
       UpdateServerExits(stats);
       UpdateServerSites(stats);
+      UpdateServerSpeeds(stats, speed);
       if (toggleExitIp) {
         settings_.hideExitIp = !settings_.hideExitIp;
         Save();
@@ -2380,6 +2385,43 @@ class Worker {
     }
   }
 
+  // The speed runs the user asked for ("замерить" on the servers page): `asked` starts one (the
+  // core runs one at a time and says so when another goes), running ones are polled until done -
+  // asking again a finished one would start another run. A new box forgets them.
+  void UpdateServerSpeeds(const std::optional<sovereign::tray::Stats>& stats, const std::optional<std::string>& asked) {
+    if (!stats || !stats->running) {
+      serverSpeeds_.clear();
+      return;
+    }
+    if (stats->generation != serverSpeedsGeneration_) {
+      serverSpeedsGeneration_ = stats->generation;
+      serverSpeeds_.clear();
+    }
+    const auto now = TrayModel::Clock::now();
+    const bool poll = !serverSpeedsPolled_ || now - *serverSpeedsPolled_ >= kExitIpPoll;
+    std::vector<std::string> tags;
+    if (asked) {
+      tags.push_back(*asked);
+    }
+    if (poll) {
+      serverSpeedsPolled_ = now;
+      for (const auto& [tag, run] : serverSpeeds_) {
+        if (run.pending && (!asked || tag != *asked)) {
+          tags.push_back(tag);
+        }
+      }
+    }
+    for (const std::string& tag : tags) {
+      const auto response = sovereign::tray::RequestService(nlohmann::json{{"cmd", "box_speed"}, {"tag", tag}}.dump());
+      const auto parsed = response ? sovereign::tray::ParseSpeedResponse(*response) : std::nullopt;
+      if (parsed) {
+        serverSpeeds_[tag] = *parsed;
+      } else if (asked && tag == *asked) {
+        serverSpeeds_[tag] = {.pending = false, .kbps = 0, .error = "the service did not answer"};
+      }
+    }
+  }
+
   // The running box's selector switched to what it should be on (Wanted) -
   // after every start of a box too: sing-box starts it on what its cache
   // file kept, not necessarily what is wanted now.
@@ -3041,6 +3083,11 @@ class Worker {
         const auto it = serverSites_.find(option);
         v.sites.push_back(it == serverSites_.end() ? sovereign::tray::SiteChecks{} : it->second);
       }
+      v.speeds.clear();
+      for (const std::string& option : v.protocols) {
+        const auto it = serverSpeeds_.find(option);
+        v.speeds.push_back(it == serverSpeeds_.end() ? sovereign::tray::SpeedRun{} : it->second);
+      }
       v.hideExitIp = settings_.hideExitIp;
       v.delaysDetailed = settings_.delaysDetailed;
       v.serversByDelay = settings_.serversByDelay;
@@ -3161,6 +3208,9 @@ class Worker {
   std::map<std::string, int> serverSitesTries_;  // checks started in this box, per tag
   std::int64_t serverSitesGeneration_ = -1;      // which box
   std::optional<TrayModel::Clock::time_point> serverSitesPolled_;
+  std::map<std::string, sovereign::tray::SpeedRun> serverSpeeds_;  // the user's speed runs, by tag
+  std::int64_t serverSpeedsGeneration_ = -1;                       // which box
+  std::optional<TrayModel::Clock::time_point> serverSpeedsPolled_;
   bool killSwitchActive_ = false;
   std::string killSwitchError_;
   std::optional<TrayModel::Clock::time_point> lockedSince_;  // UpdateLockout's
@@ -4475,6 +4525,15 @@ void RequestUrlTest() {
   Wake();
 }
 
+void RequestSpeed(std::string tag) {
+  {
+    auto& shared = State();
+    const std::scoped_lock lock(shared.mutex);
+    shared.pendingSpeed = std::move(tag);
+  }
+  Wake();
+}
+
 void RequestProtocol(std::string tag) {
   {
     auto& shared = State();
@@ -5056,6 +5115,18 @@ UiContent ContentFrom(const View& v) {
       d.udpWay = delay->udpWay;
     }
     c.delays.push_back(d);
+  }
+  for (std::size_t i = 0; i < c.delays.size() && i < v.speeds.size(); ++i) {
+    const sovereign::tray::SpeedRun& run = v.speeds[i];
+    sovereign::tray::UiDelay& d = c.delays[i];
+    d.measuring = run.pending;
+    d.measuredKbps = run.kbps;
+    // The core's words, said plainly where they are known.
+    d.speedError = run.error.empty()                         ? std::wstring()
+                   : run.error == "another run is going"     ? std::wstring(L"идёт другой замер, подожди")
+                   : run.error == "box not running"          ? std::wstring(L"VPN выключен")
+                   : run.error == "the service did not answer" ? std::wstring(L"служба не ответила")
+                                                             : Widen(run.error);
   }
   c.delaysTesting = v.delaysTesting;
   c.canTestDelays = v.display == Display::On && !v.protocols.empty();
@@ -6430,6 +6501,11 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
       break;
     case UiCommand::TestDelays:
       RequestUrlTest();
+      break;
+    case UiCommand::MeasureSpeed:
+      if (args.index >= 0 && static_cast<std::size_t>(args.index) < view.protocols.size()) {
+        RequestSpeed(view.protocols[static_cast<std::size_t>(args.index)]);
+      }
       break;
     case UiCommand::CheckUpdate:
       if (g_updater != nullptr) {

@@ -57,6 +57,17 @@ struct SiteChecks {
 // lowercase word are dropped; an unknown state reads as a failure.
 std::optional<SiteChecks> ParseSitesResponse(std::string_view response);
 
+// A speed run through one way, by the user's click, as the service's box_speed reports it
+// (gocore/speed.go): running, done with a figure, or why not.
+struct SpeedRun {
+  bool pending = false;
+  int kbps = 0;       // kbit/s; 0: no figure (yet)
+  std::string error;  // "another run is going", "box not running"...
+};
+
+// nullopt unless it's a box_speed answer.
+std::optional<SpeedRun> ParseSpeedResponse(std::string_view response);
+
 // What a measured server costs, in milliseconds: the median, plus its spread
 // and its losses - a jumpy or lossy server is worse than its median says.
 // Only for State::Ok.

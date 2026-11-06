@@ -144,8 +144,10 @@ std::string SelfUpdate::Install(const std::string& version, const std::string& i
   }
   // /SESSION: the installer brings the tray back there (sovereign-core.exe
   // --launch-tray), not as SYSTEM in this service's session.
-  std::wstring command =
-      std::format(L"\"{}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SESSION={}", path, session);
+  // /LOG: each step with its time, beside the installer (one file, the last update's) - an update
+  // took ~28 s between the old service stopping and the new one starting (06.11.2026), nothing said where.
+  std::wstring command = std::format(L"\"{}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SESSION={} /LOG=\"{}\\setup.log\"",
+                                     path, session, directory_);
   STARTUPINFOW startup{};
   startup.cb = sizeof startup;
   wil::unique_process_information process;

@@ -60,6 +60,8 @@ add_library(sovereign_tray_lib STATIC
   relay.h
   x25519.cpp
   x25519.h
+  ssh_probe.cpp
+  ssh_probe.h
 )
 target_include_directories(sovereign_tray_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(sovereign_tray_lib PUBLIC sovereign_common PRIVATE ZXing::ZXing yaml-cpp::yaml-cpp)
@@ -107,6 +109,8 @@ add_library(sovereign_tray_net STATIC
   diagnose.h
   lan_devices.cpp
   other_vpn_win.cpp
+  ssh_run.cpp
+  ssh_run.h
 )
 target_include_directories(sovereign_tray_net PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(sovereign_tray_net PUBLIC sovereign_tray_lib sovereign_common winhttp iphlpapi ws2_32 dnsapi)

@@ -178,6 +178,11 @@ target_link_libraries(unit-profiles PRIVATE sovereign_tray_lib)
 sovereign_copy_asan_runtime(unit-profiles)
 add_test(NAME unit-profiles COMMAND unit-profiles)
 
+add_executable(unit-ssh-probe ssh_probe_test.cpp check.h)
+target_link_libraries(unit-ssh-probe PRIVATE sovereign_tray_lib)
+sovereign_copy_asan_runtime(unit-ssh-probe)
+add_test(NAME unit-ssh-probe COMMAND unit-ssh-probe)
+
 # The tray's files in a temporary %LOCALAPPDATA%: the move into profiles.
 add_executable(unit-settings settings_test.cpp check.h)
 target_link_libraries(unit-settings PRIVATE sovereign_tray_settings)

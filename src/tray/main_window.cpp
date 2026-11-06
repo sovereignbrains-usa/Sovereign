@@ -3061,6 +3061,21 @@ class Painter {
     }
     y += kButton + kGap + 4;
 
+    // A server of their own: a look at it over ssh - what the system is, whether the installer can go on.
+    if (!p.subscription && !p.ownHost.empty()) {
+      Item probe = CommandItem(Kind::Button, {x0, y, x1, y + kButton},
+                               p.ownProbing ? L"Смотрю на сервер…" : L"Проверить сервер", nullptr,
+                               UiCommand::ProbeOwnServer, index);
+      probe.tip = L"Зайти по ssh (ключ из ssh-agent или ~\\.ssh) и посмотреть: система, root, занятые порты";
+      probe.enabled = !p.ownProbing;
+      l.items.push_back(std::move(probe));
+      y += kButton + 8;
+      if (!p.ownProbe.empty()) {
+        y = Paragraph(l, Kind::Caption, p.ownProbe, x0 + 4, x1, y) + kGap;
+      }
+      y += kGap;
+    }
+
     // A chain (combine.h): its servers connect through another configuration's.
     {
       Item via = CommandItem(Kind::ValueRow, {x0, y, x1, y + kRow}, L"Подключаться через", nullptr,

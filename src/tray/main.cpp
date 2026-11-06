@@ -67,6 +67,8 @@
 #include "effective_config.h"
 #include "exit_ip.h"
 #include "fetch.h"
+#include "ssh_probe.h"
+#include "ssh_run.h"
 #include "protocol_choice.h"
 #include "icons.h"
 #include "other_vpn.h"
@@ -325,6 +327,7 @@ struct View {
     std::uint64_t trafficTotal = 0;
     std::int64_t expire = 0;
     std::int64_t paidTill = 0;     // the user's own say (profiles.h)
+    std::string ownProbe;          // what the last look over ssh said; "__probing__" while it is on its way
     std::string ownHost;           // set: a server of the user's own (profiles.h OwnServer), at this host
   };
   std::vector<ProfileView> profiles;
@@ -395,6 +398,8 @@ struct ProfileChange {
     Server,      // text: a server's tag, on
     Via,         // text: the configuration to connect through; "" = directly
     PaidTill,    // text: unix seconds the user paid their server till; "" = not said
+    OwnProbe,    // ask the server over ssh what it is (a worker thread); the answer comes back as OwnProbeResult
+    OwnProbeResult,  // on: the server fits; text: what to say
     OwnServer,   // on: this config is a server of the user's own (its host taken from its servers); off: not
   };
   std::string id;
@@ -685,6 +690,8 @@ std::string CacheFilePath() {
 }
 
 // The worker's state besides the model: the settings it owns and saves.
+void RequestProfileChange(ProfileChange change);  // below: the probe's thread answers through it
+
 class Worker {
  public:
   explicit Worker(TraySettings settings)
@@ -960,6 +967,8 @@ class Worker {
     std::size_t taken = 0;      // and how many of them became outbounds
     std::string choiceError;              // why the last choice about a waiting version didn't go through
     std::vector<std::string> mergeNotes;  // where the last carry-over met changes on both sides
+    std::string ownProbe;                 // what the last look at its own server said (ssh_probe.h)
+    bool ownProbing = false;              // a look is on its way
     std::optional<std::string> seenOriginal;  // the texts below were computed from
     std::optional<std::string> seenConfig;
     bool edited = false;   // config.json differs from the subscription it's based on
@@ -1835,6 +1844,34 @@ class Worker {
           delays_.clear();  // its servers measure through another path now
         }
         break;
+      case ProfileChange::What::OwnProbe: {
+        ProfileRuntime& state = runtime_[change.id];
+        if (!profile->own || state.ownProbing) {
+          return;
+        }
+        state.ownProbing = true;
+        state.ownProbe = "__probing__";
+        // ssh.exe takes seconds to a minute: a thread of its own, its answer through the same queue.
+        std::thread([id = change.id, own = *profile->own] {
+          const sovereign::tray::SshResult got = sovereign::tray::RunSsh(own, {}, sovereign::tray::ProbeCommand(), 30);
+          std::string problem = sovereign::tray::SshProblem(got);
+          bool ok = false;
+          if (problem.empty()) {
+            const sovereign::tray::ProbeVerdict verdict = sovereign::tray::JudgeProbe(sovereign::tray::ParseProbe(got.output));
+            ok = verdict.ok;
+            problem = verdict.text;
+          }
+          RequestProfileChange({.id = id, .what = ProfileChange::What::OwnProbeResult, .on = ok,
+                                .text = std::move(problem), .hours = 0});
+        }).detach();
+        return;  // nothing to save
+      }
+      case ProfileChange::What::OwnProbeResult: {
+        ProfileRuntime& state = runtime_[change.id];
+        state.ownProbing = false;
+        state.ownProbe = change.text;
+        return;
+      }
       case ProfileChange::What::OwnServer:
         if (!change.on) {
           profile->own.reset();
@@ -2936,6 +2973,7 @@ class Worker {
                                 .trafficTotal = profile.trafficTotal,
                                 .expire = profile.expire,
                                 .paidTill = profile.paidTill,
+                                .ownProbe = runtime_[profile.id].ownProbe,
                                 .ownHost = profile.own ? profile.own->host : std::string()};
         for (const auto& server : state.servers) {
           shown.servers.push_back(
@@ -4698,6 +4736,8 @@ UiContent ContentFrom(const View& v) {
     shown.enabled = profile.enabled;
     shown.subscription = !profile.url.empty();
     shown.ownHost = Widen(profile.ownHost);
+    shown.ownProbing = profile.ownProbe == "__probing__";
+    shown.ownProbe = shown.ownProbing ? std::wstring() : Widen(profile.ownProbe);
     shown.failed = !profile.error.empty();
     shown.host = sovereign::tray::UrlHost(Widen(profile.url));
     shown.updated = profile.lastRefresh ? LocalTime(profile.lastRefresh) : L"ещё не загружена";
@@ -5326,6 +5366,9 @@ void OnProfileCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
                             .hours = hours});
       break;
     }
+    case UiCommand::ProbeOwnServer:
+      RequestProfileChange({.id = profile.id, .what = ProfileChange::What::OwnProbe, .on = false, .text = {}, .hours = 0});
+      break;
     case UiCommand::ToggleOwnServer:
       RequestProfileChange({.id = profile.id, .what = ProfileChange::What::OwnServer, .on = profile.ownHost.empty(),
                             .text = {}, .hours = 0});
@@ -6139,6 +6182,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::PaidMenu:
     case UiCommand::PaidDateText:
     case UiCommand::ToggleOwnServer:
+    case UiCommand::ProbeOwnServer:
     case UiCommand::CopyProfileLink:
     case UiCommand::RemoveProfile:
     case UiCommand::ToggleServer:

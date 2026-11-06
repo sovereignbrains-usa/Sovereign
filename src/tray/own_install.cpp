@@ -309,7 +309,16 @@ std::string_view NextWord(std::string_view& rest) {
 
 }  // namespace
 
-std::string_view InstallScript() { return kScript; }
+// A checkout with CRLF (git's autocrlf on Windows) would put a CR at the end of every line of the
+// raw string - and sh reads "fi\r" as a word, not "fi". The script goes out with LF whatever the checkout.
+std::string_view InstallScript() {
+  static const std::string script = [] {
+    std::string text(kScript);
+    std::erase(text, '\r');
+    return text;
+  }();
+  return script;
+}
 
 std::string InstallCommand(const OwnServer& server) {
   if (!IsOwnHost(server.host)) {

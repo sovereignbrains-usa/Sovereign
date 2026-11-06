@@ -15,6 +15,7 @@ using namespace sovereign::tray;
 void TestScript() {
   const std::string_view script = InstallScript();
   CHECK(script.starts_with("#!/bin/sh"));
+  CHECK(script.find('\r') == std::string_view::npos);  // sh on the server: LF only, whatever the checkout
   CHECK(script.find("trap rollback EXIT") != std::string_view::npos);
   CHECK(script.find("main </dev/null") != std::string_view::npos);  // apt can't eat the script
   CHECK(script.find("flush ruleset") == std::string_view::npos);    // the user's own firewall stays

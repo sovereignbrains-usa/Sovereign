@@ -2717,7 +2717,8 @@ class Painter {
     }
     // Returns how much taller than kLatencyRow the row is: its detail wraps (never cut to "…") when it
     // does not fit under the name.
-    const auto row = [&](std::size_t i, float top, bool grouped = false) -> float {
+    // `twin`: another row of its group has the same title ("Hysteria 2" twice) - its name tells them apart.
+    const auto row = [&](std::size_t i, float top, bool grouped = false, bool twin = false) -> float {
       // Where the server is, once known: its country's flag in place of any
       // its name has, and the network it's in ahead of the measurement.
       const UiLocation* location = i < c.locations.size() ? &c.locations[i] : nullptr;
@@ -2726,10 +2727,12 @@ class Painter {
                                                                static_cast<char>(location->country[1])})
                                     : std::wstring();
       const std::wstring title = OptionTitle(c, i);
-      const std::wstring name = grouped ? WithoutFlagEmoji(title)
+      std::wstring name = grouped ? WithoutFlagEmoji(title)
                                         : flag.empty() ? title : flag + L" " + WithoutFlagEmoji(title);
       std::wstring isp = location != nullptr && !grouped ? location->isp : std::wstring();
-      if (i < c.protocolNotes.size() && !c.protocolNotes[i].empty()) {
+      if (twin) {
+        name = WithoutFlagEmoji(title) + L" · " + c.protocols[i];
+      } else if (i < c.protocolNotes.size() && !c.protocolNotes[i].empty()) {
         std::wstring note = WithoutFlagEmoji(c.protocolNotes[i]);
         note.erase(0, note.find_first_not_of(L' '));
         isp += (isp.empty() ? L"" : L" · ") + note;
@@ -2737,6 +2740,12 @@ class Painter {
       Item choice = CommandItem(Kind::Choice, {x0 + 4, top + 3, x1 - 4, top + kLatencyRow - 3}, name, nullptr,
                                 UiCommand::SetProtocol, static_cast<int>(i));
       choice.checked = static_cast<int>(i) == c.protocol;
+      // On auto, the server it took is the marked one: no mark anywhere left one guessing (06.11.2026).
+      const bool autoHere = c.autoOption >= 0 && c.protocol == c.autoOption && !c.autoServer.empty() &&
+                            i < c.protocols.size() && c.protocols[i] == c.autoServer;
+      if (autoHere) {
+        choice.checked = true;
+      }
       if (static_cast<int>(i) == c.autoOption) {
         const auto at = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
         const std::wstring server =
@@ -2751,6 +2760,9 @@ class Painter {
       if (!isp.empty() && static_cast<int>(i) != c.autoOption) {
         choice.detail = choice.detail.empty() ? isp : isp + L" · " + choice.detail;
       }
+      if (autoHere) {
+        choice.detail = choice.detail.empty() ? std::wstring(L"выбран автоматически") : L"выбран автоматически · " + choice.detail;
+      }
       float grown = 0;
       if (!choice.detail.empty()) {
         const float room = (x1 - 4) - (x0 + 4) - 42 - 12;  // DrawItem's detail line
@@ -2764,7 +2776,9 @@ class Painter {
       return grown;
     };
     // Auto is a key in the title bar; here only what it picked now, while it's the choice.
-    if (c.autoOption >= 0 && c.protocol == c.autoOption) {
+    // Once it took one that's listed, its row is marked "выбран автоматически" - this line only repeated it.
+    if (c.autoOption >= 0 && c.protocol == c.autoOption &&
+        std::find(c.protocols.begin(), c.protocols.end(), c.autoServer) == c.protocols.end()) {
       const auto at = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
       const std::wstring server =
           at == c.protocols.end() ? c.autoServer : OptionTitle(c, static_cast<std::size_t>(at - c.protocols.begin()));
@@ -2832,16 +2846,27 @@ class Painter {
       if (loc != nullptr && loc->country.size() == 2) {
         head = FlagEmojiFor(std::string{static_cast<char>(loc->country[0]), static_cast<char>(loc->country[1])}) + L" ";
       }
-      head += loc != nullptr && !loc->isp.empty() ? loc->isp : WithoutFlagEmoji(OptionTitle(c, first));
-      l.items.push_back(Make(Kind::Caption, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, head));
+      // Without a network the head would only repeat the row's name under it ("ShadowTLS" over
+      // "ShadowTLS"): such a group has none, unless the columns' heads need its line.
+      const bool named = loc != nullptr && !loc->isp.empty();
+      if (named) {
+        head += loc->isp;
+        l.items.push_back(Make(Kind::Caption, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, head));
+      }
       if (columns && g == 0) {
         Item heads = Make(Kind::ServerColumns, {x0 + 20, top + 8, x1 - 20, top + kGroupHead}, L"ОТКЛИК");
-        heads.detail = L"СБОИ";
+        heads.detail = AnyDelayFailures(c) ? L"СБОИ" : L"";
         l.items.push_back(std::move(heads));
       }
-      top += kGroupHead;
+      if (named || (columns && g == 0)) {
+        top += kGroupHead;
+      }
       for (std::size_t m = 0; m < members[g].size(); ++m) {
-        top += kLatencyRow + row(members[g][m], top, true);
+        const std::size_t i = members[g][m];
+        const bool twin = std::count_if(members[g].begin(), members[g].end(), [&](std::size_t o) {
+                            return WithoutFlagEmoji(OptionTitle(c, o)) == WithoutFlagEmoji(OptionTitle(c, i));
+                          }) > 1;
+        top += kLatencyRow + row(i, top, true, twin);
       }
     }
     const float h = top - y;
@@ -4002,7 +4027,7 @@ class Painter {
       case Kind::ServerColumns: {
         // Over the Choice's columns: this rect ends at x1 - 20, the Choice's at x1 - 4, and its columns end kColGap in.
         const float failRight = r.right + 16 - kColGap;
-        const float delayRight = failRight - kFailCol - kColSplit;
+        const float delayRight = it.detail.empty() ? failRight : failRight - kFailCol - kColSplit;
         k.Text(it.detail, trailing_.get(), {failRight - 2 * kFailCol, r.top, failRight, r.bottom}, secondary);  // wider than its column: it has the width of its word
         k.Text(it.text, trailing_.get(), {delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow), r.top, delayRight - 8, r.bottom},
                secondary);
@@ -4130,7 +4155,7 @@ class Painter {
         // green opens, red answers "not from here", dim doesn't answer.
         const bool isServer = it.command == UiCommand::SetProtocol && it.index >= 0 &&
                               static_cast<std::size_t>(it.index) < c.delays.size();
-        const bool failCol = isServer && AnyDelayAnswered(c);
+        const bool failCol = isServer && AnyDelayFailures(c);  // a column of zeros said nothing (06.11.2026)
         const float failRight = line.right - kColGap;
         const float delayRight = failCol ? failRight - kFailCol - kColSplit : failRight;
         const float delayLeft = delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow);
@@ -6901,7 +6926,11 @@ void MainWindow::Update(const UiContent& content) {
   m.ApplyBorder(content);
   const bool sameList = content.protocols == m.content.protocols && content.autoOption == m.content.autoOption &&
                         content.serversByDelay == m.content.serversByDelay;
-  if (!content.delaysTesting || !sameList || m.serverOrder.empty()) {
+  // While the servers' page is in sight with figures on it, its rows stay where they are: a new
+  // measurement that shuffles 179 and 180 ms made one look for the server again (06.11.2026). It's
+  // sorted again when the list changes, the order key is pressed, or the page is out of sight.
+  const bool watching = IsVisible() && m.page == UiPage::Servers && AnyDelayAnswered(m.content);
+  if (!sameList || m.serverOrder.empty() || (!watching && !content.delaysTesting)) {
     m.serverOrder = ServerOrder(content);
   }
   m.content = content;

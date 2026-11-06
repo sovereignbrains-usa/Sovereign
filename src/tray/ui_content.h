@@ -563,22 +563,35 @@ inline std::wstring ShortDelayError(const std::wstring& error) {
 // What a measurement says: "стабильный" - and, `detailed`, what it is made of:
 // "замеров: 9 · соединение 412 мс" - or why there was no answer (the core's
 // words as they are, `detailed`).
+// 06.11.2026: only what sets a server apart - "стабильный · замеров: 9" on every row was noise to
+// read past; the verdict shows when it's not steady, and the connection time when it's slow
+// (TUIC's 3.4 s), the error always short.
 inline std::wstring DelayDetail(const UiDelay& delay, bool detailed) {
   if (delay.state == UiDelay::State::Failed) {
-    return detailed ? delay.error : ShortDelayError(delay.error);
+    return ShortDelayError(delay.error);
   }
   if (delay.state != UiDelay::State::Ok) {
     return {};
   }
   std::wstring text = DelayVerdict(delay);
-  if (!detailed) {
-    return text;
+  if (text == L"стабильный") {
+    text.clear();
   }
-  text += std::format(L" · замеров: {}", delay.samples);
-  if (delay.connect > 0) {
-    text += std::format(L" · соединение {} мс", delay.connect);
+  if (detailed && delay.connect > 0 && delay.connect >= 2 * delay.ms + 500) {
+    const int tenths = (delay.connect + 50) / 100;
+    text += std::format(L"{}соединяется долго: {},{} с", text.empty() ? L"" : L" · ", tenths / 10, tenths % 10);
   }
   return text;
+}
+
+// Whether any measured server lost requests: the failures column shows only then.
+inline bool AnyDelayFailures(const UiContent& c) {
+  for (const UiDelay& delay : c.delays) {
+    if (DelayFailures(delay) > 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // The servers as their page lists them, indices into c.protocols, auto left

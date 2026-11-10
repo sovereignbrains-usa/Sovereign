@@ -42,6 +42,10 @@ constexpr std::size_t kCoreLogCapacity = 2000;
 // 25-30 s with the TUN) before the service restarts itself.
 constexpr std::chrono::seconds kResumeLimit{60};
 
+// The core's DLL at the service's start: tries, 2 s apart (ServiceMain).
+constexpr DWORD kCoreLoadTries = 5;
+constexpr DWORD kCoreLoadPauseMs = 2000;
+
 // Живёт на весь процесс службы: ServiceCtrlHandler (обычный C-callback без
 // контекста) должен куда-то дотянуться, поэтому состояние остановки хранится
 // в объекте с статической длительностью, а не как локальная переменная.
@@ -102,8 +106,9 @@ void TryLoadCore(ServiceState& state) {
 }
 
 void ReportStatus(SERVICE_STATUS_HANDLE handle, DWORD state,
-                   DWORD exitCode = NO_ERROR, DWORD waitHint = 0) {
+                   DWORD exitCode = NO_ERROR, DWORD waitHint = 0, DWORD checkPoint = 0) {
   SERVICE_STATUS status{};
+  status.dwCheckPoint = checkPoint;
   status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
   status.dwCurrentState = state;
   status.dwControlsAccepted = (state == SERVICE_START_PENDING)
@@ -249,6 +254,16 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
   ReportStatus(state.statusHandle, SERVICE_START_PENDING, NO_ERROR, 3000);
   trace::ProcessState("service", "starting");
   TryLoadCore(state);
+  // A core that didn't load is tried again a few times, still starting: the
+  // handler takes it once, and without it nothing connects - neither at boot
+  // nor for the tray - till the service restarts (11.11.2026, review: a DLL
+  // held or half-written at boot meant no VPN all day). A few seconds, and
+  // only when it failed.
+  for (DWORD checkPoint = 1; !state.core && checkPoint < kCoreLoadTries; ++checkPoint) {
+    ReportStatus(state.statusHandle, SERVICE_START_PENDING, NO_ERROR, 3000, checkPoint);
+    Sleep(kCoreLoadPauseMs);
+    TryLoadCore(state);
+  }
   auto& handler = CreateHandler(state);
   ReportStatus(state.statusHandle, SERVICE_RUNNING);
   trace::ProcessState("service", "running");

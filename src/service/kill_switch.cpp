@@ -117,6 +117,42 @@ std::vector<Prefix> LanPrefixes(bool v6) {
           Make(false, {255, 255, 255, 255}, 32)};
 }
 
+// DHCP: the client's port to the server's out, the server's to the client's
+// back in - and only in the local network: a DHCP server is on-link (a relay
+// is), the client asks it at 255.255.255.255 or ff02::1:2 and renews at its
+// address. Unscoped, UDP to port 67 of any host was a way out around the
+// tunnel for any program, the core down or a socket bound to the adapter.
+// (A server of a public address - a provider's, over IPoE - misses the
+// unicast renewal; the lease is renewed by the broadcast that follows.)
+KillSwitchRule Dhcp(bool v6, bool inbound) {
+  KillSwitchRule r;
+  r.v6 = v6;
+  r.permit = true;
+  r.protocol = 17;
+  r.remotePrefixes = LanPrefixes(v6);
+  r.localPorts = {static_cast<std::uint16_t>(v6 ? 546 : 68)};  // the client's, either way
+  if (!inbound) {
+    r.remotePort = static_cast<std::uint16_t>(v6 ? 547 : 67);
+  }
+  r.name = "DHCP";
+  return r;
+}
+
+// IPv6 finds its router and neighbours over ICMPv6 (router
+// solicitation/advertisement, neighbour solicitation/advertisement,
+// redirect: types 133-137). Unscoped: a neighbour may be asked at its global
+// address, and no program but the system's stack sends these types (that
+// takes a raw socket, an administrator's).
+KillSwitchRule NeighbourDiscovery() {
+  KillSwitchRule r;
+  r.v6 = true;
+  r.permit = true;
+  r.protocol = 58;
+  r.localPorts = {133, 134, 135, 136, 137};
+  r.name = "neighbour discovery";
+  return r;
+}
+
 void AddAddresses(const nlohmann::json& value, std::vector<Prefix>& out) {
   const auto add = [&](const nlohmann::json& item) {
     if (item.is_string()) {
@@ -232,24 +268,16 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
           rules.push_back(std::move(let));
         }
 
-        // DHCP: out to the server's port, back in to the client's.
-        KillSwitchRule dhcp = lanRule(true, 11, "DHCP");
-        dhcp.protocol = 17;
-        if (inbound) {
-          dhcp.localPorts = {static_cast<std::uint16_t>(v6 ? 546 : 68)};
-        } else {
-          dhcp.remotePort = v6 ? 547 : 67;
-        }
-        rules.push_back(std::move(dhcp));
-
-        // IPv6 finds its router and neighbours over ICMPv6 (router
-        // solicitation/advertisement, neighbour solicitation/advertisement,
-        // redirect: types 133-137).
+        // What the network can't work without.
+        const auto needed = [&](KillSwitchRule r) {
+          r.weight = 11;
+          r.inbound = inbound;
+          r.name = std::string(inbound ? "LAN in: " : "LAN out: ") + r.name;
+          return r;
+        };
+        rules.push_back(needed(Dhcp(v6, inbound)));
         if (v6) {
-          KillSwitchRule ndp = lanRule(true, 11, "neighbour discovery");
-          ndp.protocol = 58;
-          ndp.localPorts = {133, 134, 135, 136, 137};
-          rules.push_back(std::move(ndp));
+          rules.push_back(needed(NeighbourDiscovery()));
         }
 
         KillSwitchRule closed = lanRule(false, 10, "closed");
@@ -275,10 +303,18 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
       rules.push_back(std::move(tunnel));
     }
 
-    KillSwitchRule dhcp = rule(true, 6, "DHCP");
-    dhcp.protocol = 17;
-    dhcp.remotePort = v6 ? 547 : 67;
+    // Out only: nothing of the kill switch's stands in the way in. Neighbour
+    // discovery as well as with the closed network's - allowLan's permit
+    // would carry it, but not without allowLan, nor to a router's global
+    // address.
+    KillSwitchRule dhcp = Dhcp(v6, /*inbound=*/false);
+    dhcp.weight = 6;
     rules.push_back(std::move(dhcp));
+    if (v6) {
+      KillSwitchRule ndp = NeighbourDiscovery();
+      ndp.weight = 6;
+      rules.push_back(std::move(ndp));
+    }
 
     if (settings.allowLan && !settings.lanClosed) {
       KillSwitchRule lanDns = rule(false, 5, "no DNS in the local network");

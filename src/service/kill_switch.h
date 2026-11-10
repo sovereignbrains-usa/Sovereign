@@ -17,8 +17,13 @@
 //
 // What gets through, and nothing else (outbound connections, IPv4 and IPv6):
 //   - sovereign-core.exe itself - the core dials the proxies directly, and
-//     the apps routed "direct" go out through it too;
-//   - loopback, and DHCP;
+//     the apps routed "direct" go out through it too. Trusted whole: the
+//     DNS block below isn't the core's; that the core asks no name of the
+//     router is its config's to say (the closed local network, above all
+//     of this, shuts it out of the router too);
+//   - loopback; DHCP, between the client's port and the local network only
+//     (a server is on-link: UDP to port 67 of any host would be a way out);
+//     IPv6's neighbour discovery;
 //   - anything whose local address is the tunnel's (the TUN inbound's
 //     addresses, from the running config);
 //   - with allowLan, private and link-local destinations (printers, NAS) -

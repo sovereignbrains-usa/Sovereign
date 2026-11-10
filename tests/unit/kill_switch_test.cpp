@@ -53,14 +53,69 @@ std::size_t Count(const std::vector<KillSwitchRule>& rules, bool v6) {
   return static_cast<std::size_t>(std::count_if(rules.begin(), rules.end(), [&](const auto& r) { return r.v6 == v6; }));
 }
 
+// Whether `prefix` takes in `address` (both of one family).
+bool Covers(const Prefix& prefix, const Prefix& address) {
+  if (prefix.v6 != address.v6) {
+    return false;
+  }
+  for (int bit = 0; bit < prefix.bits; ++bit) {
+    const auto byte = static_cast<std::size_t>(bit / 8);
+    const int mask = 0x80 >> (bit % 8);
+    if ((prefix.bytes[byte] & mask) != (address.bytes[byte] & mask)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool AnyCovers(const std::vector<Prefix>& prefixes, const char* address) {
+  const auto parsed = ParsePrefix(address);
+  return parsed && std::any_of(prefixes.begin(), prefixes.end(), [&](const Prefix& p) { return Covers(p, *parsed); });
+}
+
+// Every DHCP permit: UDP from the client's port, to the local network only -
+// unscoped, port 67 of any host was a way out around the tunnel.
+void CheckDhcpScoped(const std::vector<KillSwitchRule>& rules, std::size_t expected) {
+  std::size_t seen = 0;
+  for (const auto& r : rules) {
+    if (!r.name.ends_with("DHCP")) {
+      continue;
+    }
+    ++seen;
+    CHECK(r.permit && r.protocol == 17);
+    CHECK(r.localPorts.size() == 1 && r.localPorts[0] == (r.v6 ? 546 : 68));
+    CHECK(r.inbound ? !r.remotePort : r.remotePort == (r.v6 ? 547 : 67));
+    CHECK(!r.remotePrefixes.empty());
+    if (r.v6) {
+      CHECK(AnyCovers(r.remotePrefixes, "ff02::1:2") && AnyCovers(r.remotePrefixes, "fe80::1"));
+      CHECK(!AnyCovers(r.remotePrefixes, "2001:db8::1") && !AnyCovers(r.remotePrefixes, "2a00:1450::1"));
+    } else {
+      CHECK(AnyCovers(r.remotePrefixes, "255.255.255.255") && AnyCovers(r.remotePrefixes, "192.168.1.1") &&
+            AnyCovers(r.remotePrefixes, "10.0.0.1"));
+      CHECK(!AnyCovers(r.remotePrefixes, "8.8.8.8") && !AnyCovers(r.remotePrefixes, "203.0.113.7"));
+    }
+  }
+  CHECK(seen == expected);
+}
+
+bool HasNeighbourDiscovery(const std::vector<KillSwitchRule>& rules) {
+  return std::any_of(rules.begin(), rules.end(), [](const auto& r) {
+    return r.v6 && !r.inbound && r.permit && r.protocol == 58 && r.name == "neighbour discovery" &&
+           r.localPorts.size() == 5;
+  });
+}
+
 void TestRules() {
   CHECK(BuildKillSwitchRules({.enabled = false, .allowLan = true, .lanClosed = false, .lanAllowed = {}}, {}).empty());
 
   const auto tun = TunPrefixes(R"({"inbounds":[{"type":"tun","address":["172.19.0.1/30"]}]})");
   const auto rules = BuildKillSwitchRules({.enabled = true, .allowLan = true, .lanClosed = false, .lanAllowed = {}}, tun);
-  // IPv4: core, loopback, tunnel, DHCP, LAN DNS block, LAN, block all; IPv6 has no tunnel address here.
+  // IPv4: core, loopback, tunnel, DHCP, LAN DNS block, LAN, block all; IPv6 has no tunnel address
+  // here, and neighbour discovery besides.
   CHECK(Count(rules, false) == 7);
-  CHECK(Count(rules, true) == 6);
+  CHECK(Count(rules, true) == 7);
+  CheckDhcpScoped(rules, 2);
+  CHECK(HasNeighbourDiscovery(rules));
   CHECK(std::all_of(rules.begin(), rules.end(), [](const auto& r) { return r.weight <= 15; }));
   for (const bool v6 : {false, true}) {
     // The block-all is the lowest, the core's permit the highest.
@@ -84,16 +139,26 @@ void TestRules() {
   // DNS in the local network is blocked above the local network's permit.
   const auto dns = std::find_if(rules.begin(), rules.end(), [](const auto& r) { return !r.v6 && r.remotePort == 53; });
   const auto lan = std::find_if(rules.begin(), rules.end(),
-                                [](const auto& r) { return !r.v6 && r.permit && !r.remotePrefixes.empty(); });
+                                [](const auto& r) { return !r.v6 && r.name == "the local network"; });
+  CHECK(lan != rules.end() && lan->permit && !lan->remotePrefixes.empty());
+  // DHCP's scope is the local network's own.
+  const auto dhcp = std::find_if(rules.begin(), rules.end(), [](const auto& r) { return !r.v6 && r.name == "DHCP"; });
+  CHECK(dhcp != rules.end() && lan != rules.end() && dhcp->remotePrefixes == lan->remotePrefixes);
   CHECK(dns != rules.end() && !dns->permit && lan != rules.end() && dns->weight > lan->weight);
   const auto tunnel = std::find_if(rules.begin(), rules.end(), [](const auto& r) { return !r.localPrefixes.empty(); });
   CHECK(tunnel != rules.end() && tunnel->permit && tunnel->localPrefixes.size() == 1);
 
-  // Without the local network: no LAN rules at all.
+  // Without the local network: no LAN rules - nothing reaches into it but
+  // DHCP. IPv6 still finds its router: neighbour discovery doesn't lean on
+  // the local network's permit.
   const auto strict =
       BuildKillSwitchRules({.enabled = true, .allowLan = false, .lanClosed = false, .lanAllowed = {}}, tun);
-  CHECK(std::none_of(strict.begin(), strict.end(), [](const auto& r) { return !r.remotePrefixes.empty(); }));
+  CHECK(std::none_of(strict.begin(), strict.end(),
+                     [](const auto& r) { return !r.remotePrefixes.empty() && r.name != "DHCP"; }));
   CHECK(Count(strict, false) == 5);
+  CHECK(Count(strict, true) == 5);
+  CheckDhcpScoped(strict, 2);
+  CHECK(HasNeighbourDiscovery(strict));
 }
 
 // A rule of the closed local network's, by direction and name's end.
@@ -134,7 +199,7 @@ void TestLanClosed() {
       CHECK(let->permit && let->remotePrefixes.size() == 1 && let->weight > closed->weight);
       CHECK(tunnel->permit && tunnel->weight > closed->weight);
       CHECK(dhcp->permit && dhcp->weight > closed->weight);
-      CHECK(inbound ? (dhcp->localPorts.size() == 1 && !dhcp->remotePort) : (dhcp->remotePort && dhcp->localPorts.empty()));
+      CHECK(dhcp->remotePrefixes == closed->remotePrefixes);
 
       // Not even an address let in answers names.
       const KillSwitchRule* dns = LanRule(rules, v6, inbound, "no DNS");
@@ -142,6 +207,7 @@ void TestLanClosed() {
       CHECK((LanRule(rules, v6, inbound, "neighbour discovery") != nullptr) == v6);
     }
   }
+  CheckDhcpScoped(rules, 4);  // both families, both ways
 
   // With the kill switch too: its rules under the closed network's, and its
   // LAN permit gone even with allowLan.
@@ -153,6 +219,7 @@ void TestLanClosed() {
   CHECK(std::none_of(both.begin(), both.end(), [](const auto& r) { return r.name == "the local network"; }));
   CHECK(LanRule(both, false, false, "let in") == nullptr);  // nothing let in: no such rule
   CHECK(both.size() <= 64);
+  CheckDhcpScoped(both, 6);
   // Above every rule of the kill switch's (the core gets no way around it),
   // and within what WFP takes for a weight: 0..15.
   std::uint8_t lowestLan = 255;

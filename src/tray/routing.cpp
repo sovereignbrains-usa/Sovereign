@@ -383,8 +383,13 @@ Json CustomDnsServer(const CustomDns& dns, const std::string& tag) {
 }
 
 // The local server: an encrypted one by its address, the system's, or the
-// user's own (one that doesn't parse: Cloudflare's, as Auto).
-Json LocalDnsServer(RoutingSettings::LocalDns local, const std::string& custom) {
+// user's own (one that doesn't parse: Cloudflare's, as Auto). The local
+// network closed, not the system's: its resolver is mostly the router, shut
+// out (RoutingSettings::lanClosed) - Auto's instead.
+Json LocalDnsServer(RoutingSettings::LocalDns local, const std::string& custom, bool lanClosed) {
+  if (lanClosed && local == RoutingSettings::LocalDns::System) {
+    local = RoutingSettings::LocalDns::Auto;
+  }
   if (local == RoutingSettings::LocalDns::Custom) {
     if (const auto dns = ParseCustomDns(custom)) {
       return CustomDnsServer(*dns, kLocalDns);
@@ -398,13 +403,17 @@ Json LocalDnsServer(RoutingSettings::LocalDns local, const std::string& custom) 
 }
 
 // The servers a name of which is resolved first get the system's resolver
-// to do it.
-void AddBootstrapDns(Json& servers) {
+// to do it - with the local network closed, Auto's encrypted one (as
+// LocalDnsServer).
+void AddBootstrapDns(Json& servers, bool lanClosed) {
   const bool wanted = std::any_of(servers.begin(), servers.end(), [](const Json& s) {
     return s.is_object() && Str(s, "domain_resolver") == kBootstrapDns;
   });
   if (wanted && !Tags(servers).contains(kBootstrapDns)) {
-    servers.push_back(Json{{"type", "local"}, {"tag", kBootstrapDns}});
+    servers.push_back(lanClosed ? Json{{"type", "https"},
+                                       {"tag", kBootstrapDns},
+                                       {"server", std::string(LocalDnsAddress(RoutingSettings::LocalDns::Auto))}}
+                                : Json{{"type", "local"}, {"tag", kBootstrapDns}});
   }
 }
 
@@ -1314,9 +1323,10 @@ std::string OwnFrame(const RoutingSettings& settings) {
     }
   }
   remote["detour"] = "proxy";
-  Json dns = {{"servers", Json::array({std::move(remote), LocalDnsServer(settings.localDns, settings.localDnsCustom)})},
+  Json dns = {{"servers", Json::array({std::move(remote), LocalDnsServer(settings.localDns, settings.localDnsCustom,
+                                                                          settings.lanClosed)})},
               {"final", "remote"}};
-  AddBootstrapDns(dns["servers"]);
+  AddBootstrapDns(dns["servers"], settings.lanClosed);
   if (const char* strategy = DnsStrategy(settings)) {
     dns["strategy"] = strategy;
   }
@@ -1500,8 +1510,8 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
 
   // The local resolver for Russian and direct names.
   if (!Tags(dns["servers"]).contains(std::string(kLocalDns))) {
-    dns["servers"].push_back(LocalDnsServer(settings.localDns, settings.localDnsCustom));
-    AddBootstrapDns(dns["servers"]);
+    dns["servers"].push_back(LocalDnsServer(settings.localDns, settings.localDnsCustom, settings.lanClosed));
+    AddBootstrapDns(dns["servers"], settings.lanClosed);
   }
 
   // Routing: the client's rules first, after sniffing and DNS hijacking.
@@ -1894,9 +1904,9 @@ bool QuicBlocked(const RoutingSettings& settings, std::string_view config) {
   return c.is_object() ? BlockQuic(settings, c) : settings.quic != RoutingSettings::Quic::Allow;
 }
 
-std::vector<RoutingSettings::LocalDns> LocalDnsOrder(RoutingSettings::LocalDns pick) {
+std::vector<RoutingSettings::LocalDns> LocalDnsOrder(RoutingSettings::LocalDns pick, bool lanClosed) {
   using LocalDns = RoutingSettings::LocalDns;
-  if (pick == LocalDns::Auto) {
+  if (pick == LocalDns::Auto || (lanClosed && pick == LocalDns::System)) {
     pick = LocalDns::Cloudflare;  // auto: the encrypted ones from Cloudflare, the system's last
   }
   std::vector<LocalDns> order{pick};
@@ -1905,7 +1915,7 @@ std::vector<RoutingSettings::LocalDns> LocalDnsOrder(RoutingSettings::LocalDns p
       order.push_back(dns);
     }
   }
-  if (pick != LocalDns::System) {
+  if (pick != LocalDns::System && !lanClosed) {
     order.push_back(LocalDns::System);
   }
   return order;

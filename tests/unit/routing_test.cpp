@@ -1291,6 +1291,29 @@ void TestLocalDnsFallback() {
         (std::vector{LocalDns::System, LocalDns::Cloudflare, LocalDns::Google, LocalDns::Quad9, LocalDns::Yandex}));
   CHECK(LocalDnsOrder(LocalDns::Yandex) ==
         (std::vector{LocalDns::Yandex, LocalDns::Cloudflare, LocalDns::Google, LocalDns::Quad9, LocalDns::System}));
+  // The local network closed: no system's resolver (the router's, shut out) -
+  // picked, it's auto; the order ends with the last encrypted one.
+  CHECK(LocalDnsOrder(LocalDns::System, true) == LocalDnsOrder(LocalDns::Auto, true));
+  CHECK(LocalDnsOrder(LocalDns::Google, true) ==
+        (std::vector{LocalDns::Google, LocalDns::Cloudflare, LocalDns::Quad9, LocalDns::Yandex}));
+  CHECK(LocalDnsOrder(LocalDns::Auto, true) ==
+        (std::vector{LocalDns::Cloudflare, LocalDns::Google, LocalDns::Quad9, LocalDns::Yandex}));
+  {
+    RoutingSettings s;
+    s.localDns = LocalDns::System;
+    const auto localServer = [&] {
+      const json applied = json::parse(ApplyRouting(R"({"outbounds":[{"type":"direct","tag":"direct"}]})", s, {}));
+      for (const json& server : applied["dns"]["servers"]) {
+        if (server.value("tag", "") == "sov-local") {
+          return server;
+        }
+      }
+      return json();
+    };
+    CHECK(localServer().value("type", "") == "local");
+    s.lanClosed = true;
+    CHECK(localServer().value("type", "") == "https" && localServer().value("server", "") == "1.1.1.1");
+  }
   CHECK(LocalDnsAddress(LocalDns::Google) == "8.8.8.8" && LocalDnsAddress(LocalDns::System).empty());
   CHECK(LocalDnsAddress(LocalDns::Yandex) == "77.88.8.8");
   CHECK(LocalDnsName(LocalDns::Quad9) == "Quad9");
@@ -1393,6 +1416,21 @@ void TestCustomDns() {
     bootstrap = bootstrap || (tag == "sov-bootstrap" && server.value("type", "") == "local");
   }
   CHECK(remote && local && bootstrap);
+
+  // The local network closed: the typed server's name resolved by Auto's
+  // encrypted one - the system's resolver is mostly the router, shut out.
+  RoutingSettings closed = s;
+  closed.lanClosed = true;
+  const std::string closedText =
+      ApplyRouting(CombineConfigs({{"Ключи", keys, {}}}, OwnFrame(closed)).config.value_or("{}"), closed, {});
+  Checked().emplace_back("custom-dns-lan-closed", closedText);
+  bool encrypted = false;
+  for (const json& server : json::parse(closedText)["dns"]["servers"]) {
+    CHECK(server.value("type", "") != "local");
+    encrypted = encrypted || (server.value("tag", "") == "sov-bootstrap" && server.value("type", "") == "https" &&
+                              server.value("server", "") == "1.1.1.1");
+  }
+  CHECK(encrypted);
 }
 
 // WARP's tunnel not getting through, as the core logs it; its servers when it

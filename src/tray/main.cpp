@@ -1038,9 +1038,10 @@ class Worker {
     // servers - their routing and DNS never (one client's routing for everyone,
     // services like Netflix included).
     RoutingSettings routing = settings_.routing;
-    if (dnsInstead_) {
-      routing.localDns = *dnsInstead_;  // the pick isn't answering (WatchLocalDns)
+    if (const auto instead = DnsInstead()) {
+      routing.localDns = *instead;  // the pick isn't answering (WatchLocalDns), or the network's closed
     }
+    routing.lanClosed = LanClosedNow();
     if (warpDirect_) {
       routing.warpViaProxy = false;  // no server got it through (WatchWarp)
     }
@@ -2370,7 +2371,7 @@ class Worker {
     // Both while the connection is meant to be on. Open, the local network
     // stays reachable with the kill switch too; closed, only what's let in.
     const bool enabled = settings_.killSwitch && settings_.wantOn;
-    const bool lanClosed = settings_.lanClosed && settings_.wantOn;
+    const bool lanClosed = LanClosedNow();
     std::vector<std::string> allowed;
     allowed.reserve(settings_.lanAllowed.size());
     for (const sovereign::tray::LanHost& host : settings_.lanAllowed) {
@@ -2916,6 +2917,26 @@ class Worker {
     }
   }
 
+  // The local network shut by the service: closed, and the connection on
+  // (UpdateKillSwitch).
+  bool LanClosedNow() const { return settings_.lanClosed && settings_.wantOn; }
+
+  // What runs instead of the local DNS picked; nullopt: the pick. The local
+  // network closed, the system's resolver is out of the order (routing.h
+  // lanClosed): one that took over before is passed over, and the system's
+  // picked gives way to the first encrypted one.
+  std::optional<sovereign::tray::RoutingSettings::LocalDns> DnsInstead() const {
+    const bool closed = LanClosedNow();
+    const auto order = sovereign::tray::LocalDnsOrder(settings_.routing.localDns, closed);
+    if (dnsInstead_ && std::find(order.begin(), order.end(), *dnsInstead_) != order.end()) {
+      return dnsInstead_;
+    }
+    if (closed && settings_.routing.localDns == sovereign::tray::RoutingSettings::LocalDns::System) {
+      return order.front();
+    }
+    return std::nullopt;
+  }
+
   // The core's new log lines from the service, plus the tray's own errors
   // (a box that never started has no log of its own to explain why), into the
   // lines the main window's log shows.
@@ -2927,8 +2948,8 @@ class Worker {
   // nothing. The user's pick stays; picking one by hand starts over.
   void WatchLocalDns(std::string_view line) {
     using sovereign::tray::RoutingSettings;
-    const RoutingSettings::LocalDns now =
-        dnsInstead_.value_or(sovereign::tray::LocalDnsOrder(settings_.routing.localDns).front());
+    const auto order = sovereign::tray::LocalDnsOrder(settings_.routing.localDns, LanClosedNow());
+    const RoutingSettings::LocalDns now = DnsInstead().value_or(order.front());
     // Where it's dialled: the encrypted ones at 443; the user's own at its
     // port - by its address only (one by name is dialled at what it resolved to).
     std::string address(sovereign::tray::LocalDnsAddress(now));
@@ -2948,7 +2969,6 @@ class Worker {
     if (dnsFailures_.size() < kDnsFailuresToSwitch || (lastDnsSwitch_ && clock - *lastDnsSwitch_ < kDnsSwitchGap)) {
       return;
     }
-    const auto order = sovereign::tray::LocalDnsOrder(settings_.routing.localDns);
     const auto at = std::find(order.begin(), order.end(), now);
     if (at == order.end() || at + 1 == order.end()) {
       return;  // the last one: nowhere further
@@ -3122,7 +3142,7 @@ class Worker {
       v.combineError = combineError_;
       v.combineNotes = combineNotes_;
       v.routing = settings_.routing;
-      v.dnsInstead = dnsInstead_;
+      v.dnsInstead = DnsInstead();
       v.warpAnswers = warpAnswers_;
       v.warpServer = warpServer_;
       v.warpDirect = warpDirect_;

@@ -36,7 +36,13 @@
 // work without: DHCP, IPv6's neighbour discovery. The tunnel's own addresses
 // sit in a private range (172.19.0.1/30) and stay open. DNS to the local
 // network stays shut even to an address let in: the router answering names
-// would be a leak.
+// would be a leak (the core's too, whatever sing-tun's strict_route permits
+// it: kill_switch_wfp.cpp; the tray gives the core no system resolver then,
+// routing.h lanClosed). The tray lets in IPv4 addresses only (lan.cpp
+// LanAddress): IPv6's local network stays shut whole. And a permit here
+// opens only this sublayer - what Windows' own firewall refuses in (a
+// connection nothing on the PC asked for, by the network's profile) it
+// still refuses.
 //
 // This header is the part that isn't Windows': the rules as data, built from
 // the settings and the config - unit-tested in tests/unit/kill_switch_test.cpp.

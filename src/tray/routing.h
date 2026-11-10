@@ -171,6 +171,13 @@ struct RoutingSettings {
   // connection then get IPv4 addresses only - an IPv6 one would be reset at
   // once, and a program that picks IPv6 itself (curl) would stop there.
   bool directIpv4Only = false;
+  // Not a setting and not kept: the tray sets it while the local network is
+  // closed (and the connection on, as the service shuts it). DNS to the
+  // local network is shut then, the core's too (kill_switch.h), and the
+  // system's resolver is mostly the router: the local server picked as
+  // "system" is Auto's encrypted one, the one that resolves a typed server's
+  // name too, and LocalDnsOrder ends without the system's (11.11.2026, review).
+  bool lanClosed = false;
   std::vector<RouteRule> rules;  // the user's, first of all
   std::vector<ServiceRoute> services;  // after the user's rules
 
@@ -333,8 +340,9 @@ bool QuicBlocked(const RoutingSettings& settings, std::string_view config);
 
 // The local DNS servers in the order a failing one gives way: the user's
 // pick, then the other encrypted ones (Cloudflare, Google, Quad9, Yandex),
-// the system's resolver last.
-std::vector<RoutingSettings::LocalDns> LocalDnsOrder(RoutingSettings::LocalDns pick);
+// the system's resolver last. The local network closed (lanClosed), no
+// system's resolver: the system's picked is Auto, the order Cloudflare's.
+std::vector<RoutingSettings::LocalDns> LocalDnsOrder(RoutingSettings::LocalDns pick, bool lanClosed = false);
 
 // The address an encrypted local server is dialled at ("1.1.1.1"; Auto:
 // Cloudflare's); empty for the system's resolver and a custom one.

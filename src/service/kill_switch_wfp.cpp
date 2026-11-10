@@ -244,6 +244,16 @@ std::string WfpKillSwitch::Apply(const std::vector<KillSwitchRule>& rules, const
   sublayer.displayData.name = sublayerName;
   sublayer.flags = FWPM_SUBLAYER_FLAG_PERSISTENT;
   sublayer.providerKey = &providerKey;
+  // The top weight, as the core's own sublayer (sing-tun's strict_route: a
+  // random key every start, so which of the two is asked first is chance).
+  // It doesn't matter: a filter's block is hard (WFP's default), and a
+  // permit the other sublayer made hard (sing-tun's for the core's own
+  // process, FWPM_FILTER_FLAG_CLEAR_ACTION_RIGHT) is vetoed by it - blocked,
+  // whichever sublayer comes first. Tried on Windows 11 (11.11.2026, review
+  // "закрыть от локальной сети"): a hard permit in a sublayer of weight
+  // 0xFFFF and a plain block of the same traffic in one of weight 1 - the
+  // connection refused (WSAEACCES); the permit alone - through. So the closed
+  // network's "no DNS" and "closed" hold for the core too.
   sublayer.weight = 0xFFFF;
   if (const DWORD added = FwpmSubLayerAdd0(engine.Handle(), &sublayer, nullptr);
       added != ERROR_SUCCESS && added != static_cast<DWORD>(FWP_E_ALREADY_EXISTS)) {

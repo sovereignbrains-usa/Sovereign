@@ -124,16 +124,16 @@ std::vector<Prefix> LanPrefixes(bool v6) {
 // tunnel for any program, the core down or a socket bound to the adapter.
 // (A server of a public address - a provider's, over IPoE - misses the
 // unicast renewal; the lease is renewed by the broadcast that follows.)
-KillSwitchRule Dhcp(bool v6, bool inbound) {
+// In as well as out the server's port: in without it, any host of the
+// network got to the client's port from any of its own (11.11.2026, review).
+KillSwitchRule Dhcp(bool v6) {
   KillSwitchRule r;
   r.v6 = v6;
   r.permit = true;
   r.protocol = 17;
   r.remotePrefixes = LanPrefixes(v6);
   r.localPorts = {static_cast<std::uint16_t>(v6 ? 546 : 68)};  // the client's, either way
-  if (!inbound) {
-    r.remotePort = static_cast<std::uint16_t>(v6 ? 547 : 67);
-  }
+  r.remotePort = static_cast<std::uint16_t>(v6 ? 547 : 67);    // the server's (a relay's)
   r.name = "DHCP";
   return r;
 }
@@ -275,7 +275,7 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
           r.name = std::string(inbound ? "LAN in: " : "LAN out: ") + r.name;
           return r;
         };
-        rules.push_back(needed(Dhcp(v6, inbound)));
+        rules.push_back(needed(Dhcp(v6)));
         if (v6) {
           rules.push_back(needed(NeighbourDiscovery()));
         }
@@ -307,7 +307,7 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
     // discovery as well as with the closed network's - allowLan's permit
     // would carry it, but not without allowLan, nor to a router's global
     // address.
-    KillSwitchRule dhcp = Dhcp(v6, /*inbound=*/false);
+    KillSwitchRule dhcp = Dhcp(v6);  // out
     dhcp.weight = 6;
     rules.push_back(std::move(dhcp));
     if (v6) {

@@ -73,8 +73,9 @@ bool AnyCovers(const std::vector<Prefix>& prefixes, const char* address) {
   return parsed && std::any_of(prefixes.begin(), prefixes.end(), [&](const Prefix& p) { return Covers(p, *parsed); });
 }
 
-// Every DHCP permit: UDP from the client's port, to the local network only -
-// unscoped, port 67 of any host was a way out around the tunnel.
+// Every DHCP permit: UDP between the client's port and the server's, in the
+// local network only - unscoped, port 67 of any host was a way out around the
+// tunnel; in without the server's port, any host's any port got to the client's.
 void CheckDhcpScoped(const std::vector<KillSwitchRule>& rules, std::size_t expected) {
   std::size_t seen = 0;
   for (const auto& r : rules) {
@@ -84,7 +85,7 @@ void CheckDhcpScoped(const std::vector<KillSwitchRule>& rules, std::size_t expec
     ++seen;
     CHECK(r.permit && r.protocol == 17);
     CHECK(r.localPorts.size() == 1 && r.localPorts[0] == (r.v6 ? 546 : 68));
-    CHECK(r.inbound ? !r.remotePort : r.remotePort == (r.v6 ? 547 : 67));
+    CHECK(r.remotePort == (r.v6 ? 547 : 67));  // out and in alike
     CHECK(!r.remotePrefixes.empty());
     if (r.v6) {
       CHECK(AnyCovers(r.remotePrefixes, "ff02::1:2") && AnyCovers(r.remotePrefixes, "fe80::1"));

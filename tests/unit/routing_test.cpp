@@ -438,9 +438,12 @@ void TestOrder() {
       order.emplace_back("ads");
     } else if (r.value("protocol", "") == "quic") {
       order.emplace_back("quic");
+    } else if (r.contains("ip_is_private")) {
+      order.emplace_back("private");
     }
   }
-  CHECK(order == std::vector<std::string>({"Bad.exe", "bank", "ads", "quic", "msedge.exe"}));
+  // The blocked program before the private addresses directly too: no LAN either.
+  CHECK(order == std::vector<std::string>({"Bad.exe", "private", "bank", "ads", "quic", "msedge.exe"}));
 
   // A service among them: after the ads (its ad names blocked too), before
   // the Russian sites (its own .ru names go its way) - in routing and DNS.
@@ -479,13 +482,39 @@ void TestOrder() {
       parts.emplace_back("both");
     } else if (r.contains("domain_suffix") && r["domain_suffix"][0] == "qwen.ai") {
       parts.emplace_back("qwen.ai");
+    } else if (r.contains("process_name") && r.contains("protocol")) {
+      parts.emplace_back("Qwen.exe quic");
     } else if (r.contains("process_name") && r["process_name"][0] == "Qwen.exe") {
       parts.emplace_back("Qwen.exe");
     } else if (r.value("rule_set", json()) == "sov-ads" || r.value("rule_set", json()) == json::array({"sov-ads"})) {
       parts.emplace_back("ads");
     }
   }
-  CHECK(parts == std::vector<std::string>({"qwen.ai", "ads", "Qwen.exe"}));
+  CHECK(parts == std::vector<std::string>({"qwen.ai", "ads", "Qwen.exe quic", "Qwen.exe"}));
+
+  // QUIC refused on its own (through a TCP server): a program sent directly
+  // keeps it, right before the refusal - not one an earlier rule sent
+  // elsewhere; refused by the user's choice, refused for all.
+  const auto quicDirect = [&](const std::string& text) {
+    const json q = json::parse(text);
+    const json& rules = q["route"]["rules"];
+    for (std::size_t i = 0; i + 1 < rules.size(); ++i) {
+      if (rules[i].value("protocol", "") == "quic" && rules[i].contains("process_name")) {
+        CHECK(rules[i].value("outbound", "") == "direct" && rules[i + 1].value("protocol", "") == "quic" &&
+              rules[i + 1].value("action", "") == "reject");
+        return rules[i]["process_name"].get<std::vector<std::string>>();
+      }
+    }
+    return std::vector<std::string>();
+  };
+  RoutingSettings q;
+  q.rules.push_back(*ParseRule("msedge.exe", RouteRule::Action::Proxy));
+  q.rules.push_back(*ParseRule("MSEdge.exe, game.exe", RouteRule::Action::Direct));
+  const std::string kept = ApplyRouting(config, q, {});
+  Checked().emplace_back("quic-direct", kept);
+  CHECK(quicDirect(kept) == std::vector<std::string>({"game.exe"}));
+  q.quic = RoutingSettings::Quic::Block;
+  CHECK(quicDirect(ApplyRouting(config, q, {})).empty());
 }
 
 void TestOwn() {

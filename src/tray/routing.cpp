@@ -7,6 +7,7 @@
 #include <cctype>
 #include <format>
 #include <initializer_list>
+#include <optional>
 #include <set>
 #include <utility>
 
@@ -1559,8 +1560,12 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     }
   };
   const auto any = [](const RouteRule&) { return true; };
-  // A blocked program first of all: no network, whatever it asks for.
+  // A blocked program first of all, before even the frame's private addresses
+  // directly (put in apart, below): no network, whatever it asks for - the LAN
+  // too, as far as it comes through the TUN (before 10.11.2026 a blocked one
+  // reached 10/8, 192.168/16 and the like past its rule).
   add([](const RouteRule& r) { return r.action == RouteRule::Action::Block; }, programs);
+  std::vector<Json> blocked = std::exchange(rules, {});
   // Then the sites, and the lists - ads, services, Russia, QUIC - before the
   // other programs: a site goes where it was sent from every program (the
   // bank directly even from a browser sent through WARP), and a browser sent
@@ -1711,6 +1716,31 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     }
   }
   if (BlockQuic(settings, config)) {
+    // Refused on its own (auto) for the servers' sake - through one over TCP
+    // QUIC would be UDP packed in TCP: a program the user sent directly keeps
+    // it, as a site sent directly does above (before 10.11.2026 it fell back to
+    // TCP). Unless a rule of the user's before sent the program elsewhere; and
+    // refused by the user's choice, refused for every one.
+    if (settings.quic == RoutingSettings::Quic::Auto) {
+      std::vector<std::string> directly;
+      std::set<std::string> taken;  // programs a rule below sends, lower case
+      for (const RouteRule& r : settings.rules) {
+        const bool goes = r.action == RouteRule::Action::Direct ||
+                          (r.action == RouteRule::Action::Proxy && !proxy.empty()) ||
+                          (r.action == RouteRule::Action::Warp && !warp.empty());
+        if (!goes || appApart(r)) {
+          continue;  // blocked, waiting, or put before this
+        }
+        for (const std::string& p : r.processes) {
+          if (taken.insert(Lower(p)).second && r.action == RouteRule::Action::Direct) {
+            directly.push_back(p);
+          }
+        }
+      }
+      if (!directly.empty()) {
+        rules.push_back(Json{{"process_name", directly}, {"protocol", "quic"}, {"outbound", direct}});
+      }
+    }
     rules.push_back(Json{{"protocol", "quic"}, {"action", "reject"}});
   }
   add([&](const RouteRule& r) { return r.action != RouteRule::Action::Block && !appApart(r); }, programs);
@@ -1719,14 +1749,19 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // traffic, to its servers' addresses, nothing before took.
   rules.insert(rules.end(), std::make_move_iterator(games.begin()), std::make_move_iterator(games.end()));
   std::size_t at = 0;
+  std::optional<std::size_t> privateAt;  // the frame's private addresses directly, where
   for (const Json& r : route["rules"]) {
     const std::string action = Str(r, "action");
     if (action != "sniff" && action != "hijack-dns" && action != "resolve" && !r.contains("ip_is_private")) {
       break;
     }
+    if (r.contains("ip_is_private") && !privateAt) {
+      privateAt = at;
+    }
     ++at;
   }
   Prepend(route["rules"], std::move(rules), at);
+  Prepend(route["rules"], std::move(blocked), privateAt.value_or(at));  // at or before `at`: ahead of the others
   route["final"] = settings.finalDirect || proxy.empty() ? direct : proxy;
   // "В обход блокировок": directly, and through the proxy what's cut there -
   // sov-smart races a site's TLS hello both ways (gocore/smart.go). It reads

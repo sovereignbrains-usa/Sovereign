@@ -794,6 +794,7 @@ class Worker {
       for (const RoutingChange& change : routing) {
         ChangeRouting(change);
       }
+      DropBrokenRuleSet();
       UpdateRuleSets();
       if (remove) {
         RemoveProfile(*remove);
@@ -1042,6 +1043,8 @@ class Worker {
       routing.localDns = *instead;  // the pick isn't answering (WatchLocalDns), or the network's closed
     }
     routing.lanClosed = LanClosedNow();
+    routing.appsMode = settings_.appsMode;  // their rule in its place among the routing's (routing.h)
+    routing.apps = settings_.apps;
     if (warpDirect_) {
       routing.warpViaProxy = false;  // no server got it through (WatchWarp)
     }
@@ -1075,10 +1078,48 @@ class Worker {
     return std::move(combined.config);
   }
 
+  // A start failed on one of these lists (FailedRuleSet: one that downloaded fine but the core
+  // can't read): its file goes, so the box starts without it - the config changes - and the
+  // next round, once the box is up, fetches it again (11.11.2026, review).
+  void DropBrokenRuleSet() {
+    const std::string& error = model_.LastError();
+    if (error == brokenChecked_) {
+      return;
+    }
+    brokenChecked_ = error;
+    if (error.find("rule-set[") == std::string::npos) {
+      return;
+    }
+    const auto config = EffectiveConfig();
+    const auto tag = config ? sovereign::tray::FailedRuleSet(error, *config) : std::nullopt;
+    const auto file = tag ? ruleFiles_.find(*tag) : ruleFiles_.end();
+    if (file == ruleFiles_.end()) {
+      return;  // the configuration's own, not ours
+    }
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(Widen(file->second)), ec);
+    ruleFiles_.erase(file);
+    // Broken again as fetched: the source's own fault - left out till the tray starts again,
+    // not fetched and failed every few seconds.
+    if (++brokenLists_[*tag] > 1) {
+      rulesError_ = "список " + *tag + " не читается ядром — пропущен";
+      return;
+    }
+    rulesDirty_ = true;
+    rulesError_ = "список " + *tag + " не прочитался ядром — скачается заново";
+  }
+
+  // A list that failed a start twice (DropBrokenRuleSet): not fetched nor given to the box.
+  bool Shunned(const std::string& tag) const {
+    const auto broken = brokenLists_.find(tag);
+    return broken != brokenLists_.end() && broken->second > 1;
+  }
+
   // The routing's lists: downloaded when missing or a day old, checked every
   // ten minutes (at once after the routing changed), one download a poll so
-  // the window stays answered. The box gets them as local files - a list that
-  // can't be fetched never keeps it from starting - once the round is over
+  // the window stays answered (the missing ones: for up to two seconds). The
+  // box gets them as local files - a list that can't be fetched never keeps it
+  // from starting - once the round is over
   // (RuleSetRound): one restart for them all. No download while the box is
   // wanted on but down: under the kill switch the tray can't reach out, the
   // download would hang until its timeout and hold the start back.
@@ -1098,11 +1139,18 @@ class Worker {
     };
     const auto sources = sovereign::tray::NeededRuleSets(settings_.routing);
     std::vector<std::string> due;
+    std::vector<std::string> missing;  // of them, the ones not there at all
     for (const RuleSetSource& source : sources) {
+      if (Shunned(source.tag)) {
+        continue;
+      }
       try {
         const auto age = sovereign::tray::RuleSetAge(source.tag, extension(source));
         if (!age || *age >= std::chrono::hours(24)) {
           due.push_back(source.tag);
+        }
+        if (!age) {
+          missing.push_back(source.tag);
         }
       } catch (...) {
         LOG_CAUGHT_EXCEPTION_MSG("the routing's lists folder can't be used");
@@ -1113,24 +1161,30 @@ class Worker {
       if (model_.WantOn() && !(stats && stats->running)) {
         return;  // once the box is up
       }
-      const auto tag = rulesRound_->Next(due);  // one a poll
-      const auto source = std::find_if(sources.begin(), sources.end(), [&](const RuleSetSource& s) { return s.tag == tag; });
-      try {
-        auto got = sovereign::tray::Download(Widen(source->url), kUserAgent, std::size_t{16} * 1024 * 1024);
-        // AdGuard's filter is text: made a source rule-set here.
-        const std::optional<std::string> list =
-            !got                                      ? std::nullopt
-            : source->adguard                         ? sovereign::tray::AdGuardRuleSet(*got)
-            : sovereign::tray::IsRuleSetFile(*got) ? std::optional<std::string>(std::move(*got))
-                                                      : std::nullopt;
-        if (list) {
-          sovereign::tray::SaveRuleSet(source->tag, *list, extension(*source));
-          rulesUpdated_ = std::time(nullptr);
-        } else {
-          rulesRoundError_ = got ? std::string("ответ — не список правил") : got.error();
+      // One a poll; the missing ones - the first start, a list just turned on - for two seconds
+      // more: the smart mode's 17 lists took 17 polls and more, the box going without them
+      // (11.11.2026, review). A download that hangs holds no more than one did.
+      const auto until = TrayModel::Clock::now() + std::chrono::seconds(2);
+      for (auto tag = rulesRound_->Next(due); tag;
+           tag = TrayModel::Clock::now() < until ? rulesRound_->Next(missing) : std::nullopt) {
+        const auto source = std::find_if(sources.begin(), sources.end(), [&](const RuleSetSource& s) { return s.tag == tag; });
+        try {
+          auto got = sovereign::tray::Download(Widen(source->url), kUserAgent, std::size_t{16} * 1024 * 1024);
+          // AdGuard's filter is text: made a source rule-set here.
+          const std::optional<std::string> list =
+              !got                                      ? std::nullopt
+              : source->adguard                         ? sovereign::tray::AdGuardRuleSet(*got)
+              : sovereign::tray::IsRuleSetFile(*got) ? std::optional<std::string>(std::move(*got))
+                                                        : std::nullopt;
+          if (list) {
+            sovereign::tray::SaveRuleSet(source->tag, *list, extension(*source));
+            rulesUpdated_ = std::time(nullptr);
+          } else {
+            rulesRoundError_ = got ? std::string("ответ — не список правил") : got.error();
+          }
+        } catch (...) {
+          LOG_CAUGHT_EXCEPTION_MSG("the routing's lists folder can't be used");
         }
-      } catch (...) {
-        LOG_CAUGHT_EXCEPTION_MSG("the routing's lists folder can't be used");
       }
       if (!rulesRound_->Over(due)) {
         return;  // the next poll goes on; the box keeps the lists it has till then
@@ -1138,6 +1192,12 @@ class Worker {
     }
     std::map<std::string, std::string> files;
     for (const RuleSetSource& source : sources) {
+      if (Shunned(source.tag)) {
+        if (rulesRoundError_.empty()) {
+          rulesRoundError_ = "список " + source.tag + " не читается ядром — пропущен";
+        }
+        continue;
+      }
       try {
         if (sovereign::tray::RuleSetAge(source.tag, extension(source))) {
           files[source.tag] = Narrow(sovereign::tray::RuleSetPath(source.tag, extension(source)).wstring());
@@ -1345,18 +1405,16 @@ class Worker {
     Save();
   }
 
-  // The combined config with the per-app rules, the log level and the cache
-  // file applied - what the box must run. Not the protocol pick: that goes to
-  // the running box (ApplySelection), a new pick needs no restart.
+  // The combined config with the log level and the cache file applied - what
+  // the box must run. The per-app rule is the routing's (Combined, routing.h).
+  // Not the protocol pick: that goes to the running box (ApplySelection), a
+  // new pick needs no restart.
   std::optional<std::string> EffectiveConfig() {
     const auto config = Combined();
     if (!config) {
       return std::nullopt;
     }
-    return sovereign::tray::EffectiveConfig(*config, {.appsMode = settings_.appsMode,
-                                                      .apps = settings_.apps,
-                                                      .logLevel = settings_.logLevel,
-                                                      .cacheFile = cacheFile_});
+    return sovereign::tray::EffectiveConfig(*config, {.logLevel = settings_.logLevel, .cacheFile = cacheFile_});
   }
 
   // The selector's options in the combined config and which one the box
@@ -3153,8 +3211,17 @@ class Worker {
       v.rulesFrom = rulesFrom_;
       v.blockedAds = {blocked_.begin(), blocked_.end()};
       const auto lists = sovereign::tray::NeededRuleSets(settings_.routing);
-      v.listsReady = static_cast<std::size_t>(std::count_if(
-          lists.begin(), lists.end(), [&](const sovereign::tray::RuleSetSource& s) { return ruleFiles_.contains(s.tag); }));
+      // In a round, the ones fetched so far too: "0 из 17" stood till the last one came (11.11.2026, review).
+      const auto fetched = [&](const sovereign::tray::RuleSetSource& s) {
+        try {
+          return rulesRound_ && sovereign::tray::RuleSetAge(s.tag, s.adguard ? ".json" : ".srs").has_value();
+        } catch (...) {
+          return false;
+        }
+      };
+      v.listsReady = static_cast<std::size_t>(std::count_if(lists.begin(), lists.end(), [&](const sovereign::tray::RuleSetSource& s) {
+        return ruleFiles_.contains(s.tag) || fetched(s);
+      }));
       v.listsNeeded = lists.size();
       v.listsUpdated = rulesUpdated_;
       v.listsError = rulesError_;
@@ -3293,6 +3360,8 @@ class Worker {
   std::optional<sovereign::tray::RuleSetRound> rulesRound_;  // the check under way
   std::string rulesRoundError_;  // a download in it failed with this
   std::string rulesError_;      // the last check's download failed with this
+  std::string brokenChecked_;   // the start error DropBrokenRuleSet looked at last
+  std::map<std::string, int> brokenLists_;  // tag -> the starts it failed (DropBrokenRuleSet)
   std::int64_t rulesUpdated_ = 0;  // unix seconds of the last list downloaded
   std::string combineError_;             // why there's none
   std::vector<std::string> combineNotes_;

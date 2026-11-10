@@ -229,18 +229,130 @@ const char* WayName(ServiceRoute::Way way) {
   return "warp";
 }
 
-bool IsIpToken(std::string_view token) {
-  if (token.empty()) {
+bool IsDigit(char c) { return c >= '0' && c <= '9'; }
+bool IsHexDigit(char c) { return IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
+
+// A decimal number of at most `most`, no leading zero (Go's netip takes none).
+bool IsNumberUpTo(std::string_view s, int most) {
+  if (s.empty() || s.size() > 5 || (s.size() > 1 && s.front() == '0') || !std::all_of(s.begin(), s.end(), IsDigit)) {
     return false;
   }
-  const bool ipChars = std::all_of(token.begin(), token.end(), [](char c) {
-    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == ':' || c == '.' ||
-           c == '/';
-  });
-  const bool v4 = std::all_of(token.begin(), token.end(), [](char c) { return (c >= '0' && c <= '9') || c == '.' || c == '/'; }) &&
-                  std::count(token.begin(), token.end(), '.') == 3;
-  const bool v6 = token.find(':') != std::string_view::npos;
-  return ipChars && (v4 || v6);
+  int n = 0;
+  for (const char c : s) {
+    n = n * 10 + (c - '0');
+  }
+  return n <= most;
+}
+
+bool IsIpv4(std::string_view s) {
+  int parts = 0;
+  for (;;) {
+    const std::size_t dot = s.find('.');
+    if (!IsNumberUpTo(s.substr(0, dot), 255) || ++parts > 4) {
+      return false;
+    }
+    if (dot == std::string_view::npos) {
+      return parts == 4;
+    }
+    s.remove_prefix(dot + 1);
+  }
+}
+
+bool IsIpv6(std::string_view s) {
+  const std::size_t gap = s.find("::");
+  if (gap != std::string_view::npos && s.find("::", gap + 1) != std::string_view::npos) {
+    return false;
+  }
+  int groups = 0;
+  // One side of the "::" (or all of it): groups of 1-4 hex digits, an IPv4 address last.
+  const auto side = [&](std::string_view part, bool last) {
+    if (part.empty()) {
+      return true;
+    }
+    for (;;) {
+      const std::size_t colon = part.find(':');
+      const std::string_view group = part.substr(0, colon);
+      if (colon == std::string_view::npos && last && group.find('.') != std::string_view::npos) {
+        groups += 2;
+        return IsIpv4(group);
+      }
+      if (group.empty() || group.size() > 4 || !std::all_of(group.begin(), group.end(), IsHexDigit)) {
+        return false;
+      }
+      ++groups;
+      if (colon == std::string_view::npos) {
+        return true;
+      }
+      part.remove_prefix(colon + 1);
+    }
+  };
+  if (gap == std::string_view::npos) {
+    return side(s, true) && groups == 8;
+  }
+  return side(s.substr(0, gap), false) && side(s.substr(gap + 2), true) && groups < 8;
+}
+
+// A rule's token as an address: the ip_cidr value sing-box takes ("1.2.3.4/32", "2001:db8::/32") -
+// one alone gets its /32 or /128, "1.2.3.4:443" and "[2001:db8::1]:443" lose the port (a rule has
+// none); "" when it looks like one but isn't ("999.1.1.1", "10.0.0.0/33", "1::2::3"): sing-box
+// refused the whole config over one (11.11.2026, review); nullopt: not an address - a name, maybe
+// with a port ("cafe.de:443").
+std::optional<std::string> IpCidr(std::string_view token) {
+  std::string_view address = token;
+  std::string_view bits;
+  bool hadPort = false;
+  if (address.starts_with('[')) {
+    const std::size_t close = address.find(']');
+    if (close == std::string_view::npos) {
+      return std::nullopt;
+    }
+    const std::string_view rest = address.substr(close + 1);
+    if (!rest.empty() && !(rest.starts_with(':') && IsNumberUpTo(rest.substr(1), 65535))) {
+      return std::string();
+    }
+    address = address.substr(1, close - 1);
+    return IsIpv6(address) ? std::optional<std::string>(std::string(address) + "/128") : std::string();
+  }
+  if (!std::all_of(address.begin(), address.end(), [](char c) { return IsHexDigit(c) || c == ':' || c == '.' || c == '/'; })) {
+    return std::nullopt;
+  }
+  if (const std::size_t slash = address.find('/'); slash != std::string_view::npos) {
+    bits = address.substr(slash + 1);
+    address = address.substr(0, slash);
+    if (bits.empty()) {
+      bits = "-";  // "1.2.3.4/": no length - not one
+    }
+  }
+  // "v4:port": the address.
+  if (const std::size_t colon = address.find(':');
+      bits.empty() && colon != std::string_view::npos && address.find(':', colon + 1) == std::string_view::npos &&
+      std::count(address.begin(), address.begin() + static_cast<std::ptrdiff_t>(colon), '.') == 3) {
+    if (!IsNumberUpTo(address.substr(colon + 1), 65535)) {
+      return std::string();
+    }
+    address = address.substr(0, colon);
+    hadPort = true;
+  }
+  const bool v4Like = std::all_of(address.begin(), address.end(), [](char c) { return IsDigit(c) || c == '.'; }) &&
+                      std::count(address.begin(), address.end(), '.') == 3;
+  if (IsIpv4(address)) {
+    if (!bits.empty() && !IsNumberUpTo(bits, 32)) {
+      return std::string();
+    }
+    return std::string(address) + "/" + std::string(bits.empty() ? "32" : bits);
+  }
+  if (!hadPort && address.find(':') != std::string_view::npos && IsIpv6(address)) {
+    if (!bits.empty() && !IsNumberUpTo(bits, 128)) {
+      return std::string();
+    }
+    return std::string(address) + "/" + std::string(bits.empty() ? "128" : bits);
+  }
+  // Four numbers, a port or a length, two colons and more: an address gone wrong. The rest -
+  // "cafe.de", "ad:443" - a name.
+  if (v4Like || hadPort || !bits.empty() || std::count(address.begin(), address.end(), ':') > 1) {
+    return std::string();
+  }
+  return std::nullopt;
 }
 
 bool IsDomainChar(char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_'; }
@@ -746,8 +858,9 @@ std::optional<RouteRule> ParseRule(std::string_view text, RouteRule::Action acti
       add(rule.processes, std::move(t));
       return;
     }
-    if (IsIpToken(t)) {
-      add(rule.ips, t.find('/') != std::string::npos ? t : t + (t.find(':') != std::string::npos ? "/128" : "/32"));
+    // An address sing-box would refuse ("999.1.1.1") is dropped, not passed on (IpCidr).
+    if (const auto ip = IpCidr(t)) {
+      add(rule.ips, *ip);
       return;
     }
     // A name: "https://www.example.com/path", "*.example.com", ".example.com".
@@ -796,6 +909,33 @@ std::string RuleText(const RouteRule& rule) {
   add(rule.ips, "");
   add(rule.processes, "");
   return text;
+}
+
+std::optional<std::string> FailedRuleSet(std::string_view error, std::string_view config) {
+  constexpr std::string_view kMark = "initialize rule-set[";
+  const std::size_t mark = error.find(kMark);
+  if (mark == std::string_view::npos) {
+    return std::nullopt;
+  }
+  std::size_t at = mark + kMark.size();
+  const std::size_t digits = at;
+  std::size_t index = 0;
+  for (; at < error.size() && IsDigit(error[at]) && at - digits < 6; ++at) {
+    index = index * 10 + static_cast<std::size_t>(error[at] - '0');
+  }
+  if (at == digits || at >= error.size() || error[at] != ']' || NestingDepth(config) > kMaxConfigDepth) {
+    return std::nullopt;
+  }
+  const Json json = Json::parse(config, nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object() || !json.contains("route") || !json["route"].is_object() ||
+      !json["route"].contains("rule_set") || !json["route"]["rule_set"].is_array() ||
+      index >= json["route"]["rule_set"].size()) {
+    return std::nullopt;
+  }
+  if (std::string tag = Str(json["route"]["rule_set"][index], "tag"); !tag.empty()) {
+    return tag;
+  }
+  return std::nullopt;
 }
 
 std::vector<RouteRule> ImportRules(std::string_view config) {
@@ -1248,24 +1388,38 @@ bool ClosesDoh(const RoutingSettings& s) {
   return s.closeDoh && (s.blockAds || s.cookieWindows || s.trackers || s.malware);
 }
 
-// The resolvers to close, but for the ones the client's own DNS names
-// (`ours`: the user's DNS and the config's servers, lower case): a remote DNS
-// set to dns.google stays reachable.
-std::vector<std::string> DohNames(std::string_view ours) {
-  std::vector<std::string> names;
-  names.reserve(kDohNames.size());
-  for (const std::string_view name : kDohNames) {
-    if (ours.find(name) == std::string_view::npos) {
-      names.emplace_back(name);
+// The resolvers to close: all of them, the client's own DNS among them (a
+// route rule never meets it: sing-box dials a DNS server through its detour
+// or the default outbound, not the router). Before 11.11.2026 the ones our
+// DNS named were spared - found as a piece of the text, so our
+// security.cloudflare-dns.com opened all cloudflare-dns.com to the browsers,
+// Firefox's mozilla.cloudflare-dns.com with it (review). Their names are
+// resolved instead (OurDohHosts).
+std::vector<std::string> DohNames() {
+  return {kDohNames.begin(), kDohNames.end()};
+}
+// The names of the client's own DNS servers (`ours`: the user's DNS and the
+// config's servers, lower case) one of the resolvers above covers - itself or
+// under it. The DNS rules resolve them first, through the local DNS: the
+// resolvers' "no address" would starve a server's own name of its lookup.
+std::vector<std::string> OurDohHosts(std::string_view ours) {
+  std::vector<std::string> hosts;
+  for (std::size_t at = 0; at < ours.size();) {
+    const auto end = std::find_if_not(ours.begin() + static_cast<std::ptrdiff_t>(at), ours.end(), IsDomainChar);
+    const auto stop = static_cast<std::size_t>(end - ours.begin());
+    const std::string_view host = ours.substr(at, stop - at);
+    at = stop + 1;
+    const bool covered = std::any_of(kDohNames.begin(), kDohNames.end(), [&](std::string_view name) {
+      return host == name || (host.size() > name.size() && host.ends_with(name) && host[host.size() - name.size() - 1] == '.');
+    });
+    if (covered && std::find(hosts.begin(), hosts.end(), host) == hosts.end()) {
+      hosts.emplace_back(host);
     }
   }
-  return names;
+  return hosts;
 }
-// The addresses are all closed: a route rule never meets the client's own DNS
-// (sing-box dials a DNS server through its detour or the default outbound, not
-// the router), so sparing them only left 1.1.1.1 open to a browser's DoH
-// (seen live 05.11.2026). The names stay spared: the "no address" DNS rule
-// would starve a server's own name of its lookup.
+// The addresses are all closed too: sparing ours only left 1.1.1.1 open to a
+// browser's DoH (seen live 05.11.2026).
 std::vector<std::string> DohAddresses() {
   return {kDohAddresses.begin(), kDohAddresses.end()};
 }
@@ -1601,13 +1755,20 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   const std::string ourDns =
       Lower(settings.remoteDnsCustom + " " + settings.localDnsCustom + " " + dns["servers"].dump());
   if (closeDoh) {
-    if (const std::vector<std::string> names = DohNames(ourDns); !names.empty()) {
+    if (const std::vector<std::string> names = DohNames(); !names.empty()) {
       rules.push_back(Json{{"domain_suffix", names}, {"action", "reject"}});
     }
     if (const std::vector<std::string> addresses = DohAddresses(); !addresses.empty()) {
       rules.push_back(Json{{"ip_cidr", addresses}, {"port", 443}, {"action", "reject"}});
     }
     rules.push_back(Json{{"port", kDotPort}, {"action", "reject"}});
+  }
+  // The window's "Приложения" (RoutingSettings::apps): past the blocks above, ahead of the
+  // services and the programs - excluded ones directly, included ones through the proxy
+  // itself (not sov-smart: in the smart mode route.final raced them past the VPN).
+  const bool onlyApps = settings.appsMode == AppsMode::Include && !settings.apps.empty();
+  if (!settings.apps.empty() && (!onlyApps || !proxy.empty())) {
+    rules.push_back(Json{{"process_name", settings.apps}, {"outbound", onlyApps ? proxy : direct}});
   }
   // A service's app the user sent its own way (Telegram.exe while Telegram
   // goes elsewhere - "the app apart"): before the services, or the service's
@@ -1772,11 +1933,12 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   }
   Prepend(route["rules"], std::move(rules), at);
   Prepend(route["rules"], std::move(blockedPrograms), privateAt.value_or(at));  // at or before `at`: ahead of the others
-  route["final"] = settings.finalDirect || proxy.empty() ? direct : proxy;
+  route["final"] = settings.finalDirect || proxy.empty() || onlyApps ? direct : proxy;
   // "В обход блокировок": directly, and through the proxy what's cut there -
   // sov-smart races a site's TLS hello both ways (gocore/smart.go). It reads
-  // the name and the protocol off the sniff: one is made sure of first.
-  if (settings.finalDirect && settings.smart && !proxy.empty()) {
+  // the name and the protocol off the sniff: one is made sure of first. Not
+  // with only some apps through the VPN: the rest goes directly, as it says.
+  if (settings.finalDirect && settings.smart && !proxy.empty() && !onlyApps) {
     const std::set<std::string> taken = Tags(outbounds);
     std::string smart(kSmartTag);
     for (int n = 2; taken.contains(smart); ++n) {
@@ -1796,7 +1958,16 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // The servers' names directly, first of all: through the proxy the selected
   // AnyTLS-ECH's own ECH config fetch looped ("DNS query loopback") and its
   // connections failed for a minute after every start.
-  if (const std::vector<std::string> servers = ServerNames(config); !servers.empty()) {
+  // Our DNS servers' names the closed resolvers cover with them (OurDohHosts).
+  std::vector<std::string> servers = ServerNames(config);
+  if (closeDoh) {
+    for (std::string& host : OurDohHosts(ourDns)) {
+      if (std::find(servers.begin(), servers.end(), host) == servers.end()) {
+        servers.push_back(std::move(host));
+      }
+    }
+  }
+  if (!servers.empty()) {
     dnsRules.push_back(Json{{"domain", servers}, {"server", kLocalDns}});
   }
   for (const RouteRule& r : settings.rules) {
@@ -1832,7 +2003,7 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // The resolvers closed in the routing: no addresses for their names, and
   // Firefox's canary - "this network filters" - keeps its DoH off.
   if (closeDoh) {
-    std::vector<std::string> names = DohNames(ourDns);
+    std::vector<std::string> names = DohNames();
     names.emplace_back(kFirefoxCanary);
     Json doh{{"domain_suffix", names}};
     SetNoAddress(doh);

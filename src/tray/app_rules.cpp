@@ -66,9 +66,16 @@ std::string ApplyAppRules(std::string_view config, AppsMode mode, const std::vec
   if (!rules.is_array()) {
     rules = Json::array();
   }
+  // What every connection must still meet first: the sniff and the DNS hijack, a
+  // blocked program's refusal, the local network directly (11.11.2026, review: an
+  // included app's LAN went through the proxy).
   const auto isPrelude = [](const Json& r) {
+    if (!r.is_object()) {
+      return false;
+    }
     const std::string action = Field<std::string>(r, "action", {});
-    return action == "sniff" || action == "hijack-dns";
+    return action == "sniff" || action == "hijack-dns" || action == "resolve" ||
+           (action == "reject" && r.contains("process_name")) || r.contains("ip_is_private");
   };
   const auto at = std::find_if_not(rules.begin(), rules.end(), isPrelude);
 

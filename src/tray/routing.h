@@ -11,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "app_rules.h"
 #include "warp.h"
 
 // Where traffic goes and how names are resolved - the client's to decide,
@@ -178,6 +179,14 @@ struct RoutingSettings {
   // "system" is Auto's encrypted one, the one that resolves a typed server's
   // name too, and LocalDnsOrder ends without the system's (11.11.2026, review).
   bool lanClosed = false;
+  // Not kept here either (settings.h keeps them): the programs of the window's
+  // "Приложения" list and its mode, which the tray copies in. ApplyRouting puts
+  // their rule after the blocks (the LAN, blocked programs, the user's sites,
+  // the block lists, the browsers' own DNS closed). Before 11.11.2026 it came
+  // ahead of them all: an included app's LAN went through the proxy, its DoH
+  // past the lists (review). Include: those through the proxy, the rest directly.
+  AppsMode appsMode = AppsMode::Exclude;
+  std::vector<std::string> apps;
   std::vector<RouteRule> rules;  // the user's, first of all
   std::vector<ServiceRoute> services;  // after the user's rules
 
@@ -309,6 +318,12 @@ class RuleSetRound {
 // What a download must start with to be a list (sing-box's "SRS" magic) -
 // not a captive portal's page or an error text.
 inline bool IsRuleSetFile(std::string_view bytes) { return bytes.starts_with("SRS"); }
+// The tag of the list a start failed on: sing-box says "initialize rule-set[3]: ..." by its
+// place in route.rule_set of `config` (the one started). Nullopt: not a list's failure, or no
+// such list. The tray drops a file of its own that fails so and fetches it again - before
+// 11.11.2026 a broken one stopped every start for a day, and no list is fetched while the
+// box is wanted on but down (review).
+std::optional<std::string> FailedRuleSet(std::string_view error, std::string_view config);
 // An AdGuard filter ("||ads.example.com^", "@@||ok.example.com^" its
 // exceptions) as a sing-box source rule-set, JSON: the plain names, the rest
 // (masks, regular expressions, ~0.4%) left out. A browser filter's

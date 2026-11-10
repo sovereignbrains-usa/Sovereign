@@ -35,18 +35,31 @@ void TestExcludeGoesDirectAfterPrelude() {
   CHECK(rules.size() == 5);
   CHECK(rules[0]["action"] == "sniff");
   CHECK(rules[1]["action"] == "hijack-dns");
-  CHECK(rules[2]["process_name"] == json({"steam.exe", "qbittorrent.exe"}));
-  CHECK(rules[2]["outbound"] == "direct");
-  CHECK(rules[3].value("ip_is_private", false));
+  CHECK(rules[2].value("ip_is_private", false));  // the LAN first, as for everyone
+  CHECK(rules[3]["process_name"] == json({"steam.exe", "qbittorrent.exe"}));
+  CHECK(rules[3]["outbound"] == "direct");
+  CHECK(rules[4]["protocol"] == "quic");
   CHECK(c["route"]["final"] == "proxy");  // everything else still proxied
 }
 
 void TestIncludeProxiesOnlyTheList() {
   const json c = Apply(kSubscription, AppsMode::Include, {"chrome.exe"});
   const json& rules = c["route"]["rules"];
-  CHECK(rules[2]["process_name"] == json({"chrome.exe"}));
-  CHECK(rules[2]["outbound"] == "proxy");  // where final pointed
+  CHECK(rules[2].value("ip_is_private", false));  // an included app's LAN directly (11.11.2026, review)
+  CHECK(rules[3]["process_name"] == json({"chrome.exe"}));
+  CHECK(rules[3]["outbound"] == "proxy");  // where final pointed
   CHECK(c["route"]["final"] == "direct");
+}
+
+void TestBlockedProgramStaysAhead() {
+  const json c = Apply(R"({"outbounds":[{"type":"direct","tag":"direct"}],"route":{"rules":[{"action":"sniff"},
+    {"process_name":["bad.exe"],"action":"reject"},{"ip_is_private":true,"outbound":"direct"},
+    {"domain_suffix":["x.example"],"action":"reject"}],"final":"direct"}})",
+                       AppsMode::Exclude, {"bad.exe"});
+  const json& rules = c["route"]["rules"];
+  CHECK(rules[1]["action"] == "reject");  // blocked whatever the apps list says
+  CHECK(rules[3]["process_name"] == json({"bad.exe"}) && rules[3]["outbound"] == "direct");
+  CHECK(rules[4]["domain_suffix"] == json({"x.example"}));
 }
 
 void TestEmptyListChangesNothing() {
@@ -81,6 +94,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
   try {
     TestExcludeGoesDirectAfterPrelude();
     TestIncludeProxiesOnlyTheList();
+    TestBlockedProgramStaysAhead();
     TestEmptyListChangesNothing();
     TestMissingPiecesAreAdded();
     TestNotJsonComesBackAsIs();

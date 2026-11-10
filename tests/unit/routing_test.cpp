@@ -146,6 +146,20 @@ void TestJsonAndParse() {
   CHECK(!ParseRule("!!! ?? @@", RouteRule::Action::Direct));  // nothing a name, an address or a program
   const auto hex = ParseRule("cafe.de", RouteRule::Action::Direct);
   CHECK(hex.has_value() && hex->domains.size() == 1);  // hex letters, still a name
+
+  // An address sing-box would refuse is dropped, the whole config with it before (11.11.2026, review).
+  for (const char* bad : {"999.1.1.1", "1.2.3.256", "01.2.3.4", "10.0.0.0/33", "1.2.3.4/", "1::2::3", "2001:db8::/129",
+                          "1:2:3:4:5:6:7:8:9", "dead:beef:1", "1.2.3.4:99999", "[::1]:x"}) {
+    CHECK(!ParseRule(bad, RouteRule::Action::Direct));
+  }
+  const auto ips = ParseRule("1.2.3.4:443 [2001:db8::1]:443 ::ffff:1.2.3.4 10.0.0.0/8 :: 999.1.1.1", RouteRule::Action::Proxy);
+  CHECK(ips.has_value());
+  if (ips) {
+    CHECK(ips->ips == std::vector<std::string>({"1.2.3.4/32", "2001:db8::1/128", "::ffff:1.2.3.4/128", "10.0.0.0/8", "::/128"}));
+    CHECK(ips->domains.empty());
+  }
+  const auto named = ParseRule("cafe.de:443 ad:8080", RouteRule::Action::Direct);
+  CHECK(named.has_value() && named->domains == std::vector<std::string>({"cafe.de", "ad"}) && named->ips.empty());
 }
 
 void TestImport() {
@@ -404,13 +418,34 @@ void TestCloseDoh() {
   CHECK(apply(s)["route"].value("find_process", false));
   CHECK(!apply(unfiltered)["route"].value("find_process", false));
 
-  // The client's own DNS through Google: dns.google stays open.
+  // The client's own DNS through Google: dns.google closed to the browsers all the same (the
+  // client's DNS isn't routed), its name resolved first, locally, past the "no address".
+  // Before 11.11.2026 it was spared, found as a piece of the text: our security.cloudflare-dns.com
+  // opened all cloudflare-dns.com (review).
+  const auto resolvedFirst = [](const json& c, const std::string& host) {
+    const json& first = c["dns"]["rules"][0];
+    return first.value("server", "") == "sov-local" && first.contains("domain") &&
+           std::find(first["domain"].begin(), first["domain"].end(), host) != first["domain"].end();
+  };
   RoutingSettings custom;
   custom.remoteDns = RoutingSettings::RemoteDns::Custom;
   custom.remoteDnsCustom = "https://dns.google/dns-query";
-  CHECK(apply(custom)["dns"]["servers"].dump().contains("\"dns.google\""));
-  const Seen ours = seen(apply(custom));
-  CHECK(ours.names && ours.dot && !ours.googleName && on.googleName && on.googleAddress);
+  const json google1 = apply(custom);
+  CHECK(google1["dns"]["servers"].dump().contains("\"dns.google\""));
+  const Seen ours = seen(google1);
+  CHECK(ours.names && ours.dot && ours.googleName && on.googleName && on.googleAddress);
+  CHECK(resolvedFirst(google1, "dns.google") && resolvedFirst(google1, "nl.example.com"));
+  CHECK(!resolvedFirst(apply(s), "dns.google"));  // not ours: no need
+  custom.remoteDnsCustom = "https://security.cloudflare-dns.com/dns-query";
+  const json cloudflare = apply(custom);
+  CHECK(seen(cloudflare).names && resolvedFirst(cloudflare, "security.cloudflare-dns.com"));
+  CHECK(!resolvedFirst(cloudflare, "cloudflare-dns.com"));
+  custom.remoteDnsCustom = "https://dns.google.com/dns-query";
+  const json longer = apply(custom);
+  CHECK(resolvedFirst(longer, "dns.google.com") && !resolvedFirst(longer, "dns.google"));
+  RoutingSettings notClosed = custom;
+  notClosed.closeDoh = false;
+  CHECK(!resolvedFirst(apply(notClosed), "dns.google.com"));  // nothing closed: nothing to resolve past
   RoutingSettings google;
   google.remoteDns = RoutingSettings::RemoteDns::Google;
   const Seen preset = seen(apply(google));
@@ -1075,6 +1110,67 @@ void TestBoard() {
   CHECK(site >= 0 && program > site);
 }
 
+// The window's apps list: after the LAN, a blocked program, the user's sites
+// and the blocks (the browsers' own DNS closed) - before 11.11.2026 ahead of
+// them all (review); included ones through the proxy itself, not sov-smart.
+// The list a start failed on, by its place in the config started (11.11.2026, review).
+void TestFailedRuleSet() {
+  const std::string config =
+      R"({"route":{"rule_set":[{"tag":"sov-ads","type":"local","path":"a.json"},{"tag":"sov-svc-telegram","type":"local","path":"t.srs"}]}})";
+  CHECK(FailedRuleSet("start box: initialize rule-set[1]: invalid sing-box rule-set file", config) == "sov-svc-telegram");
+  CHECK(FailedRuleSet("start box: initialize rule-set[0]: parse rule_set.rules.[3]: x", config) == "sov-ads");
+  CHECK(!FailedRuleSet("start box: initialize rule-set[2]: x", config));  // no such list
+  CHECK(!FailedRuleSet("start box: initialize rule-set[]: x", config));
+  CHECK(!FailedRuleSet("start box: initialize rule-set[1", config));
+  CHECK(!FailedRuleSet("start box: initialize outbound[1]: x", config));
+  CHECK(!FailedRuleSet("start box: initialize rule-set[0]: x", "{not json"));
+  CHECK(!FailedRuleSet("start box: initialize rule-set[0]: x", R"({"route":{}})"));
+}
+
+void TestAppsInRouting() {
+  RoutingSettings s;
+  s.blockAds = true;
+  s.closeDoh = true;
+  s.rules.push_back(*ParseRule("bad.exe", RouteRule::Action::Block));
+  s.rules.push_back(*ParseRule("bank.example", RouteRule::Action::Direct));
+  s.apps = {"chrome.exe"};
+  s.appsMode = AppsMode::Include;
+  s.finalDirect = true;
+  s.smart = true;
+  const auto combined = CombineConfigs({{"keys", Keys(), {}}}, OwnFrame(s));
+  const std::string text = ApplyRouting(combined.config.value_or("{}"), s, Files());
+  Checked().emplace_back("apps-include", text);
+  const json c = json::parse(text);
+  const auto at = [&](const json& config, const auto& match) {
+    for (std::size_t i = 0; i < config["route"]["rules"].size(); ++i) {
+      if (match(config["route"]["rules"][i])) {
+        return static_cast<int>(i);
+      }
+    }
+    return -1;
+  };
+  const auto app = [](const json& r) { return r.value("process_name", json()) == json({"chrome.exe"}); };
+  const int apps = at(c, app);
+  CHECK(apps > at(c, [](const json& r) { return r.contains("ip_is_private"); }));
+  CHECK(apps > at(c, [](const json& r) { return r.value("process_name", json()) == json({"bad.exe"}); }));
+  CHECK(apps > at(c, [](const json& r) { return r.dump().find("bank.example") != std::string::npos; }));
+  CHECK(apps > at(c, [](const json& r) { return r.value("port", 0) == 853; }));
+  CHECK(at(c, [](const json& r) { return r.value("port", 0) == 853; }) >= 0);
+  CHECK(apps >= 0 && c["route"]["rules"][apps]["outbound"] == "proxy");
+  CHECK(c["route"]["final"] == "direct");
+  CHECK(c.dump().find("sov-smart") == std::string::npos);  // only those through the VPN
+
+  s.appsMode = AppsMode::Exclude;
+  const json e = json::parse(ApplyRouting(combined.config.value_or("{}"), s, Files()));
+  const int excluded = at(e, app);
+  CHECK(excluded > at(e, [](const json& r) { return r.value("port", 0) == 853; }));
+  CHECK(excluded >= 0 && e["route"]["rules"][excluded]["outbound"] == "direct");
+  CHECK(e["route"]["final"] == "sov-smart");  // the rest as it was
+  s.apps.clear();
+  CHECK(json::parse(ApplyRouting(combined.config.value_or("{}"), s, Files())).dump().find("chrome.exe") ==
+        std::string::npos);
+}
+
 // A service through a country: its own selector (the main group by default,
 // then the servers), switched by the tray to the fastest server measured
 // there; none there - as usual.
@@ -1545,6 +1641,8 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestTypos();
     TestServices();
     TestServiceCountry();
+    TestAppsInRouting();
+    TestFailedRuleSet();
     TestServiceApps();
     TestBoard();
     TestWarp();

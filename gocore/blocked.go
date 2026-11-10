@@ -181,7 +181,9 @@ func (w *blockedWatch) count(cat, name, app string, cloaked bool, now time.Time)
 	}
 }
 
-// blockedCounts: what each category has refused since the engine loaded.
+// blockedCounts: what each category has refused since the service loaded this DLL - not
+// since the box started: box_start doesn't reset them, and every routing change restarts
+// the box, which would zero the chips' counts each time (11.11.2026, review).
 func (w *blockedWatch) blockedCounts() map[string]uint64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()

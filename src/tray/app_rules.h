@@ -5,9 +5,8 @@
 #include <string_view>
 #include <vector>
 
-// Per-app routing: which programs go through the proxy. Applied by the tray to
-// the config it sends (config.json itself stays as the subscription delivered
-// it), matched by sing-box's process_name - the exe name, not the path, which
+// Per-app routing: which programs go through the proxy, matched by sing-box's
+// process_name - the exe name, not the path, which
 // changes with every update for apps installed per version (app-1.12.3\...).
 // Unit-tested in tests/unit/app_rules_test.cpp.
 
@@ -21,9 +20,14 @@ enum class AppsMode : std::uint8_t {
 std::string_view AppsModeName(AppsMode mode);             // "exclude" / "include"
 AppsMode ParseAppsMode(std::string_view name);            // unknown -> Exclude
 
-// The config to send: `config` with one rule for `apps` inserted right after
-// the leading sniff/hijack-dns rules (those must still see every connection),
-// before anything that routes by domain or IP:
+// The tray's own config gets the rule from the routing instead (routing.h
+// RoutingSettings::apps: after the blocks too); this is for a config without
+// the client's routing (the conformance harness).
+//
+// `config` with one rule for `apps` inserted right after the leading rules
+// every connection must still meet - sniff, hijack-dns, resolve, a program's
+// reject, the private addresses' route - before anything else that routes by
+// domain or IP:
 //   Exclude: {"process_name": apps, "outbound": <direct>}
 //   Include: {"process_name": apps, "outbound": <route.final or the first
 //            outbound>}, and route.final becomes <direct>.

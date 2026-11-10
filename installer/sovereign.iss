@@ -131,12 +131,41 @@ end;
 var
   KeepSettings: Boolean;
 
+// Every user's autostart, not only this one's (11.11.2026, review): HKCU here
+// is one user's - the other users of the computer kept a Run value pointing
+// at the deleted sovereign-tray.exe. Only the users whose registry is loaded
+// (signed in, or a service running as them): the others' NTUSER.DAT stays
+// as it is - loading the files of profiles nobody uses isn't the
+// uninstaller's business. A Run value of the same name that isn't ours stays.
+procedure DeleteAutostarts();
+var
+  Users: TArrayOfString;
+  I: Integer;
+  Run, Command: String;
+begin
+  if not RegGetSubkeyNames(HKEY_USERS, '', Users) then
+    Exit;
+  for I := 0 to GetArrayLength(Users) - 1 do
+    if Pos('_classes', Lowercase(Users[I])) = 0 then
+    begin
+      Run := Users[I] + '\Software\Microsoft\Windows\CurrentVersion\Run';
+      if not RegQueryStringValue(HKEY_USERS, Run, 'Sovereign', Command) then
+        Command := 'sovereign-tray.exe';  // none: Task Manager's mark alone, left over
+      if Pos('sovereign-tray.exe', Lowercase(Command)) > 0 then
+      begin
+        RegDeleteValue(HKEY_USERS, Run, 'Sovereign');
+        RegDeleteValue(HKEY_USERS, Users[I] + '\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'Sovereign');
+      end;
+    end;
+end;
+
 procedure DeleteLeftovers();
 begin
   // After --uninstall: the ETW session is stopped, its .etl files free.
   DelTree(ExpandConstant('{commonappdata}\Sovereign'), True, True, True);
   DelTree(AddBackslash(GetTempDir()) + 'Sovereign-Update', True, True, True);
   RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run', 'Sovereign');
+  DeleteAutostarts();
   if not KeepSettings then
     DelTree(ExpandConstant('{localappdata}\Sovereign'), True, True, True);
 end;

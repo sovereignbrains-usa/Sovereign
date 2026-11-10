@@ -71,11 +71,29 @@ Write-Host "== update over a running install"
 Expect ((Run-Setup $Installer '/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /LOG=setup-update.log') -eq 0) 'setup exit code 0'
 Check-Installed 'after the update'
 
+# Other users' autostart (sovereign.iss, DeleteAutostarts): LocalService's and
+# NetworkService's hives stand in for them - always loaded on the runner. Ours
+# (with Task Manager's mark) must go, a foreign value of the same name stay.
+$runKey = 'Software\Microsoft\Windows\CurrentVersion\Run'
+$approvedKey = 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+$ours = "Registry::HKEY_USERS\S-1-5-19\$runKey"
+$oursApproved = "Registry::HKEY_USERS\S-1-5-19\$approvedKey"
+$foreign = "Registry::HKEY_USERS\S-1-5-20\$runKey"
+# Not New-Item -Force on a key that exists: that empties it.
+foreach ($key in $ours, $oursApproved, $foreign) { if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null } }
+New-ItemProperty -Path $ours -Name Sovereign -Value "`"$app\sovereign-tray.exe`" --background" -Force | Out-Null
+New-ItemProperty -Path $oursApproved -Name Sovereign -PropertyType Binary -Value ([byte[]](3,0,0,0,0,0,0,0,0,0,0,0)) -Force | Out-Null
+New-ItemProperty -Path $foreign -Name Sovereign -Value '"C:\Other\sovereign.exe"' -Force | Out-Null
+
 Write-Host "== uninstall"
 Expect ((Run-Setup (Join-Path $app 'unins000.exe') '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART') -eq 0) 'uninstaller exit code 0'
 Start-Sleep -Seconds 3  # the uninstaller removes itself from a copy that is still exiting
 Expect ($null -eq (Get-Service SovereignCore -ErrorAction SilentlyContinue)) 'the service is gone'
 Expect (-not (Test-Path (Join-Path $app 'sovereign-core.exe'))) 'the files are gone'
+Expect ($null -eq (Get-ItemProperty -Path $ours -Name Sovereign -ErrorAction SilentlyContinue)) "another user's autostart is gone"
+Expect ($null -eq (Get-ItemProperty -Path $oursApproved -Name Sovereign -ErrorAction SilentlyContinue)) "another user's Task Manager mark is gone"
+Expect ($null -ne (Get-ItemProperty -Path $foreign -Name Sovereign -ErrorAction SilentlyContinue)) 'a foreign Run value of the same name stays'
+Remove-ItemProperty -Path $foreign -Name Sovereign -ErrorAction SilentlyContinue
 Get-Process sovereign-tray -ErrorAction SilentlyContinue | Stop-Process -Force
 
 if ($failures -gt 0) {

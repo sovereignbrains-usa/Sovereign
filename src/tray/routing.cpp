@@ -1565,7 +1565,7 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // too, as far as it comes through the TUN (before 10.11.2026 a blocked one
   // reached 10/8, 192.168/16 and the like past its rule).
   add([](const RouteRule& r) { return r.action == RouteRule::Action::Block; }, programs);
-  std::vector<Json> blocked = std::exchange(rules, {});
+  std::vector<Json> blockedPrograms = std::exchange(rules, {});
   // Then the sites, and the lists - ads, services, Russia, QUIC - before the
   // other programs: a site goes where it was sent from every program (the
   // bank directly even from a browser sent through WARP), and a browser sent
@@ -1761,7 +1761,7 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     ++at;
   }
   Prepend(route["rules"], std::move(rules), at);
-  Prepend(route["rules"], std::move(blocked), privateAt.value_or(at));  // at or before `at`: ahead of the others
+  Prepend(route["rules"], std::move(blockedPrograms), privateAt.value_or(at));  // at or before `at`: ahead of the others
   route["final"] = settings.finalDirect || proxy.empty() ? direct : proxy;
   // "В обход блокировок": directly, and through the proxy what's cut there -
   // sov-smart races a site's TLS hello both ways (gocore/smart.go). It reads

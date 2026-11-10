@@ -14,6 +14,8 @@
 #include <string>
 #include <string_view>
 
+#include "autostart_command.h"
+
 namespace sovereign::tray {
 
 namespace {
@@ -61,7 +63,7 @@ bool SetAutostart(bool enabled) {
     LOG_CAUGHT_EXCEPTION();
     return false;
   }
-  const std::wstring command = L"\"" + exe + L"\" " + kBackgroundArg;
+  const std::wstring command = AutostartCommand(exe, kBackgroundArg);
   const auto bytes = static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t));
   return RegSetValueExW(key.get(), kValueName, 0, REG_SZ, reinterpret_cast<const BYTE*>(command.c_str()), bytes) ==
          ERROR_SUCCESS;
@@ -71,12 +73,28 @@ void RefreshAutostart() {
   if (!AutostartEnabled()) {
     return;
   }
-  std::array<wchar_t, std::size_t{2} * MAX_PATH> command{};
-  DWORD size = static_cast<DWORD>(command.size() * sizeof(wchar_t));
-  if (RegGetValueW(HKEY_CURRENT_USER, kRunKey, kValueName, RRF_RT_REG_SZ, nullptr, command.data(), &size) ==
-          ERROR_SUCCESS &&
-      std::wstring_view(command.data()).find(kBackgroundArg) == std::wstring_view::npos) {
-    // Old command line rewritten; if the registry refuses, the old one still starts us.
+  DWORD size = 0;
+  if (RegGetValueW(HKEY_CURRENT_USER, kRunKey, kValueName, RRF_RT_REG_SZ, nullptr, nullptr, &size) != ERROR_SUCCESS ||
+      size < sizeof(wchar_t)) {
+    return;
+  }
+  std::wstring command(size / sizeof(wchar_t), L'\0');
+  if (RegGetValueW(HKEY_CURRENT_USER, kRunKey, kValueName, RRF_RT_REG_SZ, nullptr, command.data(), &size) !=
+      ERROR_SUCCESS) {
+    return;
+  }
+  command.resize(std::wstring_view(command.c_str()).size());
+  std::wstring exe;
+  try {
+    exe = wil::GetModuleFileNameW<std::wstring>(nullptr);
+  } catch (...) {
+    LOG_CAUGHT_EXCEPTION();
+    return;
+  }
+  // An older command line, or another exe's (autostart_command.h): this
+  // tray's own. Turned off in Task Manager it stays off - AutostartEnabled
+  // said so above. If the registry refuses, the old value stays as it was.
+  if (AutostartNeedsRewrite(command, exe, kBackgroundArg)) {
     static_cast<void>(SetAutostart(true));
   }
 }

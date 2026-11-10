@@ -24,8 +24,8 @@ bool AutostartEnabled();
 [[nodiscard]] bool SetAutostart(bool enabled);
 
 // An enabled Run value written by an older tray (no kBackgroundArg, so the
-// window would open at every sign-in) is rewritten; anything else is left as
-// it is.
+// window would open at every sign-in) or pointing at another exe (the folder
+// moved) is rewritten for this one; anything else is left as it is.
 void RefreshAutostart();
 
 }  // namespace sovereign::tray

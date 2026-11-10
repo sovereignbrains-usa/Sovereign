@@ -64,6 +64,8 @@ add_library(sovereign_tray_lib STATIC
   ssh_probe.h
   own_install.cpp
   own_install.h
+  autostart_command.cpp
+  autostart_command.h
 )
 target_include_directories(sovereign_tray_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(sovereign_tray_lib PUBLIC sovereign_common PRIVATE ZXing::ZXing yaml-cpp::yaml-cpp)

@@ -153,6 +153,11 @@ target_compile_definitions(unit-ui-style PRIVATE SOV_REPO_DIR="${CMAKE_SOURCE_DI
 sovereign_copy_asan_runtime(unit-ui-style)
 add_test(NAME unit-ui-style COMMAND unit-ui-style)
 
+add_executable(unit-autostart autostart_test.cpp check.h)
+target_link_libraries(unit-autostart PRIVATE sovereign_tray_lib)
+sovereign_copy_asan_runtime(unit-autostart)
+add_test(NAME unit-autostart COMMAND unit-autostart)
+
 add_executable(unit-lan lan_test.cpp check.h)
 target_link_libraries(unit-lan PRIVATE sovereign_tray_lib)
 sovereign_copy_asan_runtime(unit-lan)

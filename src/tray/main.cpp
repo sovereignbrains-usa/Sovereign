@@ -7059,15 +7059,37 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, 
   const bool updated = HasArg(GetCommandLineW(), sovereign::tray::kUpdatedArg);
   const bool background = updated || HasArg(GetCommandLineW(), sovereign::tray::kBackgroundArg);
 
-  // One tray per session: a second one would fight the first over the box.
-  // Started by hand while one runs, it brings that one's window up instead.
-  const wil::unique_mutex_nothrow single(CreateMutexW(nullptr, FALSE, L"Local\\SovereignTray"));
+  // One tray per computer, not per session: the box, the kill switch and the
+  // boot config are the computer's, and a second user's tray (fast user
+  // switching, RDP) took them over - its kill switch off turned the first
+  // one's off, its box_boot dropped the first one's boot config, its config
+  // restarted the box (11.11.2026, review). The first tray keeps them; another
+  // user's - the mutex is the first one's then, so access denied - stays out.
+  // Started by hand while one runs, it brings that one's window up instead,
+  // or tells it runs in another session.
+  const wil::unique_mutex_nothrow single(CreateMutexW(nullptr, FALSE, L"Global\\SovereignTray"));
   if (!single || GetLastError() == ERROR_ALREADY_EXISTS) {
-    if (HWND running = FindWindowW(kTrayClassName, nullptr); running != nullptr && !background) {
+    if (background) {
+      return 0;
+    }
+    // The first one may still be creating its window: a moment for it.
+    HWND running = nullptr;
+    for (int i = 0; i < 20 && running == nullptr; ++i) {
+      running = FindWindowW(kTrayClassName, nullptr);
+      if (running == nullptr) {
+        Sleep(100);
+      }
+    }
+    if (running != nullptr) {
       DWORD pid = 0;
       GetWindowThreadProcessId(running, &pid);
       AllowSetForegroundWindow(pid);  // this process has the foreground right now; the window needs it
       PostMessageW(running, ShowWindowMessage(), 0, 0);
+    } else {
+      MessageBoxW(nullptr,
+                  L"Sovereign уже запущен в другом сеансе Windows (другой пользователь на этом компьютере). "
+                  L"VPN управляется оттуда: на компьютере одно подключение на всех.",
+                  L"Sovereign", MB_OK | MB_ICONINFORMATION);
     }
     return 0;
   }

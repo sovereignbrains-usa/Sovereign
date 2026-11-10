@@ -1,4 +1,4 @@
-module github.com/sovereignbrains/sovereign/gocore
+module github.com/sovereignbrains-usa/sovereign/gocore
 
 go 1.27.0
 

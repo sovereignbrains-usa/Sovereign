@@ -1,4 +1,4 @@
-module github.com/sovereignbrains/sovereign/tools/boxrun
+module github.com/sovereignbrains-usa/sovereign/tools/boxrun
 
 go 1.27.0
 

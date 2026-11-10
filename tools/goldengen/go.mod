@@ -1,4 +1,4 @@
-module github.com/sovereignbrains/sovereign/tools/goldengen
+module github.com/sovereignbrains-usa/sovereign/tools/goldengen
 
 go 1.27.0
 

@@ -41,10 +41,10 @@ void TestModes() {
 }
 
 // Where the v0.2.0 files live (a function: a static std::string may throw at startup).
-std::string Base() { return "https://github.com/sovereignbrains/Sovereign/releases/download/v0.2.0/"; }
+std::string Base() { return "https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/"; }
 
 std::string ReleaseJson(const std::string& extra, const std::string& tag = "v0.2.0") {
-  return R"({"tag_name":")" + tag + R"(","html_url":"https://github.com/sovereignbrains/Sovereign/releases/tag/v0.2.0",)" +
+  return R"({"tag_name":")" + tag + R"(","html_url":"https://github.com/sovereignbrains-usa/Sovereign/releases/tag/v0.2.0",)" +
          extra + R"("assets":[)" + R"({"name":"Sovereign-Setup-0.2.0.exe","size":31457280,"browser_download_url":")" +
          Base() + R"(Sovereign-Setup-0.2.0.exe"},)" +
          R"({"name":"Sovereign-Setup-0.2.0.exe.sha256","size":90,"browser_download_url":")" + Base() +
@@ -67,7 +67,7 @@ void TestLatestRelease() {
   CHECK(!ParseLatestRelease(ReleaseJson("", "v0.3.0")));
   // Files from anywhere but this repository's releases are not downloaded.
   CHECK(!IsReleaseAssetUrl("https://evil.example/Sovereign-Setup-0.2.0.exe"));
-  CHECK(!IsReleaseAssetUrl("http://github.com/sovereignbrains/Sovereign/releases/download/v0.2.0/x.exe"));
+  CHECK(!IsReleaseAssetUrl("http://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/x.exe"));
   CHECK(!IsReleaseAssetUrl("https://github.com/someone/Sovereign/releases/download/v0.2.0/x.exe"));
   CHECK(!IsReleaseAssetUrl(Base() + "a b.exe"));
   CHECK(IsReleaseAssetUrl(Base() + "Sovereign-Setup-0.2.0.exe"));
@@ -88,7 +88,7 @@ void TestChecksum() {
   CHECK(!ParseChecksum("", "a.exe"));
   // The service fetches it itself: the release's own word, not the tray's.
   CHECK(ChecksumUrl({0, 5, 46}) ==
-        "https://github.com/sovereignbrains/Sovereign/releases/download/v0.5.46/Sovereign-Setup-0.5.46.exe.sha256");
+        "https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.5.46/Sovereign-Setup-0.5.46.exe.sha256");
 }
 
 void TestUpstream() {

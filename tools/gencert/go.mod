@@ -1,3 +1,3 @@
-module github.com/sovereignbrains/sovereign/tools/gencert
+module github.com/sovereignbrains-usa/sovereign/tools/gencert
 
 go 1.27.0

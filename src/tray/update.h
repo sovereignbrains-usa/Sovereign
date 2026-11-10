@@ -15,8 +15,8 @@
 namespace sovereign::tray {
 
 // Where releases come from: this repository's GitHub releases.
-inline constexpr std::string_view kReleasesApi = "https://api.github.com/repos/sovereignbrains/Sovereign/releases/latest";
-inline constexpr std::string_view kReleaseDownloads = "https://github.com/sovereignbrains/Sovereign/releases/download/";
+inline constexpr std::string_view kReleasesApi = "https://api.github.com/repos/sovereignbrains-usa/Sovereign/releases/latest";
+inline constexpr std::string_view kReleaseDownloads = "https://github.com/sovereignbrains-usa/Sovereign/releases/download/";
 
 struct Version {
   int major = 0;

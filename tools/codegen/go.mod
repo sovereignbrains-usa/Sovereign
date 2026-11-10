@@ -1,4 +1,4 @@
-module github.com/sovereignbrains/sovereign/tools/codegen
+module github.com/sovereignbrains-usa/sovereign/tools/codegen
 
 go 1.27.0
 

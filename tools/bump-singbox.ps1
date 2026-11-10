@@ -87,7 +87,10 @@ Update-File $versionFile { param($t) $t -replace '^v\d+\.\d+\.\d+', $tag -replac
 Update-File (Join-Path $root 'tools/conformance/reference-release.sha256') {
   param($t) $t -replace '^[0-9a-f]{64}  sing-box-[\d.]+-windows-amd64\.zip', "$digest  $zipName"
 }
-Update-File (Join-Path $root 'README.md') { param($t) $t.Replace("--branch $oldTag ", "--branch $tag ") }
+Update-File (Join-Path $root 'README.md') {
+  # The clone line and the badge (its text and its link).
+  param($t) $t.Replace("--branch $oldTag ", "--branch $tag ").Replace("sing--box-$old-", "sing--box-$Version-").Replace("releases/tag/$oldTag)", "releases/tag/$tag)")
+}
 foreach ($script in 'bench/check-links.ps1', 'bench/reality-rate.ps1') {
   Update-File (Join-Path $root $script) { param($t) $t.Replace("sing-box-$old-windows-amd64", "sing-box-$Version-windows-amd64") }
 }

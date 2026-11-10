@@ -15,7 +15,7 @@ namespace {
 // 1 was sing-box of its own (Hysteria2 and AnyTLS + REALITY); 2 is packetlab.
 constexpr int kScriptVersion = 2;
 
-// packetlab (github.com/sovereignbrains/packetlab) on the server, from one commit: install.sh with
+// packetlab (github.com/sovereignbrains-usa/packetlab) on the server, from one commit: install.sh with
 // PL_REF so its modules come from the same one, no domain, no questions (there is no terminal over ssh),
 // then every protocol it can raise there, then its own `packetlab outbounds` - the client's side,
 // the server field made the address the client dials. What the client keeps: Hysteria2 with salamander
@@ -31,7 +31,7 @@ set -u
 exec 2>&1
 REF=b96ea83f64a95d946b21432e09184790c5a651a3
 ADDR="${ADDR:?}"
-RAW="https://raw.githubusercontent.com/sovereignbrains/packetlab/$REF"
+RAW="https://raw.githubusercontent.com/sovereignbrains-usa/packetlab/$REF"
 step=0
 said=0
 work=

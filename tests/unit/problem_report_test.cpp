@@ -55,7 +55,7 @@ void TestReport() {
 
 void TestUrl() {
   const std::string url = IssueUrl("0.5.18", "строка 1\nстрока 2\n", 1000);
-  CHECK(url.starts_with("https://github.com/sovereignbrains/Sovereign/issues/new?template=bug_report.yml&version=0.5.18&report="));
+  CHECK(url.starts_with("https://github.com/sovereignbrains-usa/Sovereign/issues/new?template=bug_report.yml&version=0.5.18&report="));
   CHECK(Has(url, "%0A") && !Has(url, " ") && !Has(url, "\n"));
   // Too long for a link: cut on a line, the rest said to be on the clipboard.
   const std::string cut = IssueUrl("0.5.18", "aaaa\nbbbb\ncccc\n", 7);

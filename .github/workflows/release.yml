@@ -104,9 +104,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The notice first, then what GitHub generates from the commits since the last release.
-          # Not marked a pre-release on purpose: the client's updater asks for releases/latest,
-          # which skips them.
-          $notice = "> **Experimental build.** Sovereign is under active development and not finished. It is not recommended for anyone else to download yet: expect rough edges and changes without notice."
-          gh release create "v$env:VERSION" out/* --title "Sovereign $env:VERSION" --notes $notice --generate-notes --target $env:GITHUB_SHA
+          # The notice first, then the version's section of CHANGELOG.md ("## 0.6.0 ..." up to the
+          # next "## "), if it has one, then what GitHub generates from the changes since the last
+          # release. Not marked a pre-release on purpose: the client's updater asks for
+          # releases/latest, which skips them.
+          $notes = "> **Experimental build.** Sovereign is under active development and not finished. It is not recommended for anyone else to download yet: expect rough edges and changes without notice."
+          $changelog = if (Test-Path CHANGELOG.md) { Get-Content CHANGELOG.md -Raw -Encoding utf8 } else { '' }
+          $section = [regex]::Match($changelog, "(?ms)^## $([regex]::Escape($env:VERSION))(?=\s)[^\n]*\n(.*?)(?=^## |\z)")
+          if ($section.Success -and $section.Groups[1].Value.Trim()) {
+            $notes += "`n`n" + $section.Groups[1].Value.Trim()
+          } else {
+            Write-Host "CHANGELOG.md has no section for ${env:VERSION}, the generated notes only"
+          }
+          Set-Content -Path "$env:RUNNER_TEMP/notes.md" -Value $notes -Encoding utf8
+          gh release create "v$env:VERSION" out/* --title "Sovereign $env:VERSION" --notes-file "$env:RUNNER_TEMP/notes.md" --generate-notes --target $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }

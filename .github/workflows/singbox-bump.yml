@@ -127,7 +127,7 @@ jobs:
           gh pr create --base main --head $env:BRANCH --title "sing-box $env:CURRENT -> $env:TARGET" --body-file "$env:RUNNER_TEMP/body.md"
           if ($LASTEXITCODE -ne 0) {
             # The repository may forbid the token to open pull requests: the branch is pushed, say so in an issue.
-            gh issue create --title "sing-box ${env:TARGET}: ветка bump готова, PR не открылся" --body "Ветка ``$env:BRANCH`` запушена, CI на ней запущен. PR не создался (настройка репозитория Actions: разрешить создавать pull request). Сравнение: https://github.com/sovereignbrains/Sovereign/compare/main...$env:BRANCH`n`n$body"
+            gh issue create --title "sing-box ${env:TARGET}: ветка bump готова, PR не открылся" --body "Ветка ``$env:BRANCH`` запушена, CI на ней запущен. PR не создался (настройка репозитория Actions: разрешить создавать pull request). Сравнение: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/compare/main...$env:BRANCH`n`n$body"
           }
           gh workflow run ci.yml --ref $env:BRANCH
 

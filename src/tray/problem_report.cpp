@@ -115,7 +115,7 @@ std::string IssueUrl(std::string_view version, std::string_view report, std::siz
     body = body.substr(0, end == std::string::npos ? maxReport : end + 1) +
            "… (дальше не влезло в ссылку — весь отчёт в буфере обмена, вставь его сюда)\n";
   }
-  return std::format("https://github.com/sovereignbrains/Sovereign/issues/new?template=bug_report.yml&version={}&report={}",
+  return std::format("https://github.com/sovereignbrains-usa/Sovereign/issues/new?template=bug_report.yml&version={}&report={}",
                      Percent(version), Percent(body));
 }
 

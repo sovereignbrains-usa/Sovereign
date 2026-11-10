@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -10,7 +11,8 @@
 // in a sublayer of Sovereign's own, under a provider of its own - so they
 // outlive the service process and a reboot, and nothing else's permits
 // outweigh them. The filters have fixed keys, so a replacement is a delete
-// and an add in one transaction: never a moment with none, never a mix.
+// and an add in one transaction: never a moment with none, never a mix. The
+// first filter's provider data keeps the settings they were made from (Kept).
 // Needs admin rights: the service runs as SYSTEM.
 
 namespace sovereign::service {
@@ -20,8 +22,9 @@ class WfpKillSwitch final : public IKillSwitch {
   // `corePath`: sovereign-core.exe's full path - its connections pass.
   explicit WfpKillSwitch(std::wstring corePath);
 
-  [[nodiscard]] std::string Apply(const std::vector<KillSwitchRule>& rules) override;
+  [[nodiscard]] std::string Apply(const std::vector<KillSwitchRule>& rules, const std::string& kept) override;
   bool Active() override;
+  std::optional<std::string> Kept() override;
 
  private:
   std::wstring corePath_;

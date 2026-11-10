@@ -202,7 +202,7 @@ class Conditions {
 
 WfpKillSwitch::WfpKillSwitch(std::wstring corePath) : corePath_(std::move(corePath)) {}
 
-std::string WfpKillSwitch::Apply(const std::vector<KillSwitchRule>& rules) {
+std::string WfpKillSwitch::Apply(const std::vector<KillSwitchRule>& rules, const std::string& kept) {
   if (rules.size() > kMaxFilters) {
     return "too many kill switch filters";
   }
@@ -255,6 +255,11 @@ std::string WfpKillSwitch::Apply(const std::vector<KillSwitchRule>& rules) {
     return Failed("the core's app id", got);
   }
   const auto freeAppId = [&] { FwpmFreeMemory0(reinterpret_cast<void**>(&appId)); };
+  // What the filters are, for a restarted service (Kept): the first one's
+  // provider data, written in this same transaction.
+  std::string keptCopy = kept;
+  FWP_BYTE_BLOB keptBlob{.size = static_cast<UINT32>(keptCopy.size()),
+                         .data = reinterpret_cast<UINT8*>(keptCopy.data())};
 
   for (std::size_t i = 0; i < rules.size(); ++i) {
     const KillSwitchRule& rule = rules[i];
@@ -271,6 +276,9 @@ std::string WfpKillSwitch::Apply(const std::vector<KillSwitchRule>& rules) {
     filter.displayData.name = name.data();
     filter.flags = FWPM_FILTER_FLAG_PERSISTENT;
     filter.providerKey = &providerKey;
+    if (i == 0 && !keptCopy.empty()) {
+      filter.providerData = keptBlob;
+    }
     filter.layerKey = rule.inbound ? (rule.v6 ? FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6 : FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4)
                                    : (rule.v6 ? FWPM_LAYER_ALE_AUTH_CONNECT_V6 : FWPM_LAYER_ALE_AUTH_CONNECT_V4);
     filter.subLayerKey = kSublayerKey;
@@ -300,6 +308,24 @@ bool WfpKillSwitch::Active() {
   }
   FwpmFreeMemory0(reinterpret_cast<void**>(&sublayer));
   return true;
+}
+
+std::optional<std::string> WfpKillSwitch::Kept() {
+  Engine engine;
+  if (engine.Status() != ERROR_SUCCESS) {
+    return std::nullopt;
+  }
+  const GUID key = FilterKey(0);
+  FWPM_FILTER0* filter = nullptr;
+  if (FwpmFilterGetByKey0(engine.Handle(), &key, &filter) != ERROR_SUCCESS || filter == nullptr) {
+    return std::nullopt;
+  }
+  std::optional<std::string> kept;
+  if (filter->providerData.size > 0 && filter->providerData.data != nullptr) {
+    kept.emplace(reinterpret_cast<const char*>(filter->providerData.data), filter->providerData.size);
+  }
+  FwpmFreeMemory0(reinterpret_cast<void**>(&filter));
+  return kept;
 }
 
 std::string RemoveKillSwitch() {

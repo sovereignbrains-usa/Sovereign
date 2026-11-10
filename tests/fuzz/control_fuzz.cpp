@@ -67,11 +67,12 @@ class FakeCore final : public ICore {
 // tunnel addresses become rules - get as far as the filters.
 class FakeKillSwitch final : public sovereign::service::IKillSwitch {
  public:
-  std::string Apply(const std::vector<sovereign::service::KillSwitchRule>& rules) override {
+  std::string Apply(const std::vector<sovereign::service::KillSwitchRule>& rules, const std::string& /*kept*/) override {
     active_ = !rules.empty();
     return {};
   }
   bool Active() override { return active_; }
+  std::optional<std::string> Kept() override { return std::nullopt; }
 
  private:
   bool active_ = false;

@@ -513,21 +513,24 @@ void TestSmart() {
 
 class FakeKillSwitch final : public sovereign::service::IKillSwitch {
  public:
-  std::string Apply(const std::vector<sovereign::service::KillSwitchRule>& rules) override {
+  std::string Apply(const std::vector<sovereign::service::KillSwitchRule>& rules, const std::string& keep) override {
     ++applied;
     if (!error.empty()) {
       return error;
     }
     last = rules;
     active = !rules.empty();
+    kept = active ? std::optional<std::string>(keep) : std::nullopt;
     return {};
   }
   bool Active() override { return active; }
+  std::optional<std::string> Kept() override { return kept; }
 
   bool active = false;
   int applied = 0;
   std::string error;
   std::vector<sovereign::service::KillSwitchRule> last;
+  std::optional<std::string> kept;
 };
 
 void TestKillSwitch() {
@@ -593,12 +596,60 @@ void TestKillSwitch() {
   CHECK(killSwitch.last.empty() && Send(handler, R"({"cmd":"box_stats"})").value("lan_closed", true) == false);
 
   // A restart finds persistent filters in place: reported active until told.
+  // These keep nothing (a version from before they did): the kill switch's.
   FakeKillSwitch leftover;
   leftover.active = true;
   ControlHandler restarted(&core, log, lastConfig, {}, &leftover);
   CHECK(Send(restarted, R"({"cmd":"box_stats"})").value("kill_switch", false) == true);
   Send(restarted, R"({"cmd":"kill_switch","enabled":false})");
   CHECK(leftover.applied == 1 && !leftover.active);
+
+  // Filters keep what they are: the closed network alone stays that after a
+  // restart - a box_start re-applies it, not a kill switch in its place.
+  const auto isCore = [](const auto& r) { return r.coreApp; };
+  const auto isLan = [](const auto& r) { return r.name.starts_with("LAN"); };
+  FakeKillSwitch closedOnly;
+  {
+    ControlHandler before(&core, log, lastConfig, {}, &closedOnly);
+    Send(before, R"({"cmd":"kill_switch","enabled":false,"lan_closed":true,"lan_allowed":["192.168.31.1"]})");
+  }
+  CHECK(closedOnly.active && closedOnly.kept.has_value());
+  {
+    std::optional<std::string> noConfig;
+    FakeCore fresh;
+    ControlHandler after(&fresh, log, noConfig, {}, &closedOnly);
+    json seen = Send(after, R"({"cmd":"box_stats"})");
+    CHECK(seen.value("kill_switch", true) == false && seen.value("lan_closed", false) == true);
+    CHECK(seen["lan_allowed"] == json::array({"192.168.31.1"}));
+    Send(after, R"({"cmd":"box_start","config":{"inbounds":[{"type":"tun","address":["172.19.0.1/30"]}]}})");
+    CHECK(closedOnly.applied == 2);
+    CHECK(std::none_of(closedOnly.last.begin(), closedOnly.last.end(), isCore));
+    CHECK(std::any_of(closedOnly.last.begin(), closedOnly.last.end(), isLan));
+  }
+
+  // Both: the network stays closed under the kill switch after a restart.
+  FakeKillSwitch both;
+  {
+    ControlHandler before(&core, log, lastConfig, {}, &both);
+    Send(before, R"({"cmd":"kill_switch","enabled":true,"lan_closed":true})");
+  }
+  {
+    std::optional<std::string> noConfig;
+    FakeCore fresh;
+    ControlHandler after(&fresh, log, noConfig, {}, &both);
+    json seen = Send(after, R"({"cmd":"box_stats"})");
+    CHECK(seen.value("kill_switch", false) == true && seen.value("lan_closed", false) == true);
+    Send(after, R"({"cmd":"box_start","config":{"inbounds":[{"type":"tun","address":["172.19.0.1/30"]}]}})");
+    CHECK(std::any_of(both.last.begin(), both.last.end(), isCore));
+    CHECK(std::any_of(both.last.begin(), both.last.end(), isLan));
+  }
+
+  // Kept settings that say there would be no filters at all: as if nothing was kept.
+  FakeKillSwitch garbled;
+  garbled.active = true;
+  garbled.kept = R"({"enabled":false,"allow_lan":true,"lan_closed":false,"lan_allowed":[]})";  // says no filters
+  ControlHandler garbledAfter(&core, log, lastConfig, {}, &garbled);
+  CHECK(Send(garbledAfter, R"({"cmd":"box_stats"})").value("kill_switch", false) == true);
 }
 
 void TestSha256KnownVectors() {

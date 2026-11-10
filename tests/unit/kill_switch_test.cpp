@@ -235,6 +235,25 @@ void TestLanClosed() {
   CHECK(lowestLan > highestKill);
 }
 
+// What the filters keep of the settings, back as it went in; anything else
+// isn't taken.
+void TestKeptSettings() {
+  using sovereign::service::KillSwitchSettingsText;
+  using sovereign::service::ParseKillSwitchSettings;
+  const KillSwitchSettings settings{
+      .enabled = false, .allowLan = true, .lanClosed = true, .lanAllowed = {"192.168.31.1", "fe80::1/64"}};
+  CHECK(ParseKillSwitchSettings(KillSwitchSettingsText(settings)) == settings);
+  const KillSwitchSettings plain{.enabled = true, .allowLan = false, .lanClosed = false, .lanAllowed = {}};
+  CHECK(ParseKillSwitchSettings(KillSwitchSettingsText(plain)) == plain);
+  for (const char* bad :
+       {"", "not json", "[]", R"({"enabled":true})", R"({"enabled":1,"allow_lan":true,"lan_closed":false,"lan_allowed":[]})",
+        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["nope"]})",
+        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":"192.168.1.1"})",
+        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["1.1.1.1","1.1.1.2","1.1.1.3","1.1.1.4","1.1.1.5","1.1.1.6","1.1.1.7","1.1.1.8","1.1.1.9","1.1.1.10","1.1.1.11","1.1.1.12","1.1.1.13"]})"}) {
+    CHECK(!ParseKillSwitchSettings(bad));
+  }
+}
+
 }  // namespace
 
 int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
@@ -243,6 +262,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestTunPrefixes();
     TestRules();
     TestLanClosed();
+    TestKeptSettings();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";
     return 1;

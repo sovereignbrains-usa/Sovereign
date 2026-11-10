@@ -92,6 +92,13 @@ struct KillSwitchRule {
 // the switch is off and the local network open.
 std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& settings, const std::vector<Prefix>& tun);
 
+// The settings as the filters keep them (IKillSwitch::Apply's `kept`), and
+// back: nullopt for what isn't such a text - a field missing or of another
+// type, a lan_allowed entry that isn't ParsePrefix's or more than
+// kMaxLanAllowed of them.
+std::string KillSwitchSettingsText(const KillSwitchSettings& settings);
+std::optional<KillSwitchSettings> ParseKillSwitchSettings(std::string_view text);
+
 // What enforces the rules - WfpKillSwitch in the service, a fake in tests.
 class IKillSwitch {
  public:
@@ -102,12 +109,18 @@ class IKillSwitch {
   IKillSwitch(IKillSwitch&&) = delete;
   IKillSwitch& operator=(IKillSwitch&&) = delete;
 
-  // Replaces whatever is in force with `rules` (none: lifts it). Empty on
+  // Replaces whatever is in force with `rules` (none: lifts it), `kept`
+  // stored with them in the same go (KillSwitchSettingsText). Empty on
   // success, otherwise why not - the old rules stay then.
-  [[nodiscard]] virtual std::string Apply(const std::vector<KillSwitchRule>& rules) = 0;
+  [[nodiscard]] virtual std::string Apply(const std::vector<KillSwitchRule>& rules, const std::string& kept) = 0;
   // Whether filters of the kill switch are in place (a service restart
   // finds them there: they're persistent).
   virtual bool Active() = 0;
+  // What the filters in place keep: a restarted service learns from it what
+  // they are - the closed network with the kill switch or without, what's
+  // let in. They live and go together, the boot config on or off. None:
+  // no filters, or filters of a version that kept nothing.
+  virtual std::optional<std::string> Kept() = 0;
 };
 
 }  // namespace sovereign::service

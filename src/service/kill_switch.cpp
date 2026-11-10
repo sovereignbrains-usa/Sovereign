@@ -332,4 +332,42 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
   return rules;
 }
 
+std::string KillSwitchSettingsText(const KillSwitchSettings& settings) {
+  return nlohmann::json{{"enabled", settings.enabled},
+                        {"allow_lan", settings.allowLan},
+                        {"lan_closed", settings.lanClosed},
+                        {"lan_allowed", settings.lanAllowed}}
+      .dump();
+}
+
+std::optional<KillSwitchSettings> ParseKillSwitchSettings(std::string_view text) {
+  const auto json = nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
+  if (!json.is_object()) {
+    return std::nullopt;
+  }
+  const auto flag = [&](const char* key) -> std::optional<bool> {
+    const auto it = json.find(key);
+    if (it == json.end() || !it->is_boolean()) {
+      return std::nullopt;
+    }
+    return it->get<bool>();
+  };
+  const auto enabled = flag("enabled");
+  const auto allowLan = flag("allow_lan");
+  const auto lanClosed = flag("lan_closed");
+  const auto allowed = json.find("lan_allowed");
+  if (!enabled || !allowLan || !lanClosed || allowed == json.end() || !allowed->is_array() ||
+      allowed->size() > kMaxLanAllowed) {
+    return std::nullopt;
+  }
+  KillSwitchSettings settings{.enabled = *enabled, .allowLan = *allowLan, .lanClosed = *lanClosed, .lanAllowed = {}};
+  for (const auto& address : *allowed) {
+    if (!address.is_string() || !ParsePrefix(address.get<std::string>())) {
+      return std::nullopt;
+    }
+    settings.lanAllowed.push_back(address.get<std::string>());
+  }
+  return settings;
+}
+
 }  // namespace sovereign::service

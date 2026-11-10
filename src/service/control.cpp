@@ -118,7 +118,20 @@ ControlHandler::ControlHandler(ICore* core, const LogRing& coreLog,
       boot_(boot),
       updates_(updates),
       killActive_(killSwitch != nullptr && killSwitch->Active()) {
-  killSettings_.enabled = killActive_;
+  // Filters in place, from before a restart: what they keep says what they
+  // are. Taken for the kill switch's when they keep nothing (a version from
+  // before they did) - otherwise a box_start re-applying them would turn a
+  // closed network into the kill switch alone, or open it under the kill
+  // switch, till the tray told the service again.
+  if (killActive_) {
+    const std::optional<std::string> kept = killSwitch->Kept();
+    const std::optional<KillSwitchSettings> settings = kept ? ParseKillSwitchSettings(*kept) : std::nullopt;
+    if (settings && (settings->enabled || settings->lanClosed)) {
+      killSettings_ = *settings;
+    } else {
+      killSettings_.enabled = true;
+    }
+  }
   // An update's hold (update_install): kept while its filters are; a mark
   // without them is left over.
   if (updates_ != nullptr) {
@@ -133,7 +146,7 @@ ControlHandler::ControlHandler(ICore* core, const LogRing& coreLog,
 
 std::string ControlHandler::ApplyKillSwitch(const KillSwitchSettings& settings) {
   const std::vector<Prefix> tun = lastConfig_ ? TunPrefixes(*lastConfig_) : std::vector<Prefix>{};
-  std::string error = killSwitch_->Apply(BuildKillSwitchRules(settings, tun));
+  std::string error = killSwitch_->Apply(BuildKillSwitchRules(settings, tun), KillSwitchSettingsText(settings));
   if (error.empty()) {
     killSettings_ = settings;
     killActive_ = settings.enabled || settings.lanClosed;

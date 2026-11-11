@@ -4,6 +4,15 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.4 — 11.11.2026
+
+**Settings are instruments now.** Five cards instead of sections with headings: Kill switch, «Закрыть от локальной сети», Блокировка, Тонкая настройка and Sovereign. Each card's head has a lamp, the name and one line about what it does right now, e.g. «готов: закроет интернет, если VPN оборвётся». A card that needs attention says so with an amber or red edge and a white line in its head. The «?» and ↻ in a head show while you point at it.
+
+- **The kill switch is under a lid while it's on.** The first click lifts the lid, a second click within 5 seconds turns it off; then the lid closes by itself. A kill switch that failed to start says why in its head.
+- **Whether the computer is seen in the local network is said in that card's head**, and ↻ checks again. The amber «Виден в сети» banner is gone; the red one for the firewall stays. The add row counts the devices around: «Ещё 2 устройства в сети — вход закрыт».
+- **Блокировка shows how many addresses were closed since start and the last hour by minutes.** The categories are chips with a dot. «Недавно» shows the latest closed names, and «Пропустить последние N» lets through everything closed in the last 2 minutes at once. The minute history lives in the tray, so it starts empty after the tray restarts.
+- **Тонкая настройка's head shows what's set**: DNS, QUIC and IPv4. Sovereign's head shows the versions and the update state; «Проверить сейчас» became the ↻ in it.
+
 ## 0.6.3 — 11.11.2026
 
 **Updates no longer depend on one GitHub account.** A release is a signed description (update.json): the version, the installer's size and sha256, where the installer is and where to ask for the next description. The client trusts the signature, not the address it came from. It asks GitHub and updates.packetlab.tech, and remembers addresses a release names, so a release can move the next update. The .sha256 file is still published for versions older than this one.

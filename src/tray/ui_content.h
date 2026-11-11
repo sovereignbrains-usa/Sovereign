@@ -277,6 +277,16 @@ struct UiContent {
   double flowDirect = 0;
   double flowWarp = 0;
   std::uint64_t blockedCount = 0;
+  // The settings' block instrument: what every block category refused since
+  // the box started, from when ("9:12"; empty: before the tray started), its
+  // last hour by minutes (the oldest first), how many were refused in the
+  // last two minutes (a click lets them through), the ads blocked lately.
+  std::uint64_t blockedTotal = 0;
+  std::wstring blockedSince;
+  std::array<std::uint32_t, 60> blockedMinutes{};
+  std::size_t blockedJustNow = 0;
+  std::vector<std::wstring> blockedLately;
+  bool lidUp = false;            // the kill switch's lid lifted for a second click (the window's own)
   std::wstring error;            // why the box doesn't run; empty if it does or is off
   // A subscription in trouble (support_report.h SubscriptionTrouble), said on
   // the main screen with its report a click away: "«name»: не отвечает ни один
@@ -411,6 +421,7 @@ enum class UiCommand : std::uint8_t {
   ToggleCloseDoh,       // a browser's own DoH/DoT refused, on or off
   BlockedMenu,        // anchor: what was blocked lately - a click lets one through
   BlockedApps,        // anchor: which programs asked for what was blocked (information)
+  PassJustNow,        // what the blocks refused in the last two minutes let through: a site broke just now
   ToggleWarp,         // on: registers a WARP device first if there's none
   AddWarpSite,        // starts typing over WARP's button
   AddWarpSiteText,    // text: sites (or subnets, programs) to send through WARP

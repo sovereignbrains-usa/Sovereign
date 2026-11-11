@@ -98,6 +98,8 @@ constexpr std::size_t kLogKeep = 5000;
 // where it was pressed, and held this long (or moved) it ends on release.
 constexpr float kLogBar = 14;
 constexpr UINT_PTR kPanTimer = 3;
+constexpr UINT_PTR kLidTimer = 4;    // the kill switch's lid lifted (ItemAction::LiftLid): it shuts again after this
+constexpr UINT kLidUpMs = 5000;
 constexpr UINT kPanFrameMs = 16;
 constexpr float kPanStill = 10;
 constexpr ULONGLONG kPanHoldMs = 300;
@@ -246,6 +248,11 @@ enum class Kind : std::uint8_t {
   ServerColumns, // the heads of a server's ways' columns: ОТКРЫТИЕ, ИГРЫ, СКОРОСТЬ, over them
   Way,           // a way to a server (index: protocols; checked: the traffic goes by it, sub 1: pinned by hand): dot, name, figures
   Link,          // a word that is a button, in the VPN's blue (a way's "замерить")
+  Instrument,    // a Settings card's head: a lamp (lamp), the name, what it does now under it (detail; `loud`: in white),
+                 // on the right a switch (sub 1; `lid`: under a lid) or a fold's chevron (sub 2) - circle = state
+  Dot,           // an on/off filter as a thing: a hairline rectangle, a dot in it that's lit when on (`checked`)
+  Trace,         // the last hour of blocks, a bar a minute (text2: one wchar per minute, its height in 0..1000)
+  Readout,       // a big number with its unit under it, right-aligned (text: the number, detail: the unit)
 };
 
 // The servers' columns at a Choice's right edge, from the edge in: the failures (a dot and a count), then the
@@ -278,7 +285,8 @@ enum class ItemAction : std::uint8_t {
   Hide,        // our title bar's cross: the window away to the tray
   RouteMenu,   // the routing mode's pill: its menu dropped or put away (the window's own)
   Hint,
-  Answer       // a question's button (index: 1 yes, 0 no); while one is open, the only ones that take a click
+  Answer,      // a question's button (index: 1 yes, 0 no); while one is open, the only ones that take a click
+  LiftLid      // the kill switch's lid: lifted for 5 s, the next click turns the switch (the window's own)
 };
 
 struct Item {
@@ -310,6 +318,13 @@ struct Item {
   bool tickAlways = false;  // the mark stays with the switch off (a DNS way); else it burns while the switch is on
   float fold = -1;      // a fold's handle: how open it is (0..1), its chevron turned by it; -1: not a fold's
   float clip = -1;      // a fold's row while the fold moves: seen and clicked above this line only; -1: whole
+  float indent = 0;     // a row (ValueRow, Switch, Divider) in an instrument's card: in by this, under its name
+  int lamp = 0;         // an Instrument's lamp: 0 none (nothing to check), 1 works, 2 worth fixing, 3 triggered
+  int verdict = 0;      // a Card's outline: 0 none, 2 amber (worth fixing), 3 red (triggered)
+  bool shy = false;     // drawn only while pointed at (it or what it sits on) or focused: a ↻, a "?"
+  bool lid = false;     // an Instrument's switch under a lid: a click lifts it first
+  bool lifted = false;  // the lid up: a click turns the switch now (its hinge drawn over the switch)
+  bool loud = false;    // an Instrument's detail in white: it tells what's wrong
 };
 
 // What of an item is seen: its rectangle, a moving fold's row cut at the fold's foot.
@@ -344,6 +359,30 @@ constexpr float kRailQuiet = 12;  // an empty way's rail: a short stroke, not a 
 // the "?"'s ring, a switch's groove: a family of one weight (30.10.2026, a
 // review's "иконки смешаны по стилю").
 constexpr float kIconStroke = 1.3f;
+
+// A Settings card as an instrument (docs/design/settings-instruments.html, 11.11.2026): its head a lamp,
+// the name and what it does now, its rows in under the name. From the head's left (4 in from the card):
+// the lamp's middle on 20, the name on 34 - the line 38 its rows' text keeps (kInstrumentIndent past 20).
+constexpr float kInstrumentLamp = 20;
+constexpr float kInstrumentText = 34;
+constexpr float kInstrumentIndent = 18;
+constexpr float kInstrumentHead = 56;  // at least: a detail that wraps makes it taller
+constexpr float kDotInk = 31;          // a Dot chip's room besides its word: 9 + the dot 6 + 6 + the word + 10
+constexpr float kDotHeight = 28;
+constexpr float kTraceBars = 22;       // the hour's bars; under them "час назад" and "сейчас"
+constexpr float kTraceHeight = 42;
+
+constexpr float kReadoutWidth = 110;   // a count read off on an instrument's right: "12 345" over "закрыто с 9:12"
+
+// What an Instrument's right keeps for its control: a switch, a fold's chevron, a count (sub 3: a Readout laid over it).
+constexpr float InstrumentControl(const Item& it) {
+  switch (it.sub) {
+    case 1: return 16 + 40 + 12;
+    case 2: return 16 + 14 + 8;
+    case 3: return 16 + kReadoutWidth + 10;
+    default: return 16;
+  }
+}
 
 // What an item's tip says: a "?"'s text, its own tip, an icon button's name;
 // empty: it has none.
@@ -605,6 +644,7 @@ void StepLive(LiveTraffic& live, const UiContent& c, bool on, float dt, D2D1_REC
 // What a paint depends on besides the layout.
 struct Interaction {
   int hover = -1;
+  int head = -1;  // the settings' card head (Kind::Instrument) the pointer is on: its shy "?" and ↻ show
   int pressed = -1;
   int focus = -1;
   bool focusVisible = false;
@@ -1267,6 +1307,22 @@ class Painter {
     const auto draw = [&](std::size_t i) {
       const Item& it = l.items[i];
       const auto n = static_cast<int>(i);
+      if (it.shy && n != in.hover && !(n == in.focus && in.focusVisible)) {
+        // Shy (a ↻, a "?" of an instrument): seen while the pointer is on it or on what it lies on.
+        const auto on = [&](int at) {
+          if (at < 0 || static_cast<std::size_t>(at) >= l.items.size()) {
+            return false;
+          }
+          const D2D1_RECT_F h = l.items[static_cast<std::size_t>(at)].rect;
+          const float x = (it.rect.left + it.rect.right) / 2;
+          const float y = (it.rect.top + it.rect.bottom) / 2;
+          return x >= h.left && x <= h.right && y >= h.top && y <= h.bottom;
+        };
+        const bool under = on(in.hover) || on(in.head);
+        if (!under) {
+          return;
+        }
+      }
       if (in.edit && (it.kind == Kind::GhostAdd || it.kind == Kind::Tag) && it.rect.left < in.edit->right &&
           it.rect.right > in.edit->left && it.rect.top < in.edit->bottom && it.rect.bottom > in.edit->top) {
         return;  // under the line being typed
@@ -1372,11 +1428,12 @@ class Painter {
       case Kind::AppRow:
       case Kind::ServerCard:
       case Kind::ServerColumns:
-      case Kind::Way: return at(left, 4) && at(right, 4);
+      case Kind::Way:
+      case Kind::Instrument: return at(left, 4) && at(right, 4);
       case Kind::Link: return right >= 16 - 0.5f;  // in a way's speed cell, on the row's inner edge
       case Kind::ProfileRow: return at(left, 4) && right >= 4 - 0.5f;  // cut short by its switch
       case Kind::Toggle: return at(right, 8);  // a plate 64 wide round a switch 40: the switch's ink on 20
-      case Kind::Divider: return at(left, 20) && at(right, 20);
+      case Kind::Divider: return at(left, 20 + it.indent) && at(right, 20);  // under an instrument's name: in by it
       case Kind::Segment: return at(left, 8) || at(right, 8);  // the outer edge on the line 8, the inner 4 off the middle
       case Kind::IconButton: {  // the zone reaches past the glyph, which keeps off the line 20
         const float bleed = (it.rect.right - it.rect.left - 16) / 2;
@@ -1393,15 +1450,16 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 43> kNames = {
+    static constexpr std::array<const wchar_t*, 47> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
         L"AppTitle", L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
-        L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link"};
+        L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link",   L"Instrument", L"Dot",  L"Trace",
+        L"Readout"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
-    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Link) + 1);
+    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Readout) + 1);
     std::wstring out;
     for (std::size_t i = 0; i < l.items.size(); ++i) {
       const Item& it = l.items[i];
@@ -1427,7 +1485,9 @@ class Painter {
           room = w - 4;
           need = TextWidth(it.text, body_.get()) + (it.glyph.empty() ? 0.0f : 26.0f);
           break;
-        case Kind::Switch: room = w - 16 - 76; need = TextWidth(it.text, body_.get()); break;
+        case Kind::Switch: room = w - 16 - 76 - it.indent; need = TextWidth(it.text, body_.get()); break;
+        case Kind::Instrument: room = w - kInstrumentText - InstrumentControl(it); need = TextWidth(it.text, heading_.get()); break;
+        case Kind::Dot: room = w - kDotInk; need = TextWidth(it.text, caption_.get()); break;
         case Kind::Choice: room = w - 42 - (kDelayColNarrow + kFailCol + kColSplit + kColGap) - 8; need = TextWidth(it.text, body_.get()); break;
         case Kind::Way:
           room = it.stacked ? w - kWayLeft - kColGap : w - kWayLeft - WayColumnsWidth() - 8;
@@ -1437,7 +1497,7 @@ class Painter {
         case Kind::ProfileRow: room = w - 14 - 28; need = TextWidth(it.text, body_.get()); break;
         case Kind::ServerCard: room = w - 16 - 34; need = TextWidth(it.text, heading_.get()); break;
         case Kind::ValueRow:
-          room = w - 16 - 30;
+          room = w - 16 - 30 - it.indent;
           need = it.stacked  // the value under the title: each on a line of its own
                      ? std::max(TextWidth(it.text, body_.get()) + (it.hinted ? kHint + 6 : 0.0f),
                                 TextWidth(it.detail, trailing_.get()))
@@ -1468,7 +1528,8 @@ class Painter {
           // A question's buttons lie over the page, which takes no click while it's open; so do the
           // routing mode's choices.
           const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer || o.kind == Kind::MenuItem ||
-                               (o.kind == Kind::IconButton && (it.kind == Kind::Title || it.kind == Kind::Card)) ||
+                               (o.kind == Kind::IconButton &&
+                                (it.kind == Kind::Title || it.kind == Kind::Card || it.kind == Kind::Instrument)) ||
                                (o.kind == Kind::Link && it.kind == Kind::Way) ||
                                ((o.kind == Kind::Muted || o.kind == Kind::Button) && it.kind == Kind::Card);
           overlaps = overlaps || (over && !allowed);
@@ -2205,7 +2266,7 @@ class Painter {
   // was the main screen's banner till 24.10.2026). The rest of it drags the
   // window (WM_NCHITTEST).
   // On an inner page back and the page's name (HeadOf) stand where the icon and the name are; the
-  // report goes right, by the page's keys. Returns false when the name (a configuration's) did not
+  // report goes after the name, as it does after the app's. Returns false when the name (a configuration's) did not
   // fit: the bar says "Конфигурация" and the page carries the name, wrapped.
   bool Caption(Layout& l, const UiContent& c, float width, UiPage page, const PageHead& head) const {
     // Keys of one width, the cross's too (it was Windows' 46): their pills
@@ -2289,19 +2350,31 @@ class Painter {
     const bool inner = page != UiPage::Overview;
     // By the name: the app's own icon, its name, and the report beside them
     // (his: "сообщить о проблеме около иконки приложения"). On an inner page
-    // the report stands right, before the page's keys.
+    // the report follows the page's name the same way, not the keys on the
+    // right (11.11.2026: one place to find it). Its glyph a speech bubble;
+    // on a bad day - the kill switch closed the internet - its words too,
+    // where they fit.
     Item name = Make(Kind::AppTitle, {12, 0, right - 14, kCaption}, L"Sovereign");
     name.text2 = SelfPath();
     name.scrolls = false;
     float left = 12 + 24 + TextWidth(name.text, caption_.get()) + 6;
-    if (inner) {
-      left = right - kKey;
-      right -= kKey;
-    }
-    Item report = chrome(CommandItem(Kind::IconButton, {left, 0, left + kKey, kCaption}, L"Сообщить о проблеме",
-                                     kGlyphReport, UiCommand::ReportProblem));
+    const std::wstring reportWords = L"Сообщить о проблеме";
+    const float wideReport = 44 + std::ceil(TextWidth(reportWords, caption_.get()));
+    Item report = chrome(CommandItem(Kind::IconButton, {left, 0, left + kKey, kCaption}, reportWords, kGlyphReport,
+                                     UiCommand::ReportProblem));
     report.tip = L"Сообщить о проблеме: отчёт без ключей и адресов, его можно прочитать перед отправкой";
-    left += kKey;
+    // Where it goes, as far as `reach`: its width.
+    const auto placeReport = [&](float at, float reach) {
+      const bool loud = c.lockedOut && at + wideReport <= reach;
+      const float w = loud ? wideReport : kKey;
+      report.rect = {at, 0, at + w, kCaption};
+      report.loud = loud;
+      report.detail = loud ? reportWords : std::wstring();
+      return w;
+    };
+    if (!inner) {
+      left += placeReport(left, right - 4);
+    }
     // A new version: the pill after the report, solid accent with its
     // version on it where there's room, the arrow alone where there isn't
     // (DrawChrome). Downloading, a click opens the settings, where the
@@ -2346,13 +2419,15 @@ class Painter {
       back.tip = L"Назад (Esc)";
       l.items.push_back(std::move(back));
       constexpr float kTitleLeft = 44;
-      const float room = right - 8 - kTitleLeft - (head.hint.empty() ? 0.0f : 6 + kHint);
+      const float room = right - 8 - kTitleLeft - (head.hint.empty() ? 0.0f : 6 + kHint) - (4 + kKey);
       std::wstring title = head.title;
       if (head.rename >= 0 && std::ceil(TextWidth(title, heading_.get())) > room) {
         title = L"Конфигурация";
         whole = false;
       }
-      const float titleWidth = std::ceil(TextWidth(title, heading_.get()));
+      const float titleWidth = std::min(std::ceil(TextWidth(title, heading_.get())), std::max(room, 0.0f));
+      // The report after the name and its "?".
+      placeReport(kTitleLeft + titleWidth + 4 + (head.hint.empty() ? 0.0f : 2 + kHint), right - 4);
       Item named = Make(Kind::Title, {kTitleLeft, 0, kTitleLeft + titleWidth + 4, kCaption}, title);
       named.scrolls = false;
       if (head.rename >= 0) {  // a click on the name renames it
@@ -2368,12 +2443,7 @@ class Painter {
       name.rect.right = report.rect.left;
       l.items.push_back(std::move(name));
     }
-    // Left to right, as Tab goes: the report and the update (on an inner page the other way round),
-    // the page keys or "+", the cross.
-    if (inner && update) {
-      l.items.push_back(std::move(*update));
-      update.reset();
-    }
+    // Left to right, as Tab goes: the report, the update, the page keys or "+", the cross.
     l.items.push_back(std::move(report));
     if (update) {
       l.items.push_back(std::move(*update));
@@ -3390,7 +3460,7 @@ class Painter {
     if (it.kind == Kind::ValueRow) {
       const float need = TextWidth(it.text, body_.get()) + 12 + TextWidth(it.detail, trailing_.get()) +
                          (it.logo.empty() ? 0.0f : 22.0f) + (it.hinted ? kHint + 6 : 0.0f);
-      return need > w - 16 - 30 ? kStackLine : 0;
+      return need > w - 16 - 30 - it.indent ? kStackLine : 0;
     }
     if (it.kind == Kind::CheckRow) {
       const float need = TextWidth(it.text, body_.get()) + 6 + kHint + 8 + TextWidth(it.detail, trailing_.get());
@@ -3676,82 +3746,107 @@ class Painter {
     return bottom - kPad + 1;  // exactly the view: nothing to scroll
   }
 
-  // The fine settings, the settings' fold's body: the seam (a groove, the
-  // law's disclosure grammar), then QUIC, IPv4 and DNS, a row each, in the
-  // handle's own card - the fold opens in place, not in a card under it
-  // (31.10.2026). `top` is where the handle ends; returns where the last row does.
+  // The fine settings, the fold's body under its instrument's head: QUIC, IPv4 and DNS, a row each, in
+  // the head's own card - the fold opens in place, not in a card under it (31.10.2026); in under the
+  // head's name since 11.11.2026. `top` is where the head ends; returns where the last row does.
   // (The DNS had a heading and a card of its own till 30.10.2026, his: the
   // settings didn't fit a screen. Hysteria 2's speed is its servers' menu's
   // since 17.10.2026.)
   float FineRows(Layout& l, const UiContent& c, float x0, float x1, float top) const {
     const UiRouting& r = c.routing;
-    {
-      l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
-      Item quic = CommandItem(Kind::ValueRow, {x0 + 4, top + 2, x1 - 4, top + kSettingsRow - 2}, L"QUIC", nullptr,
-                              UiCommand::ChooseQuic);
-      quic.detail = r.quic == 1     ? L"выкл."
-                    : r.quic == 2   ? L"вкл."
-                    : r.quicBlocked ? L"авто (сейчас выкл.)"
-                                    : L"авто (сейчас вкл.)";
-      quic.hinted = true;
-      l.items.push_back(std::move(quic));
-      HintAfter(l, L"QUIC", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
-                L"QUIC — HTTP/3 по UDP. Через серверы на TCP (VLESS, Trojan, AnyTLS) он идёт хуже обычного TCP, "
-                L"поэтому выключенный QUIC не мешает: браузеры сразу берут TCP.\n\n«Авто» включает QUIC, только "
-                L"если все твои серверы — Hysteria2 или TUIC. Есть хоть один на TCP — выключен.");
-      top += kSettingsRow;
-      l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
-      Item v4 = CommandItem(Kind::Switch, {x0 + 4, top + 2, x1 - 4, top + kSettingsRow - 2}, L"Только IPv4", nullptr,
-                            UiCommand::ToggleIpv4Only);
-      v4.checked = r.ipv4Only;
-      l.items.push_back(std::move(v4));
-      HintAfter(l, L"Только IPv4", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Сайты получают только IPv4-адреса. У многих серверов VPN нет IPv6: без этого браузер сначала "
-                L"пробует IPv6, ждёт и лишь потом идёт по IPv4 — сайт открывается с задержкой или не открывается.");
-      top += kSettingsRow;
+    const float in = x0 + 20 + kInstrumentIndent;
+    const auto line = [&](float at) {
+      Item d = Make(Kind::Divider, {in, at, x1 - 20, at + 1});
+      d.indent = kInstrumentIndent;
+      l.items.push_back(std::move(d));
+    };
+    const auto row = [&](Kind kind, float at, const wchar_t* title, UiCommand command) {
+      Item it = CommandItem(kind, {x0 + 4, at + 2, x1 - 4, at + kSettingsRow - 2}, title, nullptr, command);
+      it.indent = kInstrumentIndent;
+      return it;
+    };
+    line(top);
+    Item quic = row(Kind::ValueRow, top, L"QUIC", UiCommand::ChooseQuic);
+    quic.detail = r.quic == 1     ? L"выкл."
+                  : r.quic == 2   ? L"вкл."
+                  : r.quicBlocked ? L"авто (сейчас выкл.)"
+                                  : L"авто (сейчас вкл.)";
+    quic.hinted = true;
+    l.items.push_back(std::move(quic));
+    HintAfter(l, L"QUIC", body_.get(), in, x1 - 8, top + kSettingsRow / 2,
+              L"QUIC — HTTP/3 по UDP. Через серверы на TCP (VLESS, Trojan, AnyTLS) он идёт хуже обычного TCP, "
+              L"поэтому выключенный QUIC не мешает: браузеры сразу берут TCP.\n\n«Авто» включает QUIC, только "
+              L"если все твои серверы — Hysteria2 или TUIC. Есть хоть один на TCP — выключен.");
+    top += kSettingsRow;
+    line(top);
+    Item v4 = row(Kind::Switch, top, L"Только IPv4", UiCommand::ToggleIpv4Only);
+    v4.checked = r.ipv4Only;
+    l.items.push_back(std::move(v4));
+    HintAfter(l, L"Только IPv4", body_.get(), in, x1 - 80, top + kSettingsRow / 2,
+              L"Сайты получают только IPv4-адреса. У многих серверов VPN нет IPv6: без этого браузер сначала "
+              L"пробует IPv6, ждёт и лишь потом идёт по IPv4 — сайт открывается с задержкой или не открывается.");
+    top += kSettingsRow;
 
-      // DNS: who answers for the names of each kind - auto, a pick, or a
-      // server of the user's own (typed over its row).
-      l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
-      Item remote = CommandItem(Kind::ValueRow, {x0 + 4, top + 2, x1 - 4, top + kSettingsRow - 2}, L"DNS через VPN",
-                                nullptr, UiCommand::ChooseRemoteDns);
-      remote.detail = r.remoteDns;
-      remote.hinted = true;
-      remote.tick = kBucketProxy;
-      remote.tickAlways = true;
-      l.items.push_back(std::move(remote));
-      HintAfter(l, L"DNS через VPN", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
-                L"Имена всех сайтов, кроме прямых: запрос идёт через VPN, провайдер его не видит.\n\n«Авто» "
-                L"подходит почти всем: это Cloudflare. Свой адрес пишется так: 1.2.3.4, tls://dns.example, "
-                L"https://dns.example/dns-query, quic://dns.example.");
-      top += kSettingsRow;
-      l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
-      Item local = CommandItem(Kind::ValueRow, {x0 + 4, top + 2, x1 - 4, top + kSettingsRow - 2}, L"DNS напрямую",
-                               nullptr, UiCommand::ChooseLocalDns);
-      local.detail = r.localDns;
-      local.hinted = true;
-      local.tick = kBucketDirect;
-      local.tickAlways = true;
-      l.items.push_back(std::move(local));
-      HintAfter(l, L"DNS напрямую", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
-                L"Российские сайты, твои прямые и адреса самих серверов.\n\nЕсли этот DNS перестанет отвечать, "
-                L"Sovereign возьмёт следующий: Cloudflare, Google, Quad9, Яндекс, в конце DNS Windows. Яндекс — "
-                L"только здесь: в России его не блокируют.");
-      top += kSettingsRow;
-    }
+    // DNS: who answers for the names of each kind - auto, a pick, or a
+    // server of the user's own (typed over its row).
+    line(top);
+    Item remote = row(Kind::ValueRow, top, L"DNS через VPN", UiCommand::ChooseRemoteDns);
+    remote.detail = r.remoteDns;
+    remote.hinted = true;
+    remote.tick = kBucketProxy;
+    remote.tickAlways = true;
+    l.items.push_back(std::move(remote));
+    HintAfter(l, L"DNS через VPN", body_.get(), in, x1 - 8, top + kSettingsRow / 2,
+              L"Имена всех сайтов, кроме прямых: запрос идёт через VPN, провайдер его не видит.\n\n«Авто» "
+              L"подходит почти всем: это Cloudflare. Свой адрес пишется так: 1.2.3.4, tls://dns.example, "
+              L"https://dns.example/dns-query, quic://dns.example.");
+    top += kSettingsRow;
+    line(top);
+    Item local = row(Kind::ValueRow, top, L"DNS напрямую", UiCommand::ChooseLocalDns);
+    local.detail = r.localDns;
+    local.hinted = true;
+    local.tick = kBucketDirect;
+    local.tickAlways = true;
+    l.items.push_back(std::move(local));
+    HintAfter(l, L"DNS напрямую", body_.get(), in, x1 - 8, top + kSettingsRow / 2,
+              L"Российские сайты, твои прямые и адреса самих серверов.\n\nЕсли этот DNS перестанет отвечать, "
+              L"Sovereign возьмёт следующий: Cloudflare, Google, Quad9, Яндекс, в конце DNS Windows. Яндекс — "
+              L"только здесь: в России его не блокируют.");
+    top += kSettingsRow;
     return top;
+  }
+
+  // 12345 as "12 345": a no-break space between the thousands.
+  static std::wstring Grouped(std::uint64_t n) {
+    const std::wstring digits = std::to_wstring(n);
+    std::wstring out;
+    for (std::size_t i = 0; i < digits.size(); ++i) {
+      if (i > 0 && (digits.size() - i) % 3 == 0) {
+        out += L' ';
+      }
+      out += digits[i];
+    }
+    return out;
+  }
+
+  // The word for `n` of a thing in Russian: 1, 21 - `one`; 2-4, 22-24 - `few`; 5-20, 25-30 - `many`.
+  static const wchar_t* Plural(std::size_t n, const wchar_t* one, const wchar_t* few, const wchar_t* many) {
+    const std::size_t tens = n % 100;
+    const std::size_t units = n % 10;
+    if (tens >= 11 && tens <= 14) {
+      return many;
+    }
+    return units == 1 ? one : (units >= 2 && units <= 4) ? few : many;
   }
 
   float Settings(Layout& l, const UiContent& c, float x0, float x1, float y) const {
 
-    // Only what's set: where traffic goes (a page of its own), how the
-    // connection behaves (it holds when the VPN drops, it starts with Windows,
-    // the local network shut), the fine settings folded. Rows in a card a line apart: the
-    // card goes in first (drawn under its rows), its foot set once they're
-    // in. The rest went where it belongs (17.10.2026, he: "не стакаются"):
-    // the problem report to the title bar, the subscription relay to the
-    // configurations, quitting to the tray's menu; the version and the data
-    // folder are the page's foot.
+    // Instruments (docs/design/settings-instruments.html, 11.11.2026, his: "приборы больше понравились"):
+    // a card each - the kill switch, the local network, the blocks, the fine settings, the app - its
+    // head a lamp, the name and what it does right now, its switch or fold on the right; its rows in
+    // under the name. No headings: the head is the card's name. A card that went off or is worth fixing
+    // says so in its edge and its head's words, white. The head's "?" and a ↻ show while it's pointed at.
+    // (Till 11.11.2026: headings over cards of switches - "Подключение", "Блокировка", "О Sovereign".)
     const auto open = [&](float top) {
       l.items.push_back(Make(Kind::Card, {x0, top, x1, top}));
       return l.items.size() - 1;
@@ -3760,11 +3855,17 @@ class Painter {
       l.items[card].rect.bottom = bottom;
       return bottom + kSettingsGap;
     };
-    const auto line = [&](float top) { l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1})); };
+    const float in = x0 + 20 + kInstrumentIndent;  // the rows' text, under the heads' names
+    const auto line = [&](float top) {
+      Item d = Make(Kind::Divider, {in, top, x1 - 20, top + 1});
+      d.indent = kInstrumentIndent;
+      l.items.push_back(std::move(d));
+    };
     const auto row = [&](float top) { return D2D1_RECT_F{x0 + 4, top + 2, x1 - 4, top + kSettingsRow - 2}; };
-    // A row whose value is known: put in place; with no room beside its title it grows and the value
+    // A row put in place, in under the name; with no room beside its title it grows and the value
     // stands under it. Returns what it grew by - the next row starts that much lower.
     const auto put = [&](Item it) {
+      it.indent = kInstrumentIndent;
       const float grown = StackExtra(it);
       if (grown > 0) {
         it.rect.bottom += grown;
@@ -3773,51 +3874,163 @@ class Painter {
       l.items.push_back(std::move(it));
       return grown;
     };
+    // A card's head at `top`: taller when what it says wraps. Its index - the fields are set through it.
+    const auto head = [&](float top, std::wstring name, std::wstring detail, int lamp, int sub) {
+      Item h = Make(Kind::Instrument, {x0 + 4, top + 2, x1 - 4, top + kInstrumentHead - 2}, std::move(name));
+      h.sub = sub;
+      h.lamp = lamp;
+      const float width = (x1 - 4) - (x0 + 4) - kInstrumentText - InstrumentControl(h);
+      const float lines = detail.empty() ? 0.0f : TextHeight(detail, captionWrap_.get(), width);
+      h.rect.bottom = std::max(h.rect.bottom, h.rect.top + 30 + lines + 6);
+      h.detail = std::move(detail);
+      l.items.push_back(std::move(h));
+      return l.items.size() - 1;
+    };
+    const auto foot = [&](std::size_t at) { return l.items[at].rect.bottom + 2; };
+    // The head's "?" after its name, shy; returns where it ends (a ↻ may follow).
+    const auto headHint = [&](std::size_t at, std::wstring hint) {
+      const std::wstring name = l.items[at].text;
+      const float left = l.items[at].rect.left + kInstrumentText;
+      const float right = l.items[at].rect.right - InstrumentControl(l.items[at]);
+      HintAfter(l, name, heading_.get(), left, right, l.items[at].rect.top + 18, std::move(hint));
+      l.items.back().shy = true;
+      return l.items.back().rect.right;
+    };
+    // A ↻ after the head's "?", shy too: it's seldom needed (the checks run again by themselves).
+    const auto headRefresh = [&](std::size_t at, float after, std::wstring name, UiCommand command, int index,
+                                 bool enabled, std::wstring tip) {
+      const float cy = l.items[at].rect.top + 18;
+      const float right = l.items[at].rect.right - InstrumentControl(l.items[at]);
+      const float x = std::min(after + 2, right - 28);
+      Item run = CommandItem(Kind::IconButton, {x, cy - 14, x + 28, cy + 14}, std::move(name), kGlyphRefresh, command,
+                             index);
+      run.enabled = enabled;
+      run.tip = std::move(tip);
+      run.shy = true;
+      l.items.push_back(std::move(run));
+    };
+    const bool connected = c.display == Display::On;
 
-    y = Heading(l, L"Подключение", x0, x1, y);
+    // The kill switch: under a lid while on - a click lifts it, the next one (in 5 s) turns it off.
     {
       const std::size_t card = open(y);
-      float top = y;
-      Item kill = CommandItem(Kind::Switch, row(top), L"Kill switch", nullptr, UiCommand::ToggleKillSwitch);
-      kill.checked = c.killSwitch;
-      kill.tick = kBucketBlock;
-      l.items.push_back(std::move(kill));
-      HintAfter(l, L"Kill switch", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Если подключение оборвётся, трафик не пойдёт мимо VPN: интернет закрыт, пока оно не "
-                L"восстановится. Выключишь VPN сам — интернет работает как обычно.");
-      top += kSettingsRow;
-      line(top);
-      Item startup = CommandItem(Kind::ValueRow, row(top), L"Автозапуск", nullptr, UiCommand::ChooseStartup);
-      startup.detail = !c.autostart ? L"выключен" : c.connectAtStartup ? L"с подключением" : L"без подключения";
-      startup.hinted = true;
-      const float startupGrown = put(std::move(startup));
-      HintAfter(l, L"Автозапуск", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
-                L"При входе в Windows клиент запускается в области уведомлений, без окна. «С подключением» — "
-                L"подключается сам, если был включён; «без подключения» — ждёт, пока включишь.");
-      top += kSettingsRow + startupGrown;
-      // The local network: open, or closed both ways but for what the user
-      // lets in - the router, a device around, an address typed in. Closed, a
-      // row per device let in (a click: shut again, LanChipMenu) and one to
-      // let another in (LanAdd). Open, none: the service lets some in, it
-      // doesn't shut some out.
-      line(top);
-      Item lan = CommandItem(Kind::Switch, row(top), L"Закрыть от локальной сети", nullptr, UiCommand::ToggleLanClosed);
-      lan.checked = c.lanClosed;
-      lan.tick = kBucketBlock;
-      l.items.push_back(std::move(lan));
-      HintAfter(l, L"Закрыть от локальной сети", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Фильтр только на этом компьютере. Роутер, телефоны и другие устройства работают как обычно и "
-                L"пользуются интернетом — они просто не могут связаться с этим компьютером, а он с ними: общие "
-                L"папки, принтер, трансляция на телевизор, передача файлов с телефона.\n\nИнтернет этого "
-                L"компьютера тоже идёт через роутер, но зашифрованным: роутер не видит, какие сайты открыты, "
-                L"кроме прямых. "
-                L"Закрытый роутер — это только его настройки и его DNS.\n\nСовсем спрятаться нельзя: роутер "
-                L"видит, что компьютер подключён, а сканер сети на телефоне — что по его адресу есть устройство. "
-                L"Связаться с ним никто не сможет.\n\nПущенное устройство проходит только этот фильтр: "
-                L"соединения, о которых компьютер не просил, по-прежнему не пускает брандмауэр Windows. "
-                L"Пускаются адреса IPv4, по IPv6 локальная сеть закрыта целиком. DNS роутера закрыт и для "
-                L"клиента: вместо системного DNS — зашифрованный.\n\nДействует, пока подключение включено.");
-      top += kSettingsRow;
+      int lamp = 0;
+      bool loud = false;
+      std::wstring said;
+      if (c.lockedOut) {
+        lamp = 3;
+        loud = true;
+        said = L"закрыл интернет: " + (c.lockoutReason.empty() ? std::wstring(L"VPN не отвечает") : c.lockoutReason);
+      } else if (!c.killSwitch) {
+        said = L"выключен: если VPN оборвётся, трафик пойдёт мимо него";
+      } else if (!c.killSwitchError.empty()) {
+        lamp = 2;
+        loud = true;
+        said = L"не включился: " + c.killSwitchError;
+      } else if (c.killSwitchActive) {
+        lamp = 1;
+        said = L"готов: закроет интернет, если VPN оборвётся";
+      } else {
+        said = L"включится вместе с VPN";
+      }
+      const std::size_t at = head(y, L"Kill switch", std::move(said), lamp, 1);
+      {
+        Item& h = l.items[at];
+        h.checked = c.killSwitch;
+        h.loud = loud;
+        h.lid = c.killSwitch && !c.lidUp;
+        h.lifted = c.killSwitch && c.lidUp;
+        if (h.lid) {
+          h.action = ItemAction::LiftLid;
+          h.tip = L"Поднять крышку: выключить можно в следующие 5 секунд";
+        } else {
+          h.action = ItemAction::Command;
+          h.command = UiCommand::ToggleKillSwitch;
+        }
+      }
+      l.items[card].verdict = lamp >= 2 ? lamp : 0;
+      const float bottom = foot(at);
+      headHint(at, L"Если подключение оборвётся, трафик не пойдёт мимо VPN: интернет закрыт, пока оно не "
+                   L"восстановится. Выключишь VPN сам — интернет работает как обычно.\n\nВключённый он под "
+                   L"крышкой, чтобы не выключить его случайно: первое нажатие поднимает её, второе в следующие "
+                   L"5 секунд выключает.");
+      y = close(card, bottom);
+    }
+
+    // The local network: open, or closed both ways but for what the user lets in - the router, a device
+    // around, an address typed in. Closed, a row per device let in (a click: shut again, LanChipMenu)
+    // and one for the rest around (LanAdd: let one in). What the network sees of this computer (the
+    // checks' page's till 11.11.2026, then a line of the card) is said by the head; its ↻ looks again.
+    const UiCheck* seen = c.checks.size() > kCheckExposure ? &c.checks[kCheckExposure] : nullptr;
+    {
+      const std::size_t card = open(y);
+      std::size_t allowed = 0;
+      std::size_t others = 0;
+      for (const UiLanHost& h : c.lanHosts) {
+        if (h.allowed) {
+          ++allowed;
+        } else if (h.seen) {
+          ++others;
+        }
+      }
+      int lamp = 0;
+      bool loud = false;
+      std::wstring said;
+      if (seen != nullptr && seen->status == UiCheck::Status::Fail) {
+        lamp = 2;
+        loud = true;
+        said = seen->summary;  // the firewall off, or letting in; its way out under the card
+      } else if (seen != nullptr && seen->status == UiCheck::Status::Warn && !c.lanClosed) {
+        // "работает: общий доступ к файлам" - said as what is open to the network.
+        std::wstring what = seen->summary;
+        constexpr std::wstring_view kRuns = L"работает: ";
+        if (what.starts_with(kRuns)) {
+          what.erase(0, kRuns.size());
+        }
+        lamp = 2;
+        loud = true;
+        said = (what.find(L',') != std::wstring::npos ? L"из сети открыты: " : L"из сети открыт ") + what;
+      } else if (c.lanClosed) {
+        lamp = connected ? 1 : 0;
+        said = !connected     ? L"закроется вместе с VPN"
+               : allowed > 0 ? L"из сети подключаются только разрешённые"
+                             : L"из сети к компьютеру не подключиться";
+      } else {
+        said = L"из сети можно подключиться к компьютеру";
+      }
+      const std::size_t at = head(y, L"Закрыть от локальной сети", std::move(said), lamp, 1);
+      l.items[at].checked = c.lanClosed;
+      l.items[at].loud = loud;
+      l.items[at].action = ItemAction::Command;
+      l.items[at].command = UiCommand::ToggleLanClosed;
+      l.items[card].verdict = lamp >= 2 ? lamp : 0;
+      float top = foot(at);
+      std::wstring hint =
+          L"Фильтр только на этом компьютере. Роутер, телефоны и другие устройства работают как обычно и "
+          L"пользуются интернетом — они просто не могут связаться с этим компьютером, а он с ними: общие "
+          L"папки, принтер, трансляция на телевизор, передача файлов с телефона.\n\nИнтернет этого "
+          L"компьютера тоже идёт через роутер, но зашифрованным: роутер не видит, какие сайты открыты, "
+          L"кроме прямых. "
+          L"Закрытый роутер — это только его настройки и его DNS.\n\nСовсем спрятаться нельзя: роутер "
+          L"видит, что компьютер подключён, а сканер сети на телефоне — что по его адресу есть устройство. "
+          L"Связаться с ним никто не сможет.\n\nРазрешённое устройство проходит только этот фильтр: "
+          L"соединения, о которых компьютер не просил, по-прежнему не пускает брандмауэр Windows. "
+          L"Разрешаются адреса IPv4, по IPv6 локальная сеть закрыта целиком. DNS роутера закрыт и для "
+          L"клиента: вместо системного DNS — зашифрованный.\n\nДействует, пока подключение включено.";
+      if (seen != nullptr) {
+        hint += L"\n\n" + seen->title + L": проверяется после каждого подключения, ↻ — ещё раз.";
+        if (seen->status != UiCheck::Status::NotRun && seen->status != UiCheck::Status::Running) {
+          hint += L"\nСейчас: " + seen->summary;
+          if (!seen->detail.empty()) {
+            hint += L"\n" + seen->detail;
+          }
+        }
+      }
+      const float after = headHint(at, std::move(hint));
+      if (seen != nullptr) {
+        headRefresh(at, after, L"Проверить снова", UiCommand::RunChecks, static_cast<int>(kCheckExposure),
+                    !c.checksRunning, L"Проверить ещё раз, что видно этот компьютер в локальной сети");
+      }
       if (c.lanClosed) {
         for (std::size_t i = 0; i < c.lanHosts.size(); ++i) {
           const UiLanHost& h = c.lanHosts[i];
@@ -3832,129 +4045,182 @@ class Painter {
           host.logo = "lan";
           top += kSettingsRow + put(std::move(host));
         }
+        // The rest around, counted: "Ещё" only under the ones let in, one said as a word.
+        std::wstring rest;
+        if (others == 0) {
+          rest = L"Других устройств в сети пока не видно";
+        } else if (others == 1) {
+          rest = allowed > 0 ? L"Ещё одно устройство в сети — вход закрыт" : L"Одно устройство в сети — вход закрыт";
+        } else {
+          rest = (allowed > 0 ? L"Ещё " : L"") + std::to_wstring(others) + L" " +
+                 Plural(others, L"устройство", L"устройства", L"устройств") + L" в сети — вход закрыт";
+        }
         line(top);
-        l.items.push_back(CommandItem(Kind::ValueRow, row(top), L"Разрешить устройство", kGlyphAdd, UiCommand::LanAdd));
-        top += kSettingsRow;
-      }
-      // What the network sees of this computer (the checks' page's till 11.11.2026), looked at by itself
-      // after a connect; its way out under the card.
-      if (c.checks.size() > kCheckExposure) {
-        line(top);
-        top += kCheckRow + CheckLine(l, c, kCheckExposure, x0, x1, top);
+        Item add = CommandItem(Kind::ValueRow, row(top), std::move(rest), kGlyphAdd, UiCommand::LanAdd);
+        add.detail = others == 0 ? L"по адресу" : L"разрешить";
+        add.tip = L"Разрешить устройство: из тех, что в сети, или по адресу";
+        top += kSettingsRow + put(std::move(add));
       }
       y = close(card, top);
     }
-    if (c.checks.size() > kCheckExposure) {
-      const UiCheck& seen = c.checks[kCheckExposure];
-      if (seen.status == UiCheck::Status::Fail) {
-        l.items.push_back(CommandItem(Kind::Banner, {x0, y, x1, y + 40}, L"Брандмауэр: " + seen.summary + L" — открыть его",
-                                      kGlyphWarning, UiCommand::OpenFirewall));
-        y += 40 + kSettingsGap;
-      } else if (seen.status == UiCheck::Status::Warn && !c.lanClosed) {
-        l.items.push_back(CommandItem(Kind::Banner, {x0, y, x1, y + 40}, L"Виден в сети — закрыть от локальной сети",
-                                      kGlyphWarning, UiCommand::ToggleLanClosed));
-        y += 40 + kSettingsGap;
-      }
-    }
-    if (!c.killSwitchError.empty()) {
-      y = Paragraph(l, Kind::ErrorText, L"Kill switch: " + c.killSwitchError, x0, x1, y) + kSettingsGap;
+    if (seen != nullptr && seen->status == UiCheck::Status::Fail) {
+      l.items.push_back(CommandItem(Kind::Banner, {x0, y, x1, y + 40}, L"Брандмауэр: " + seen->summary + L" — открыть его",
+                                    kGlyphWarning, UiCommand::OpenFirewall));
+      y += 40 + kSettingsGap;
     }
 
-    // What's cut on the way: ads, trackers, cookie windows, malware. Switches, not a
-    // way to somewhere - they were the routing board's block's chips till
-    // 30.10.2026 (his: "не особо клеятся в блоке"). What was blocked lately
-    // is a row under them: a click lets one through.
-    y = Heading(l, L"Блокировка", x0, x1, y);
+    // What's cut on the way: ads, trackers, cookie windows, the dangerous - dots in things, a click turns
+    // one; how many were cut since the start and the last hour of it by minutes; what was cut lately
+    // (a click lets one through), all of the last two minutes at once, and who asks for it.
     {
       const std::size_t card = open(y);
-      float top = y;
-      Item ads = CommandItem(Kind::Switch, row(top), L"Блокировать рекламу", nullptr, UiCommand::ToggleBlockAds);
-      ads.checked = c.routing.blockAds;
-      ads.tick = kBucketBlock;
-      l.items.push_back(std::move(ads));
-      HintAfter(l, L"Блокировать рекламу", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Запросы к рекламным серверам по спискам никуда не уходят: страницы грузятся без рекламы. "
-                L"Сломалось что-то нужное — «Недавно заблокировано» ниже: нажми имя, и оно пойдёт дальше, "
-                L"или «Сломалось только что» — пропустит всё, что закрыто за последние 2 минуты.");
-      top += kSettingsRow;
-      line(top);
-      Item trackers = CommandItem(Kind::Switch, row(top), L"Блокировать трекеры", nullptr, UiCommand::ToggleTrackers);
-      trackers.checked = c.routing.trackers;
-      trackers.tick = kBucketBlock;
-      l.items.push_back(std::move(trackers));
-      HintAfter(l, L"Блокировать трекеры", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Серверы аналитики и слежки (счётчики, пиксели, профилирование): сайт открывается, но не узнаёт, "
-                L"куда ты ходил до него. Обычно ничего не ломает.");
-      top += kSettingsRow;
-      line(top);
-      Item cookies =
-          CommandItem(Kind::Switch, row(top), L"Убирать баннеры cookie", nullptr, UiCommand::ToggleCookieWindows);
-      cookies.checked = c.routing.cookieWindows;
-      cookies.tick = kBucketBlock;
-      l.items.push_back(std::move(cookies));
-      HintAfter(l, L"Убирать баннеры cookie", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Убирает окна «принять cookie» OneTrust, Cookiebot и подобные. Своё окно сайта (TikTok, "
-                L"DeepSeek) — нет: это не скрипт со стороны.");
-      top += kSettingsRow;
-      line(top);
-      Item malware =
-          CommandItem(Kind::Switch, row(top), L"Блокировать вредоносные сайты", nullptr, UiCommand::ToggleMalware);
-      malware.checked = c.routing.malware;
-      malware.tick = kBucketBlock;
-      l.items.push_back(std::move(malware));
-      HintAfter(l, L"Блокировать вредоносные сайты", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                L"Адреса с вирусами, фишингом и мошенничеством по спискам: поддельный банк или «выигрыш» не "
-                L"откроется.");
-      top += kSettingsRow;
-      if (c.routing.blockAds || c.routing.cookieWindows || c.routing.trackers || c.routing.malware) {
+      const UiRouting& r = c.routing;
+      const bool any = r.blockAds || r.trackers || r.cookieWindows || r.malware;
+      const bool counting = any && connected;
+      std::uint64_t hour = 0;
+      std::uint32_t busiest = 0;
+      for (const std::uint32_t minute : c.blockedMinutes) {
+        hour += minute;
+        busiest = std::max(busiest, minute);
+      }
+      std::wstring said = !any       ? L"ничего не закрывается: включи нужное ниже"
+                          : !connected ? L"считает, пока подключение включено"
+                                       : Grouped(hour) + L" за последний час";
+      const std::size_t at = head(y, L"Блокировка", std::move(said), 0, counting ? 3 : 0);
+      const float headTop = l.items[at].rect.top;
+      float top = foot(at);
+      headHint(at, L"Что закрывается по пути, по спискам. Точка в названии — закрывается; нажми, чтобы "
+                   L"переключить, наведи — расскажет, что это.\n\nСломалось что-то нужное — «Недавно» ниже: "
+                   L"нажми имя, и оно пойдёт дальше, или «Пропустить последние» — пропустит всё, что закрыто "
+                   L"за последние 2 минуты.");
+      if (counting) {
+        Item count = CommandItem(Kind::Readout, {x1 - 20 - kReadoutWidth, headTop + 6, x1 - 20, headTop + 48},
+                                 Grouped(c.blockedTotal), nullptr, UiCommand::BlockedMenu);
+        count.detail = c.blockedSince.empty() ? L"закрыто с запуска" : L"закрыто с " + c.blockedSince;
+        count.tip = c.blockedSince.empty() ? L"Столько адресов закрыто с запуска Sovereign"
+                                           : L"Столько адресов закрыто с запуска Sovereign в " + c.blockedSince;
+        l.items.push_back(std::move(count));
+        // The hour, a bar a minute: its share of the busiest, in thousandths.
+        Item trace = Make(Kind::Trace, {in, top, x1 - 20, top + kTraceHeight});
+        for (const std::uint32_t minute : c.blockedMinutes) {
+          const std::uint64_t share =
+              minute == 0 || busiest == 0 ? 0 : std::max<std::uint64_t>(1, std::uint64_t{minute} * 1000 / busiest);
+          trace.text2 += static_cast<wchar_t>(share);
+        }
+        l.items.push_back(std::move(trace));
+        top += kTraceHeight + 8;
+      }
+      struct Category {
+        const wchar_t* name;
+        bool on;
+        UiCommand command;
+        const wchar_t* tip;
+      };
+      std::vector<Category> categories = {
+          {L"Реклама", r.blockAds, UiCommand::ToggleBlockAds,
+           L"Запросы к рекламным серверам по спискам никуда не уходят: страницы грузятся без рекламы. "
+           L"Сломалось что-то нужное — «Недавно» ниже: нажми имя, и оно пойдёт дальше, или «Пропустить "
+           L"последние» — пропустит всё, что закрыто за последние 2 минуты."},
+          {L"Трекеры", r.trackers, UiCommand::ToggleTrackers,
+           L"Серверы аналитики и слежки (счётчики, пиксели, профилирование): сайт открывается, но не узнаёт, "
+           L"куда ты ходил до него. Обычно ничего не ломает."},
+          {L"Окна cookie", r.cookieWindows, UiCommand::ToggleCookieWindows,
+           L"Убирает окна «принять cookie» OneTrust, Cookiebot и подобные. Сами cookie не трогает: входы на "
+           L"сайты работают. Своё окно сайта (TikTok, DeepSeek) — нет: это не скрипт со стороны."},
+          {L"Опасные", r.malware, UiCommand::ToggleMalware,
+           L"Адреса с вирусами, фишингом и мошенничеством по спискам: поддельный банк или «выигрыш» не "
+           L"откроется."}};
+      if (any) {
+        categories.push_back(
+            {L"Обход DoH", r.closeDoh, UiCommand::ToggleCloseDoh,
+             L"Браузер со своим «безопасным DNS» (DoH, DoT) спрашивает адреса мимо клиента, и списки выше "
+             L"для него не работают. Включено: известные DNS-сервисы закрыты, браузер спрашивает через "
+             L"клиент. Если в браузере выбран конкретный сервис безопасного DNS и сайты перестали "
+             L"открываться — выключи его там или здесь."});
+      }
+      // They flow from the rows' line and wrap at the card's.
+      float x = in;
+      for (const Category& category : categories) {
+        const float w = kDotInk + std::ceil(TextWidth(category.name, caption_.get()));
+        if (x > in && x + w > x1 - 20) {
+          x = in;
+          top += kDotHeight + 6;
+        }
+        Item dot = CommandItem(Kind::Dot, {x, top, x + w, top + kDotHeight}, category.name, nullptr, category.command);
+        dot.checked = category.on;
+        dot.tip = category.tip;
+        l.items.push_back(std::move(dot));
+        x += w + 6;
+      }
+      top += kDotHeight + 10;
+      if (any) {
+        // What was cut lately, as many names as fit beside the title.
         line(top);
-        Item doh = CommandItem(Kind::Switch, row(top), L"Закрыть обход через DoH", nullptr, UiCommand::ToggleCloseDoh);
-        doh.checked = c.routing.closeDoh;
-        doh.tick = kBucketBlock;
-        l.items.push_back(std::move(doh));
-        HintAfter(l, L"Закрыть обход через DoH", body_.get(), x0 + 20, x1 - 80, top + kSettingsRow / 2,
-                  L"Браузер со своим «безопасным DNS» (DoH, DoT) спрашивает адреса мимо клиента, и списки выше "
-                  L"для него не работают. Включено: известные DNS-сервисы закрыты, браузер спрашивает через "
-                  L"клиент. Если в браузере выбран конкретный сервис безопасного DNS и сайты перестали "
-                  L"открываться — выключи его там или здесь.");
+        Item recent = CommandItem(Kind::ValueRow, row(top), L"Недавно", nullptr, UiCommand::BlockedMenu);
+        const float room = (x1 - 4) - (x0 + 4) - 16 - 30 - kInstrumentIndent - TextWidth(recent.text, body_.get()) - 12;
+        std::wstring names;
+        for (const std::wstring& name : c.blockedLately) {
+          const std::wstring longer = names.empty() ? name : names + L", " + name;
+          if (!names.empty() && TextWidth(longer, trailing_.get()) > room) {
+            break;
+          }
+          names = longer;
+        }
+        recent.detail = names.empty() ? std::wstring(L"пока пусто") : names;
+        recent.tip = L"Что закрыто недавно: нажми имя, и оно пойдёт дальше";
+        top += kSettingsRow + put(std::move(recent));
+        // A site broke just now: all cut in the last two minutes let through at once (main.cpp's PassJustNow).
+        line(top);
+        Item broke = Make(Kind::ValueRow, row(top), L"Сайт сломался только что?");
+        broke.indent = kInstrumentIndent;
+        l.items.push_back(std::move(broke));
+        const std::size_t n = c.blockedJustNow;
+        const std::wstring pass = n > 0 ? L"Пропустить последние " + std::to_wstring(n) : L"Пропускать нечего";
+        const float bw = std::ceil(TextWidth(pass, body_.get())) + 28;
+        Item button = CommandItem(Kind::Button, {x1 - 20 - bw, top + 4, x1 - 20, top + kSettingsRow - 4}, pass, nullptr,
+                                  UiCommand::PassJustNow);
+        button.quiet = true;
+        button.enabled = n > 0;
+        if (n > 0) {
+          button.tip = L"Пропустит " + std::to_wstring(n) + L" " + Plural(n, L"адрес", L"адреса", L"адресов") + L", " +
+                       Plural(n, L"закрытый", L"закрытых", L"закрытых") + L" за последние 2 минуты";
+        }
+        l.items.push_back(std::move(button));
         top += kSettingsRow;
         line(top);
-        Item recent = CommandItem(Kind::ValueRow, row(top), L"Недавно заблокировано", nullptr, UiCommand::BlockedMenu);
-        recent.detail = L"пропустить нужное";
-        top += kSettingsRow + put(std::move(recent));
-        line(top);
-        Item who = CommandItem(Kind::ValueRow, row(top), L"Кто обращается", nullptr, UiCommand::BlockedApps);
-        who.detail = L"программы и CNAME";
+        Item who = CommandItem(Kind::ValueRow, row(top), L"Кто обращается к закрытому", nullptr, UiCommand::BlockedApps);
+        who.detail = L"по программам";
+        who.tip = L"Какие программы обращались к закрытым адресам и через какие CNAME";
         top += kSettingsRow + put(std::move(who));
       }
       y = close(card, top);
     }
 
-    // The fine settings, folded: QUIC, IPv4, DNS - auto by default, seldom
-    // touched (the routing page's till 17.10.2026).
+    // The fine settings, folded: QUIC, IPv4, DNS - auto by default, seldom touched (the routing page's
+    // till 17.10.2026). The head says what's set, to know one's own, not to read it all.
     {
-      // One card: the handle, its summary while folded, and - open - the seam and
-      // the rows under it (the law's disclosure grammar).
       const std::size_t card = open(y);
       const float fold = FoldOf(c.routingMore, c.routingFold);
-      Item more = CommandItem(Kind::ValueRow, row(y), L"Тонкая настройка", kGlyphChevronDown, UiCommand::ToggleRoutingMore);
-      more.fold = fold;
-      if (fold < 0.5f) {
-        // What's set, not what's inside: QUIC as it stands, IPv4 only when on,
-        // a DNS of the user's own when there is one.
-        const UiRouting& r = c.routing;
-        std::wstring set = r.quic == 1 ? L"QUIC выкл." : r.quic == 2 ? L"QUIC вкл." : L"";
-        const auto add = [&](const wchar_t* part) { set += (set.empty() ? L"" : L" · ") + std::wstring(part); };
-        if (r.ipv4Only) {
-          add(L"IPv4");
-        }
-        if (!r.remoteDns.starts_with(L"авто") || !r.localDns.starts_with(L"авто")) {
-          add(L"свой DNS");
-        }
-        more.detail = set.empty() ? L"QUIC, IPv4, DNS" : set;
+      const UiRouting& r = c.routing;
+      std::wstring dns = r.remoteDns;  // "авто · Cloudflare", "Google (DoH)", "свой · …": the server's name
+      constexpr std::wstring_view kAuto = L"авто · ";
+      if (dns.starts_with(kAuto)) {
+        dns.erase(0, kAuto.size());
+      } else if (dns.starts_with(L"свой")) {
+        dns = L"свой";
       }
-      l.items.push_back(std::move(more));
-      float top = y + kSettingsRow;
+      if (const std::size_t paren = dns.find(L" ("); paren != std::wstring::npos) {
+        dns.erase(paren);
+      }
+      std::wstring said = L"DNS " + dns + L" · QUIC " + (r.quic == 1 ? L"выкл." : r.quic == 2 ? L"вкл." : L"авто");
+      if (r.ipv4Only) {
+        said += L" · только IPv4";
+      }
+      const std::size_t at = head(y, L"Тонкая настройка", std::move(said), 0, 2);
+      l.items[at].action = ItemAction::Command;
+      l.items[at].command = UiCommand::ToggleRoutingMore;
+      l.items[at].fold = fold;
+      float top = foot(at);
       if (fold > 0) {
         const std::size_t first = l.items.size();
         top = FoldBody(l, first, top, FineRows(l, c, x0, x1, top), fold);
@@ -3962,80 +4228,78 @@ class Painter {
       y = close(card, top);
     }
 
-    // The foot, no card - it's about the app, nothing to set: the version and
-    // whether it's the last, the data folder and the update check beside it;
-    // an update waiting, its button under them. The sing-box inside a line of
-    // its own, with whether it's sing-box's newest.
-    // (The foot was loose lines and two icon buttons; since 30.10.2026, his:
-    // "улучшить визуально и функциональнее", it's a card of rows with names:
-    // updates and their check beside the versions they're about.)
-    y = Heading(l, L"О Sovereign", x0, x1, y);
+    // The app: its version and the sing-box inside, whether there's newer; how it starts and updates,
+    // the data folder. An update waiting, its button under the card.
+    // (A card of rows - the versions, "Проверить сейчас" - from 30.10.2026 till 11.11.2026: the check is
+    // the head's ↻ now.)
     {
       const std::size_t card = open(y);
-      float top = y;
       const bool checking = c.update == UiUpdate::Checking || c.update == UiUpdate::Downloading;
-
-      // The client's version and where it stands against the newest.
-      Item self = Make(Kind::ValueRow, row(top), L"Sovereign");
-      self.detail = c.version;
-      if (c.update == UiUpdate::UpToDate) {
-        self.detail += L" · последняя";
-      } else if (c.update == UiUpdate::Available || c.update == UiUpdate::Waiting) {
-        self.detail += L" · вышла " + c.updateVersion;
+      const bool boxLatest = !c.boxIsLatest || *c.boxIsLatest;
+      std::wstring state;
+      switch (c.update) {
+        case UiUpdate::Checking: state = L"проверяю…"; break;
+        case UiUpdate::Downloading:
+          state = c.updateInstalling        ? L"ставлю " + c.updateVersion + L"…"
+                  : c.updateProgress >= 0 ? L"скачиваю " + std::to_wstring(c.updateProgress) + L"%"
+                                          : L"скачиваю " + c.updateVersion + L"…";
+          break;
+        case UiUpdate::Available: state = L"вышла " + c.updateVersion; break;
+        case UiUpdate::Waiting: state = L"вышла " + c.updateVersion + L", скачана"; break;
+        case UiUpdate::Failed: state = L"проверить не вышло"; break;
+        case UiUpdate::Off: state = L"обновления не в этой сборке"; break;
+        case UiUpdate::UpToDate:
+          state = boxLatest ? L"обновлений нет" : L"вышел sing-box " + c.boxLatest;
+          break;
+        case UiUpdate::Idle: break;
       }
-      top += kSettingsRow + put(std::move(self));
-      line(top);
+      std::wstring said = L"sing-box " + c.boxVersion + (state.empty() ? std::wstring() : L" · " + state);
+      const int lamp = c.update == UiUpdate::UpToDate && boxLatest ? 1 : 0;
+      const std::size_t at = head(y, L"Sovereign " + c.version, std::move(said), lamp, 0);
+      float top = foot(at);
+      const float after = headHint(at, L"Версия клиента и sing-box внутри него. Новые версии ищутся сами, раз "
+                                       L"в 12 часов, если в «Обновлениях» не выбрано «не проверять»; ↻ — "
+                                       L"поискать сейчас.");
+      headRefresh(at, after, L"Проверить обновления", UiCommand::CheckUpdate, 0, !checking && c.update != UiUpdate::Off,
+                  L"Поискать новую версию сейчас");
 
-      Item box = Make(Kind::ValueRow, row(top), L"sing-box");
-      box.detail = c.boxVersion + (!c.boxIsLatest ? std::wstring()
-                                   : *c.boxIsLatest ? std::wstring(L" · последняя")
-                                                    : L" · вышла " + c.boxLatest);
-      top += kSettingsRow + put(std::move(box));
       line(top);
+      Item startup = CommandItem(Kind::ValueRow, row(top), L"Автозапуск", nullptr, UiCommand::ChooseStartup);
+      startup.detail = !c.autostart ? L"выключен" : c.connectAtStartup ? L"с подключением" : L"без подключения";
+      startup.hinted = true;
+      const float startupGrown = put(std::move(startup));
+      HintAfter(l, L"Автозапуск", body_.get(), in, x1 - 8, top + kSettingsRow / 2,
+                L"При входе в Windows клиент запускается в области уведомлений, без окна. «С подключением» — "
+                L"подключается сам, если был включён; «без подключения» — ждёт, пока включишь.");
+      top += kSettingsRow + startupGrown;
 
+      line(top);
       Item updates = CommandItem(Kind::ValueRow, row(top), L"Обновления", nullptr, UiCommand::ChooseUpdates);
       updates.detail = c.updateMode == UpdateMode::Off       ? L"не проверять"
                        : c.updateMode == UpdateMode::Install ? L"ставить сами"
                                                              : L"только проверять";
       updates.hinted = true;
       const float updatesGrown = put(std::move(updates));
-      HintAfter(l, L"Обновления", body_.get(), x0 + 20, x1 - 8, top + kSettingsRow / 2,
+      HintAfter(l, L"Обновления", body_.get(), in, x1 - 8, top + kSettingsRow / 2,
                 L"«Только проверять» — раз в 12 часов; новая версия появится значком в заголовке окна, "
                 L"обновляешь нажатием на него. «Ставить сами» — новая версия скачивается сама и "
                 L"ставится без вопросов, когда компьютер свободен: никто не трогал мышь и клавиатуру столько минут, сколько выбрано строкой ниже, "
                 L"ничего не открыто на весь экран, ничего не качается. VPN пропадает примерно на полминуты. «Не "
-                L"проверять» — только строкой «Проверить сейчас» ниже.");
+                L"проверять» — только ↻ у названия Sovereign выше.");
       top += kSettingsRow + updatesGrown;
-      line(top);
 
       if (c.updateMode == UpdateMode::Install) {  // how long the computer must be left alone before it installs
+        line(top);
         Item quiet = CommandItem(Kind::ValueRow, row(top), L"Ставить после тишины", nullptr, UiCommand::ChooseUpdateQuiet);
         quiet.detail = std::to_wstring(c.updateQuietMinutes) + L" мин";
-        l.items.push_back(std::move(quiet));
-        top += kSettingsRow;
-        line(top);
+        top += kSettingsRow + put(std::move(quiet));
       }
 
-      // The check by hand; its answer in the row.
-      Item check = CommandItem(Kind::ValueRow, row(top), L"Проверить сейчас", kGlyphRefresh, UiCommand::CheckUpdate);
-      check.enabled = !checking && c.update != UiUpdate::Off;
-      check.detail = c.update == UiUpdate::Checking      ? L"проверяю…"
-                     : c.update == UiUpdate::Downloading ? (c.updateInstalling ? L"ставлю " + c.updateVersion + L"…"
-                                                        : c.updateProgress >= 0 ? L"скачиваю " + std::to_wstring(c.updateProgress) + L"%"
-                                                                                : L"скачиваю " + c.updateVersion + L"…")
-                     : c.update == UiUpdate::UpToDate    ? L"это последняя версия"
-                     : c.update == UiUpdate::Waiting     ? L"скачана, ждёт паузы"
-                     : c.update == UiUpdate::Off         ? L"не в этой сборке"
-                     : c.update == UiUpdate::Failed || (c.update == UiUpdate::Available && !c.updateError.empty())
-                         ? L"не вышло"
-                         : L"";
-      top += kSettingsRow + put(std::move(check));
       line(top);
-
       Item folder = CommandItem(Kind::ValueRow, row(top), L"Папка данных", kGlyphFolder, UiCommand::OpenFolder);
+      folder.detail = L"настройки и конфиги";
       folder.tip = L"Открыть папку данных: настройки, конфиги, их история";
-      l.items.push_back(std::move(folder));
-      top += kSettingsRow;
+      top += kSettingsRow + put(std::move(folder));
       y = close(card, top);
     }
     if (c.update == UiUpdate::Failed || (c.update == UiUpdate::Available && !c.updateError.empty())) {
@@ -4071,6 +4335,10 @@ class Painter {
             k.Round(r, kRadius, Rgb(255, 255, 255, hoverAlpha));
           }
           k.Outline(r, kRadius, Rgb(255, 255, 255, it.glass ? 0.10f : 0.08f));
+          // An instrument's verdict: its card's edge in the colour of its fate - red, it went off; amber, worth fixing.
+          if (it.verdict >= 2) {
+            k.Outline(r, kRadius, it.verdict >= 3 ? FromColorRef(ui::kDanger, 0.6f) : FromColorRef(ui::kWarning, 0.5f), 1.25f);
+          }
         }
         if (it.rail >= 0) {  // a way's card: the settings' card, and the rail down its edge - no tint, no other geometry
           // An empty way: the same rail, short and at full tone (a pale one fails 3:1), at the head's middle.
@@ -4222,7 +4490,7 @@ class Painter {
         }
         const float cy = (r.top + r.bottom) / 2;
         DrawTick(k, it, cy);
-        float textLeft = r.left + 16;
+        float textLeft = r.left + 16 + it.indent;
         if (ID2D1Bitmap* logo = it.logo.empty() ? nullptr : Logo(k.t, it.logo); logo != nullptr) {
           k.t->DrawBitmap(logo, {textLeft, cy - 8, textLeft + 16, cy + 8});
           textLeft += 22;
@@ -4293,11 +4561,12 @@ class Painter {
         const float right = r.right - 16;
         const D2D1_COLOR_F ink = it.enabled ? primary : secondary;
         DrawTick(k, it, (r.top + r.bottom) / 2);
+        const float textLeft = r.left + 16 + it.indent;
         if (it.detail.empty()) {
-          k.Text(it.text, body_.get(), {r.left + 16, r.top, right - 60, r.bottom}, ink);
+          k.Text(it.text, body_.get(), {textLeft, r.top, right - 60, r.bottom}, ink);
         } else {
-          k.Text(it.text, body_.get(), {r.left + 16, r.top + 10, right - 60, r.top + 34}, ink);
-          k.Text(it.detail, caption_.get(), {r.left + 16, r.top + 34, right - 60, r.top + 56}, secondary);
+          k.Text(it.text, body_.get(), {textLeft, r.top + 10, right - 60, r.top + 34}, ink);
+          k.Text(it.detail, caption_.get(), {textLeft, r.top + 34, right - 60, r.top + 56}, secondary);
         }
         DrawSwitch(k, {right - 40, (r.top + r.bottom) / 2 - 10, right, (r.top + r.bottom) / 2 + 10}, it.checked);
         break;
@@ -4430,6 +4699,63 @@ class Painter {
         }
         k.Text(it.text, chip_.get(), r, it.checked ? primary : secondary);
         break;
+      case Kind::Instrument: {
+        // A card's head (settings-instruments.html): the lamp, the name, what it does now under it; its
+        // switch or fold on the right. The lamp says how it is (green works, amber worth fixing, red it went
+        // off), none where there's nothing to check.
+        if (hoverAlpha > 0 && it.action != ItemAction::None && it.enabled) {
+          k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
+        }
+        const float nameMid = r.top + 18;
+        if (it.lamp > 0) {
+          const COLORREF tone = it.lamp >= 3 ? ui::kDanger : it.lamp == 2 ? ui::kWarning : ui::kUpload;
+          k.t->FillEllipse(D2D1::Ellipse({r.left + kInstrumentLamp, nameMid}, 4, 4), k.Color(FromColorRef(tone)));
+        }
+        const float textLeft = r.left + kInstrumentText;
+        const float textRight = r.right - InstrumentControl(it);
+        k.Text(it.text, heading_.get(), {textLeft, r.top + 6, textRight, r.top + 30}, primary);
+        if (!it.detail.empty()) {
+          k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 30, textRight, r.bottom}, it.loud ? primary : secondary);
+        }
+        const float cy = (r.top + r.bottom) / 2;
+        if (it.sub == 1) {
+          const float right = r.right - 16;
+          const D2D1_RECT_F track{right - 40, cy - 10, right, cy + 10};
+          DrawSwitch(k, track, it.checked);
+          if (it.lid) {
+            DrawLid(k, track);
+          } else if (it.lifted) {  // the lid up: only its hinge, over the switch
+            k.Round({track.left - 2, track.top - 9, track.right + 2, track.top - 6}, 1.5f, secondary);
+          }
+        } else if (it.sub == 2) {
+          DrawIcon(k, kGlyphChevronDown, {r.right - 36, cy - 10, r.right - 8, cy + 10}, secondary, std::max(it.fold, 0.0f));
+        }
+        break;
+      }
+      case Kind::Dot: {
+        // A category as a thing with its state in it: a hairline rectangle, a dot - filled white when on.
+        k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
+        k.Outline(r, 6, Rgb(255, 255, 255, it.checked ? 0.16f : 0.08f));
+        const D2D1_POINT_2F dot{r.left + 12, (r.top + r.bottom) / 2};
+        if (it.checked) {
+          k.t->FillEllipse(D2D1::Ellipse(dot, 3, 3), k.Color(lit));
+        } else {
+          k.t->DrawEllipse(D2D1::Ellipse(dot, 2.375f, 2.375f), k.Color(secondary), 1.25f);
+        }
+        k.Text(it.text, caption_.get(), {r.left + 21, r.top, r.right - 6, r.bottom}, it.checked ? primary : secondary);
+        break;
+      }
+      case Kind::Trace: DrawTrace(k, it); break;
+      case Kind::Readout: {
+        // A count read off: the number large and right-aligned, its unit under it.
+        if (hoverAlpha > 0 && it.action != ItemAction::None) {
+          k.Round(Inflate(r, 4), 6, Rgb(255, 255, 255, hoverAlpha));
+        }
+        const float numberWidth = std::ceil(TextWidth(it.text, state_.get())) + 2;
+        k.Text(it.text, state_.get(), {r.right - numberWidth, r.top, r.right, r.top + 26}, primary);
+        k.Text(it.detail, trailing_.get(), {r.left, r.top + 26, r.right, r.bottom}, secondary);
+        break;
+      }
       case Kind::Pill: {
         // A window cut into the panel: dark, a hairline, a shadow along its top edge.
         if (it.rail >= 0) {  // a way's label: tinted in its colour, a dot before the name
@@ -4731,6 +5057,46 @@ class Painter {
     }
   }
 
+  // A guard's lid over a switch (`track`): see-through, told by its rim, its hinge on top and a sparse
+  // hatching - one click lifts it, the next turns the switch (an off kill switch has none).
+  void DrawLid(const Canvas& k, D2D1_RECT_F track) const {
+    const D2D1_RECT_F lid{track.left - 7, track.top - 5, track.right + 7, track.bottom + 5};
+    const D2D1_COLOR_F ink = FromColorRef(ui::kSecondaryText);
+    k.t->PushAxisAlignedClip(Inflate(lid, -1.25f), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    const float h = lid.bottom - lid.top;
+    for (float x = lid.left; x < lid.right + h; x += 6) {  // CSS's 135°: stripes up to the right, every 6
+      k.Line({x, lid.top}, {x - h, lid.bottom}, FromColorRef(ui::kSecondaryText, 0.28f));
+    }
+    k.t->PopAxisAlignedClip();
+    k.Outline(lid, 5, FromColorRef(ui::kSecondaryText, 0.85f), 1.25f);
+    k.Round({lid.left + 5, lid.top - 1.5f, lid.right - 5, lid.top + 1.5f}, 1.5f, ink);
+  }
+
+  // The last hour of blocks (Kind::Trace): a bar a minute, its height the minute's share of the
+  // busiest, the older ones paler; a baseline under them; "час назад" and "сейчас" under it.
+  void DrawTrace(const Canvas& k, const Item& it) const {
+    const D2D1_RECT_F r = it.rect;
+    const std::size_t n = it.text2.size();
+    const float base = r.top + kTraceBars;
+    if (n > 0) {
+      const float step = (r.right - r.left + 2) / static_cast<float>(n);
+      for (std::size_t i = 0; i < n; ++i) {
+        const float share = static_cast<float>(it.text2[i]) / 1000.0f;
+        if (share <= 0) {
+          continue;
+        }
+        const float alpha = i < n / 2 ? 0.3f : (i < n * 11 / 12 ? 0.55f : 1.0f);
+        const float x = r.left + step * static_cast<float>(i);
+        const float top = base - std::max(1.0f, (kTraceBars - 1) * std::min(share, 1.0f));
+        k.Round({x, top, x + step - 2, base}, 1, FromColorRef(ui::kDanger, 0.85f * alpha));
+      }
+    }
+    k.Line({r.left, base + 0.5f}, {r.right, base + 0.5f}, FromColorRef(ui::kSecondaryText, 0.3f));
+    const D2D1_RECT_F under{r.left, base + 2, r.right, r.bottom};
+    k.Text(L"час назад", caption_.get(), under, FromColorRef(ui::kSecondaryText));
+    k.Text(L"сейчас", trailing_.get(), under, FromColorRef(ui::kSecondaryText));
+  }
+
   // The fate's mark on the card's edge (3x12, the rail's tone): a row whose fate is known puts it
   // at its middle - while its switch is on, or always for a way (a DNS). The row sits 4 in from
   // the card's edge, so the mark stands on the edge itself. The switch stays white.
@@ -4761,12 +5127,19 @@ class Painter {
       ink = FromColorRef(ui::kLitInk);
     }
     const bool lamp = it.kind == Kind::DangerButton && !(it.action == ItemAction::Answer && it.index == 1);
+    // Quiet: a hairline, no plate - an action at hand that isn't the card's point ("Пропустить последние 7").
+    const bool quiet = it.kind == Kind::Button && it.quiet;
+    if (quiet) {
+      fill = Rgb(255, 255, 255, hovered ? (pressed ? 0.05f : 0.08f) : 0.0f);
+    }
     if (!it.enabled) {
-      fill = Rgb(255, 255, 255, 0.03f);
+      fill = Rgb(255, 255, 255, quiet ? 0.0f : 0.03f);
       ink = FromColorRef(ui::kSecondaryText, 0.5f);
     }
     k.Round(r, 6, fill);
-    if (lamp && it.enabled) {
+    if (quiet) {
+      k.Outline(r, 6, Rgb(255, 255, 255, it.enabled ? 0.16f : 0.08f));
+    } else if (lamp && it.enabled) {
       k.Outline(r, 6, FromColorRef(ui::kDanger, 0.40f));
     } else if (it.kind == Kind::Button || lamp) {
       k.Outline(r, 6, Rgb(255, 255, 255, 0.08f));
@@ -4865,6 +5238,10 @@ class Painter {
   // big, its top edge flush with the window's), with its number on it as wide
   // as its cell.
   static D2D1_RECT_F KeyPill(const Item& it) {
+    if (it.loud) {  // the report's key on a bad day: its words beside the bubble, a quiet button's outline
+      const float cy = (it.rect.top + it.rect.bottom) / 2;
+      return {it.rect.left + 2, cy - 13, it.rect.right - 2, cy + 13};
+    }
     if (it.checked) {
       const float cy = (it.rect.top + it.rect.bottom) / 2;
       if (it.detail.empty()) {
@@ -4994,15 +5371,39 @@ class Painter {
       line(5, -0.5f, 5, -3.2f);
       k.t->FillEllipse(D2D1::Ellipse({cx + 5, cy - 5}, 1.8f, 1.8f), k.Color(ink));
     } else if (glyph == kGlyphReport) {
-      // A bug: the body split down its back, a head, legs and feelers.
-      ring(0, 1.5f, 3.4f, 4.4f);
-      line(0, -2.9f, 0, 5.9f);
-      line(-1.4f, -4.2f, -2.8f, -6.2f);
-      line(1.4f, -4.2f, 2.8f, -6.2f);
-      for (const float y : {-0.8f, 2.0f, 4.6f}) {
-        line(-3.4f, y, -6.4f, y - 1.0f);
-        line(3.4f, y, 6.4f, y - 1.0f);
+      // A speech bubble with a "!" in it: to say what's wrong (11.11.2026 - the bug read as "debug", not as
+      // "tell us"). Its body a rounded rectangle, the tail down left, one figure.
+      wil::com_ptr<ID2D1PathGeometry> bubble;
+      wil::com_ptr<ID2D1GeometrySink> sink;
+      if (SUCCEEDED(d2d_->CreatePathGeometry(bubble.put())) && SUCCEEDED(bubble->Open(sink.put()))) {
+        constexpr float kL = -6.25f;
+        constexpr float kR = 6.25f;
+        constexpr float kT = -6.0f;
+        constexpr float kB = 3.5f;
+        constexpr float kC = 1.5f;  // the corners
+        const auto p = [&](float x, float y) { return D2D1_POINT_2F{cx + x, cy + y}; };
+        const auto corner = [&](float x, float y) {
+          sink->AddArc(D2D1::ArcSegment(p(x, y), {kC, kC}, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+        };
+        sink->BeginFigure(p(kL + kC, kT), D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddLine(p(kR - kC, kT));
+        corner(kR, kT + kC);
+        sink->AddLine(p(kR, kB - kC));
+        corner(kR - kC, kB);
+        sink->AddLine(p(-0.25f, kB));
+        sink->AddLine(p(-3.5f, 6.25f));
+        sink->AddLine(p(-3.5f, kB));
+        sink->AddLine(p(kL + kC, kB));
+        corner(kL, kB - kC);
+        sink->AddLine(p(kL, kT + kC));
+        corner(kL + kC, kT);
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        if (SUCCEEDED(sink->Close())) {
+          k.t->DrawGeometry(bubble.get(), k.Color(ink), kIconStroke, roundCaps_.get());
+        }
       }
+      line(0, -3.5f, 0, -0.5f);
+      k.t->FillEllipse(D2D1::Ellipse({cx, cy + 1.4f}, 0.85f, 0.85f), k.Color(ink));
     } else if (glyph == kGlyphBack) {  // back: an arrow to the left, the title bar's first key
       line(-6, 0, 6, 0);
       line(-6, 0, -1, -5);
@@ -5063,6 +5464,20 @@ class Painter {
   void DrawChrome(const Canvas& k, const Item& it, bool hovered, bool pressed) const {
     const D2D1_RECT_F r = it.rect;
     const bool cross = it.glyph == kGlyphClose;
+    if (it.loud) {
+      // A bad day (the kill switch closed the internet): "Сообщить о проблеме" said, not only drawn - a
+      // quiet button, a hairline and no fill, the bubble before the words (settings-instruments.html, frame 5).
+      const D2D1_RECT_F pill = KeyPill(it);
+      if (hovered || pressed) {
+        k.Round(pill, 6, Rgb(255, 255, 255, pressed ? 0.05f : 0.08f));
+      }
+      k.Outline(pill, 6, Rgb(255, 255, 255, 0.16f));
+      const D2D1_COLOR_F ink = FromColorRef(ui::kPrimaryText);
+      DrawLineIcon(k, kGlyphReport, std::floor(pill.left + 16) + 0.5f, std::floor((pill.top + pill.bottom) / 2) + 0.5f,
+                   ink);
+      k.Text(it.detail, caption_.get(), {pill.left + 30, r.top, pill.right - 8, r.bottom}, ink);
+      return;
+    }
     if (!it.checked && (hovered || pressed)) {
       k.Round(ChromePill(r), 8,
               cross ? FromColorRef(ui::kDanger, pressed ? 0.14f : 0.22f)
@@ -5195,6 +5610,7 @@ struct MainWindow::Impl {
   bool selecting = false;      // dragging a selection over the log
   bool settingsMore = false;   // the configurations' relay fold open (UiContent::settingsMore)
   bool routeMenu = false;      // the routing mode's menu dropped (UiContent::routeMenu)
+  bool lidUp = false;          // the kill switch's lid lifted, for kLidUpMs (UiContent::lidUp)
   // The servers' order on their page (UiContent::serverOrder): kept through
   // a latency test - every figure "…" there, the list would fall back to the
   // subscription's order and jump again as the results came in.
@@ -5522,6 +5938,24 @@ struct MainWindow::Impl {
     return -1;
   }
 
+  // The settings' card head (Kind::Instrument) under the pointer, clickable or not: its shy "?" and ↻
+  // show while the pointer is anywhere on it. -1: none.
+  int HeadAt(POINT px) const {
+    if (question) {
+      return -1;
+    }
+    const float x = ToDip(px.x);
+    const float y = ToDip(px.y);
+    for (std::size_t i = 0; i < layout.items.size(); ++i) {
+      const Item& item = layout.items[i];
+      if (item.kind == Kind::Instrument && Contains(Seen(item), x, y) &&
+          (!item.scrolls || (y >= layout.viewTop && y < layout.viewBottom))) {
+        return static_cast<int>(i);
+      }
+    }
+    return -1;
+  }
+
   // The routing mode's menu and the pill it drops from: all that takes a press while it's open.
   static bool InMenu(const Item& item) {
     return item.kind == Kind::Menu || item.kind == Kind::MenuItem || item.kind == Kind::ModePill;
@@ -5672,6 +6106,7 @@ struct MainWindow::Impl {
     }
     content.settingsMore = settingsMore;
     content.routeMenu = routeMenu;
+    content.lidUp = lidUp;
     content.serverOrder = serverOrder;
     content.question = question;
     layout = painter.Build(content, page, openProfile, size.width, size.height, scroll, state);
@@ -5680,6 +6115,7 @@ struct MainWindow::Impl {
     // second under a resting pointer): it is pointed at anew, its tip timed
     // as if the pointer had just come; the same item keeps its tip.
     const int over = mouse ? HitAt(*mouse) : -1;
+    in.head = mouse ? HeadAt(*mouse) : -1;
     if (over != in.hover) {
       Hover(over);
     } else {
@@ -6097,7 +6533,16 @@ struct MainWindow::Impl {
       case ItemAction::RouteMenu: SetRouteMenu(!routeMenu); return;
       case ItemAction::Hide: PostMessageW(hwnd, WM_CLOSE, 0, 0); return;
       case ItemAction::Answer: Answer(item.index); return;
+      case ItemAction::LiftLid:  // the switch under it takes the next click, for a while
+        lidUp = true;
+        SetTimer(hwnd, kLidTimer, kLidUpMs, nullptr);
+        Relayout();
+        return;
       case ItemAction::Command: break;
+    }
+    if (item.command == UiCommand::ToggleKillSwitch && lidUp) {  // turned: the lid shuts over it again
+      lidUp = false;
+      KillTimer(hwnd, kLidTimer);
     }
     if (item.kind == Kind::MenuItem) {
       SetRouteMenu(false);  // a mode picked: the menu goes, the command relayouts with it gone
@@ -6531,6 +6976,10 @@ struct MainWindow::Impl {
           }
           return 0;
         }
+        if (const int head = HeadAt(at); head != in.head) {
+          in.head = head;
+          InvalidateRect(w, nullptr, FALSE);
+        }
         Hover(HitAt(at));
         TRACKMOUSEEVENT tme{sizeof tme, TME_LEAVE, w, 0};
         TrackMouseEvent(&tme);
@@ -6539,6 +6988,7 @@ struct MainWindow::Impl {
       case WM_MOUSELEAVE:
         mouse.reset();
         log.barHot = barGrab.has_value();
+        in.head = -1;
         Hover(-1);
         return 0;
       case WM_TIMER:
@@ -6558,6 +7008,12 @@ struct MainWindow::Impl {
           if (log.pan) {
             PanStep();
           }
+          return 0;
+        }
+        if (wParam == kLidTimer) {
+          KillTimer(w, kLidTimer);
+          lidUp = false;
+          Relayout();
           return 0;
         }
         if (wParam == kTipTimer) {

@@ -298,6 +298,8 @@ struct View {
   std::vector<std::string> blockedAds;  // what the ads lists blocked lately, newest first
   std::map<std::string, std::uint64_t> blockCounts;  // what each block category refused (box_blocked)
   sovereign::tray::BlockedPrograms blockWho;          // and for which programs, the CNAME ones (box_blocked)
+  std::array<std::uint32_t, 60> blockedMinutes{};     // the total's last hour by minutes, oldest first
+  std::wstring blockedSince;                          // "9:12": when the total started; empty: unknown
   std::size_t listsReady = 0;             // the routing's lists downloaded
   std::size_t listsNeeded = 0;
   std::int64_t listsUpdated = 0;          // unix seconds of the last one downloaded
@@ -2890,6 +2892,7 @@ class Worker {
       blockCounts_.clear();
       blockWho_ = {};
       blockCountsAsked_.reset();
+      blockedBase_ = false;
       return;
     }
     if (blockCountsAsked_ && now - *blockCountsAsked_ < kEvery) {
@@ -2899,7 +2902,57 @@ class Worker {
     if (const auto response = sovereign::tray::RequestService(R"({"cmd":"box_blocked"})")) {
       blockCounts_ = sovereign::tray::ParseBlockedAnswer(*response);
       blockWho_ = sovereign::tray::ParseBlockedPrograms(*response);
+      CountBlockedMinute(now);
     }
+  }
+
+  // The settings' trace of the last hour: the blocks' total split by minutes,
+  // counted here - the box knows only the total since it started.
+  void CountBlockedMinute(TrayModel::Clock::time_point now) {
+    std::uint64_t total = 0;
+    for (const auto& [category, count] : blockCounts_) {
+      total += count;
+    }
+    const auto minute = std::chrono::duration_cast<std::chrono::minutes>(now.time_since_epoch()).count();
+    if (!blockedBase_ || total < blockedLast_) {
+      // The first answer, or the box started again: what it counted so far
+      // isn't this hour's, so the trace starts empty from here.
+      blockedBase_ = true;
+      blockedPerMinute_.fill(0);
+      blockedLastMinute_ = minute;
+      blockedLast_ = total;
+      SYSTEMTIME local{};
+      GetLocalTime(&local);
+      wchar_t since[16] = {};
+      swprintf_s(since, L"%u:%02u", static_cast<unsigned>(local.wHour), static_cast<unsigned>(local.wMinute));
+      blockedSince_ = total == 0 ? since : std::wstring();
+      return;
+    }
+    for (auto m = blockedLastMinute_ + 1; m <= minute && m <= blockedLastMinute_ + 60; ++m) {
+      blockedPerMinute_[static_cast<std::size_t>(m % 60)] = 0;
+    }
+    blockedLastMinute_ = std::max(blockedLastMinute_, minute);
+    blockedPerMinute_[static_cast<std::size_t>(blockedLastMinute_ % 60)] +=
+        static_cast<std::uint32_t>(std::min<std::uint64_t>(total - blockedLast_, 0xFFFFFFFFu));
+    blockedLast_ = total;
+  }
+
+  // The last 60 minutes of it, the oldest first, as the window draws them.
+  std::array<std::uint32_t, 60> BlockedMinutes() const {
+    std::array<std::uint32_t, 60> out{};
+    if (!blockedBase_) {
+      return out;
+    }
+    const auto minute = std::chrono::duration_cast<std::chrono::minutes>(
+                            TrayModel::Clock::now().time_since_epoch())
+                            .count();
+    for (std::size_t i = 0; i < 60; ++i) {
+      const auto m = minute - 59 + static_cast<long long>(i);
+      if (m <= blockedLastMinute_ && m > blockedLastMinute_ - 60) {
+        out[i] = blockedPerMinute_[static_cast<std::size_t>(m % 60)];
+      }
+    }
+    return out;
   }
 
   void WatchWarp(const std::optional<sovereign::tray::Stats>& stats) {
@@ -3252,7 +3305,9 @@ class Worker {
       v.warpDirect = warpDirect_;
       v.smartLearned = smartLearned_;
       v.blockCounts = blockCounts_;
-    v.blockWho = blockWho_;
+      v.blockWho = blockWho_;
+      v.blockedMinutes = BlockedMinutes();
+      v.blockedSince = blockedSince_;
       v.quicBlocked = quicBlocked_;
       v.rulesFrom = rulesFrom_;
       v.blockedAds = {blocked_.begin(), blocked_.end()};
@@ -3454,6 +3509,12 @@ class Worker {
   std::map<std::string, std::uint64_t> blockCounts_;  // View::blockCounts
   sovereign::tray::BlockedPrograms blockWho_;         // View::blockWho
   std::optional<TrayModel::Clock::time_point> blockCountsAsked_;
+  // CountBlockedMinute's: the total last seen, the minutes of the last hour.
+  bool blockedBase_ = false;
+  std::uint64_t blockedLast_ = 0;
+  long long blockedLastMinute_ = 0;
+  std::array<std::uint32_t, 60> blockedPerMinute_{};
+  std::wstring blockedSince_;  // when the total started from 0, "9:12"; empty: before the tray
   std::deque<std::string> blocked_;  // WatchBlocked's: what the ads lists blocked, newest first
   bool quicBlocked_ = true;  // View::quicBlocked
   std::vector<std::string> rulesFrom_;  // View::rulesFrom
@@ -5075,6 +5136,18 @@ UiContent ContentFrom(const View& v) {
   c.flowDirect = v.flowDirect;
   c.flowWarp = v.flowWarp;
   c.blockedCount = v.blockedCount;
+  for (const auto& [category, count] : v.blockCounts) {
+    c.blockedTotal += count;
+  }
+  c.blockedSince = v.blockedSince;
+  c.blockedMinutes = v.blockedMinutes;
+  c.blockedJustNow = v.blockWho.recent.size();
+  for (const std::string& name : v.blockedAds) {
+    if (c.blockedLately.size() == 3) {
+      break;
+    }
+    c.blockedLately.push_back(Widen(name));
+  }
   c.error = v.display == Display::Error ? Widen(v.error) : std::wstring();
   c.hasConfig = v.hasConfig;
   c.combineError = Widen(v.combineError);
@@ -5857,21 +5930,12 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::BlockedMenu: {
       // What the lists blocked lately (the ads' and the cookie windows'
       // alike): a click lets one through - a rule of its own where
-      // everything else goes (the user's sites come first).
-      // First, when a page just broke and which name it was is anyone's guess:
-      // everything the ads, trackers and cookie lists cut in the last two
-      // minutes, let through at once - one rule (the malware lists' names
-      // aren't in it: gocore/blocked.go).
-      const std::vector<std::string>& justNow = view.blockWho.recent;
+      // everything else goes (the user's sites come first). What broke just
+      // now is the settings' own button (PassJustNow).
       std::vector<std::wstring> items;
-      items.reserve(view.blockedAds.size() + 4);
+      items.reserve(view.blockedAds.size() + 2);
       std::vector<std::size_t> captions;
-      if (!justNow.empty()) {
-        items.push_back(L"Сломалось только что — пропустить всё за 2 минуты (" + std::to_wstring(justNow.size()) +
-                        L")");
-        items.emplace_back(L"");
-      }
-      const std::size_t first = items.size() + (view.blockedAds.empty() ? 0 : 2);  // after the caption and its line
+      const std::size_t first = view.blockedAds.empty() ? 0 : 2;  // after the caption and its line
       if (view.blockedAds.empty()) {
         captions.push_back(items.size());
         items.emplace_back(L"Пока ничего не заблокировано");
@@ -5884,14 +5948,23 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       }
       const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, captions);
       const int way = r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy;
-      if (picked && !justNow.empty() && *picked == 0) {
-        std::string names;
-        for (const std::string& name : justNow) {
-          names += (names.empty() ? "" : ", ") + name;
-        }
-        send(What::AddRule, false, way, 0, names);
-      } else if (picked && *picked >= first && *picked - first < view.blockedAds.size()) {
+      if (picked && *picked >= first && *picked - first < view.blockedAds.size()) {
         send(What::AddRule, false, way, 0, view.blockedAds[*picked - first]);
+      }
+      break;
+    }
+    case UiCommand::PassJustNow: {
+      // A page just broke and which name it was is anyone's guess: everything
+      // the ads, trackers and cookie lists cut in the last two minutes, let
+      // through at once - one rule where everything else goes (the malware
+      // lists' names aren't in it: gocore/blocked.go).
+      std::string names;
+      for (const std::string& name : view.blockWho.recent) {
+        names += (names.empty() ? "" : ", ") + name;
+      }
+      if (!names.empty()) {
+        send(What::AddRule, false, r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy, 0,
+             names);
       }
       break;
     }
@@ -6537,6 +6610,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::ToggleCloseDoh:
     case UiCommand::BlockedMenu:
     case UiCommand::BlockedApps:
+    case UiCommand::PassJustNow:
     case UiCommand::AddWarpSite:
     case UiCommand::AddWarpSiteText:
     case UiCommand::ChooseRemoteDns:

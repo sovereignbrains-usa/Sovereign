@@ -210,10 +210,12 @@ struct UiRouting {
   std::vector<UiChip> board;        // everything sent somewhere, as the board shows it
 };
 
-// The checks' page (diagnostics.h): one row each.
+// A check's line (diagnostics.h): no page of its own since 11.11.2026 (his: "в этой вкладке нихуя толком не
+// останется") - the protection runs by itself and is said on the overview, where an address goes is the
+// routing page's, whether the computer is seen in the network the settings'.
 struct UiCheck {
   enum class Status : std::uint8_t { NotRun, Running, Ok, Warn, Fail };
-  // A failed one's way out (diagnostics.h CheckFix): the page offers it under the results.
+  // A failed one's way out (diagnostics.h CheckFix): the overview's banner offers it.
   enum class Fix : std::uint8_t { None, Reconnect, KillSwitch, Routing, Dns, LocalNetwork };
   std::wstring title;
   std::wstring summary;
@@ -221,14 +223,17 @@ struct UiCheck {
   Status status = Status::NotRun;
   std::wstring hint;  // what it checks and how - its "?"
   Fix fix = Fix::None;
-  // The speed test's throughput, Mbit/s every quarter of a second (diagnostics.h kSpeedSampleMs).
-  std::vector<float> speedDown;
-  std::vector<float> speedUp;
   // The address the route check was asked about and the bucket it went to (kBucket*, -1: not
   // seen): the page offers the other ways under the result. Empty: none was typed.
   std::wstring site;
   int siteWay = -1;
 };
+
+// UiContent::checks, always all four (main.cpp ContentFrom), by place.
+inline constexpr std::size_t kCheckExit = 0;      // what the internet sees: the overview
+inline constexpr std::size_t kCheckLeaks = 1;     // DNS, WebRTC, IPv6 as one: the overview
+inline constexpr std::size_t kCheckRoute = 2;     // "Не открывается сайт?": the routing page
+inline constexpr std::size_t kCheckExposure = 3;  // seen in the network: the settings
 
 // The date a calendar on a question's card holds (UiQuestion::calendar).
 struct UiCalendar {
@@ -290,9 +295,9 @@ struct UiContent {
   std::wstring combineError;     // why they don't
   std::vector<std::wstring> combineNotes;  // what was left out of it
   UiRouting routing;
-  std::vector<UiCheck> checks;  // the "Проверка" page, in diagnose.h's CheckId order
+  std::vector<UiCheck> checks;  // always the four lines, at kCheckExit .. kCheckExposure
   bool checksRunning = false;
-  bool speedRunning = false;  // the speed test, a run of its own
+  int protectionMinutes = -1;   // since the protection (kCheckExit, kCheckLeaks) was last looked at; -1: not this connection
 
   bool appsInclude = false;      // per-app mode: false = all except the list
   std::vector<std::wstring> apps;
@@ -306,6 +311,7 @@ struct UiContent {
   std::vector<std::wstring> protocolNotes;
   int protocol = -1;                    // index of the one in use
   std::vector<UiDelay> delays;          // one per protocol (may be shorter: untested)
+  UiDelay directSpeed;                  // the line without the VPN: only its speed run (Servers' last row)
   std::vector<UiLocation> locations;    // one per protocol (may be shorter: not known)
   std::vector<std::vector<UiSite>> sites;  // one per protocol: which sites open through it (empty: not checked)
   bool delaysTesting = false;           // a latency test is running
@@ -370,7 +376,7 @@ struct UiContent {
 // The window's pages: the overview, and the ones it opens (back with Esc).
 // Profile: one configuration's page, opened from the list on Subscription.
 // Routing: where traffic goes and DNS - the per-app list too.
-enum class UiPage : std::uint8_t { Overview, Servers, Subscription, Logs, Settings, Profile, Routing, Checks };
+enum class UiPage : std::uint8_t { Overview, Servers, Subscription, Logs, Settings, Profile, Routing };
 inline constexpr int kUiPageCount = 5;  // the ones Ctrl+1..5 open: Overview to Settings
 
 enum class UiCommand : std::uint8_t {
@@ -424,8 +430,7 @@ enum class UiCommand : std::uint8_t {
   ChipRuleText,       // index: into the board (a rule's chip); text: its sites and programs typed anew
   ChipRuleName,       // index: into the board (a rule's chip); text: its name typed (empty: none)
   // The checks':
-  RunChecks,          // everything but speed and an address
-  RunSpeed,
+  RunChecks,          // index: the line (kCheck*) looked at again - kCheckExposure its own, else the protection
   CheckRoute,         // starts typing an address over the button
   CheckRouteText,     // text: the address
   RouteSite,          // index: the bucket - the address just checked goes there (a rule for it)
@@ -463,16 +468,16 @@ enum class UiCommand : std::uint8_t {
   ChooseStartup,       // anchor: where to open the menu
   OpenWithoutVpn,      // off: the kill switch's filters go with it
   TestDelays,
-  MeasureSpeed,  // index into protocols: a speed run through it, by the click on "замерить"
+  MeasureSpeed,  // index into protocols, or kDirectWay: a speed run through it, by the click on "замерить"
   CheckUpdate,
   InstallUpdate,
   ChooseUpdateQuiet,   // anchor: where to open the menu - the minutes without input before installing unasked
   ChooseUpdates,       // anchor: where to open the menu - looked for unasked or not, installed or not
   OpenWindow,    // index: the UiPage to show
   OpenFolder,
+  OpenFirewall,  // Windows Defender Firewall's panel (the exposure line: it's off, or lets everything in)
   Exit,
   Reconnect,     // the connection stopped and started again with the config as it is (the checks' way out)
-  OpenChecks,    // the checks' page, the usual ones run on it
   ReportProblem, // a GitHub issue opened with the client's report filled in (problem_report.h)
 };
 
@@ -484,9 +489,12 @@ struct UiArgs {
   HWND owner = nullptr;  // the window a menu or a dialog belongs to
 };
 
-// UiArgs::index of ToggleKillSwitch from the checks' banner (not the
+// UiArgs::index of ToggleKillSwitch from the overview's banner (not the
 // settings' switch): the protection is looked at again after it.
 inline constexpr int kFromChecks = 1;
+
+// UiArgs::index of MeasureSpeed (and a Way's) for the line itself, without the VPN.
+inline constexpr int kDirectWay = -1;
 
 // Hysteria 2's speeds to pick from (UiCommand::SetHysteriaMbps), Mbit/s; 0: auto (BBR).
 inline constexpr std::array kHysteriaSpeeds = {0, 50, 100, 200, 300, 500, 1000};
@@ -768,11 +776,11 @@ inline bool GamesWarn(const UiDelay& delay) {
   return delay.state == UiDelay::State::Ok && delay.udpMs > 0 && (delay.udpJitter >= 15 || delay.udpLoss >= 10);
 }
 
-// СКОРОСТЬ: the run's figure, else the most it carried for real in the last hour; "меряю…" while
-// a run goes; empty: nothing to say (the page offers "замерить" there).
+// СКОРОСТЬ: the run's figure, else the most it carried for real in the last hour; "меряю…", then
+// the speed so far with "…", while a run goes; empty: nothing to say (the page offers "замерить").
 inline std::wstring SpeedText(const UiDelay& delay) {
-  if (delay.measuring) {
-    return L"меряю…";
+  if (delay.measuring) {  // the core's last second while it runs: the figure grows on the page
+    return delay.measuredKbps > 0 ? MbitText(delay.measuredKbps) + L"…" : std::wstring(L"меряю…");
   }
   const int kbps = delay.measuredKbps > 0 ? delay.measuredKbps : delay.seenDownKbps;
   return kbps > 0 ? MbitText(kbps) : std::wstring();

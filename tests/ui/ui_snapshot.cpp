@@ -161,21 +161,19 @@ std::vector<std::wstring> SampleLogs() {
   };
 }
 
-// The checks: run, one warning, one failing, one running, speed and an address.
-// As main.cpp's ContentFrom lays them: the exit, the leaks as one line, the
-// speed, why a site won't open (the routing page's).
+// The checks as main.cpp's ContentFrom lays them (kCheck*): the exit and the
+// leaks as one line (the overview's banners), why a site won't open (the
+// routing page's), seen in the network (the settings'). One leak failing.
 std::vector<sovereign::tray::UiCheck> SampleChecks() {
   using Check = sovereign::tray::UiCheck;
   return {
-      {L"Выход через VPN", L"5.83.147.210 · DE", L"Этот адрес видят зарубежные сайты.", Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None, {}, {}},
+      {L"Выход через VPN", L"5.83.147.210 · DE", L"Этот адрес видят зарубежные сайты.", Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None, {}, -1},
       {L"Утечки", L"есть: IPv6", L"DNS: CloudFlare Inc (DE) — нет\nWebRTC: 5.83.147.210 — нет\nIPv6: 2a01:db8::1 · RU — уходит мимо VPN",
-       Check::Status::Fail, L"Что проверяет и как.", Check::Fix::KillSwitch, {}, {}},
-      {L"Скорость интернета", L"↓ 151 · ↑ 98 Мбит/с · 84 мс", L"Через VPN, до ближайшего узла Cloudflare.",
-       Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None,
-       {39, 169, 350, 521, 340, 312, 404, 310, 462, 338, 217, 111, 503, 311, 276, 409, 291, 132, 55, 84, 392, 229},
-       {25, 221, 728, 506, 12, 177, 636, 523, 177, 139, 390, 718, 257, 118, 206, 603, 366, 18, 158, 684, 454}},
+       Check::Status::Fail, L"Что проверяет и как.", Check::Fix::KillSwitch, {}, -1},
       {L"Не открывается сайт?", L"vk.com: напрямую", L"Ни одно из твоих правил не подошло — решили списки.",
-       Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None, {}, {}}};
+       Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None, {}, -1},
+      {L"Виден в сети", L"работает: общий доступ к файлам", L"Компьютер отвечает соседям по сети.",
+       Check::Status::Warn, L"Что проверяет и как.", Check::Fix::LocalNetwork, {}, -1}};
 }
 
 int Snapshots(const std::wstring& dir) {
@@ -281,14 +279,18 @@ int Snapshots(const std::wstring& dir) {
     routed.routing.learned.clear();
     routed.routing.learnedMore = 0;
   });
-  // The checks: run, one warning, one failing, one running, speed and an address.
+  // The protection checked by itself: a leak's banner on the overview, the
+  // kill switch off; the route line on the routing page, exposure in the settings.
   variant([&](UiContent& checked) {
     checked.checks = SampleChecks();
+    checked.killSwitch = false;
+    checked.protectionMinutes = 12;
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Overview, logs, 400, 760, 96,
+                                              dir + L"\\overview-leak.png");
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Routing, logs, 400, 1300, 96,
+                                              dir + L"\\routing-checks.png");
     checked.checksRunning = true;
-    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Checks, logs, 400, 1300, 96, dir + L"\\checks.png");
     // The narrowest window: values that do not fit beside their title go under it.
-    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Checks, logs, 360, 1300, 96,
-                                              dir + L"\\checks-360.png");
     sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Servers, logs, 360, 700, 96,
                                               dir + L"\\servers-360.png");
     sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Settings, logs, 360, 1100, 96,
@@ -1075,7 +1077,7 @@ int LayoutTest(const std::wstring& dir) {
     const wchar_t* name;
     const UiContent* content;
   };
-  const std::array<Page, 17> pages = {{{UiPage::Overview, L"overview", &content},
+  const std::array<Page, 16> pages = {{{UiPage::Overview, L"overview", &content},
                                       {UiPage::Overview, L"overview-troubled", &troubled},
                                       {UiPage::Logs, L"logs-troubled", &troubled},
                                       {UiPage::Servers, L"servers", &content},
@@ -1084,7 +1086,6 @@ int LayoutTest(const std::wstring& dir) {
                                       {UiPage::Settings, L"settings", &content},
                                       {UiPage::Profile, L"profile", &content},
                                       {UiPage::Routing, L"routing", &routed},
-                                      {UiPage::Checks, L"checks", &content},
                                       {UiPage::Overview, L"question", &asked},
                                       {UiPage::Profile, L"question-date", &dated},
                                       {UiPage::Subscription, L"relay-open", &relayOpen},

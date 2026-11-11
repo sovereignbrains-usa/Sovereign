@@ -161,6 +161,11 @@ constexpr std::size_t kBlockedKeep = 15;
 // The exit IP: how often a running lookup is polled, and a known one rechecked.
 constexpr std::chrono::seconds kExitIpPoll{2};
 constexpr std::chrono::minutes kExitIpRecheck{5};
+// The quiet protection check's round while connected (ScheduleProtectionCheck).
+constexpr auto kProtectionRecheck = std::chrono::minutes(30);
+// The speed run's name for the line without the VPN: the core takes it for
+// the config's direct outbound, whatever that one's tag (gocore/speed.go).
+constexpr const char* kDirectSpeedTag = "sov-direct";
 // Where each server is: lookups a box makes for one before giving up on it
 // (QUIC-based servers drop a first connection now and then).
 constexpr int kServerExitTries = 3;
@@ -300,6 +305,7 @@ struct View {
   std::array<sovereign::tray::CheckResult, sovereign::tray::kCheckCount> checks{};
   bool checksRunning = false;
   bool speedRunning = false;  // the speed test: a run of its own, not held by the other checks
+  std::int64_t protectionChecked = 0;  // unix seconds the protection's run (Exit among it) ended; 0: none yet
   // The configurations (profiles.h), in the settings' order.
   struct ServerView {
     std::string tag;
@@ -359,6 +365,7 @@ struct View {
   std::vector<sovereign::tray::ExitIp> locations;  // per protocol: where it is, once known
   std::vector<sovereign::tray::SiteChecks> sites;  // per protocol: which sites open through it, once known
   std::vector<sovereign::tray::SpeedRun> speeds;   // per protocol: the user's speed run through it, if any
+  sovereign::tray::SpeedRun directSpeed;           // ...and through the line itself, without the VPN
   bool hideExitIp = false;
   bool delaysDetailed = false;
   bool serversByDelay = true;
@@ -532,6 +539,7 @@ struct Shared {
   // The quiet check after a connect found something wrong: what, for the
   // worker's balloon (StartChecks quiet).
   std::optional<std::wstring> pendingProtectionAlert;
+  std::wstring protectionTrouble;  // what the last quiet check found failed (said once, not every round)
   bool pendingToggleLanClosed = false;
   std::vector<std::pair<sovereign::tray::LanHost, bool>> pendingLan;  // an address let in (true) or not, in order
   std::optional<AppsChange> pendingApps;
@@ -924,8 +932,8 @@ class Worker {
       }
       if (protectionAlert) {
         Notify(L"Sovereign: защита под вопросом",
-               L"Проверка после подключения: " + *protectionAlert + L". Подробности и что сделать — в «Проверке».",
-               true, UiPage::Checks);
+               L"Проверка защиты: " + *protectionAlert + L". Что сделать — на главном экране.", true,
+               UiPage::Overview);
       }
       if (toggleLanClosed || !lan.empty()) {
         if (toggleLanClosed) {
@@ -1460,22 +1468,44 @@ class Worker {
     return {std::move(choices), current};
   }
 
-  // The protection checked quietly once a connection is up (16.10.2026: the
-  // checks run by themselves, the user hears of them only when one fails):
-  // a few seconds after the box starts running, the window is asked to run
-  // them (the checks' thread is the window's); a failure comes back as a
-  // balloon (pendingProtectionAlert).
+  // The protection checked quietly while a connection is up (16.10.2026: the
+  // checks run by themselves, the user hears of them only when one fails; no
+  // page for them since 11.11.2026): a few seconds after the box starts
+  // running, when the exit's address changes (another server, auto moved),
+  // and every half hour - the window is asked to run them (the checks' thread
+  // is the window's); a failure comes back as a balloon
+  // (pendingProtectionAlert) and a banner on the overview.
   void ScheduleProtectionCheck(const std::optional<sovereign::tray::Stats>& stats) {
     const bool running = stats && stats->running;
     const auto now = TrayModel::Clock::now();
     if (running && !wasRunning_ && model_.WantOn()) {
       protectionCheckAt_ = now + std::chrono::seconds(8);
     }
+    if (!running && wasRunning_) {
+      checkedExitIp_.clear();
+      protectionCheckedAt_.reset();
+      const std::scoped_lock lock(State().mutex);
+      State().protectionTrouble.clear();  // a new connection says it again
+    }
     wasRunning_ = running;
+    if (running && !protectionCheckAt_ && !exit_.pending && !exit_.ip.empty()) {
+      if (checkedExitIp_.empty()) {
+        checkedExitIp_ = exit_.ip;  // the first known: what the check after the start looks at
+      } else if (exit_.ip != checkedExitIp_) {
+        protectionCheckAt_ = now + std::chrono::seconds(2);
+      }
+    }
+    if (running && !protectionCheckAt_ && protectionCheckedAt_ && now - *protectionCheckedAt_ >= kProtectionRecheck) {
+      protectionCheckAt_ = now;
+    }
     if (!running) {
       protectionCheckAt_.reset();
     } else if (protectionCheckAt_ && now >= *protectionCheckAt_) {
       protectionCheckAt_.reset();
+      protectionCheckedAt_ = now;
+      if (!exit_.pending && !exit_.ip.empty()) {
+        checkedExitIp_ = exit_.ip;
+      }
       HWND window = nullptr;
       {
         const std::scoped_lock lock(State().mutex);
@@ -2585,7 +2615,9 @@ class Worker {
   // The speed runs the user asked for ("замерить" on the servers page): `asked` starts one (the
   // core runs one at a time and says so when another goes), running ones are polled until done -
   // without "start", so the poll after the end reads the figure rather than starting another run
-  // (it did: "меряю…" for good). A new box forgets them.
+  // (it did: "меряю…" for good). A running one is polled each second: its figure grows on the
+  // page as it goes (the core's last second). kDirectSpeedTag is the line without the VPN. A new
+  // box forgets them.
   void UpdateServerSpeeds(const std::optional<sovereign::tray::Stats>& stats, const std::optional<std::string>& asked) {
     if (!stats || !stats->running) {
       serverSpeeds_.clear();
@@ -2596,7 +2628,7 @@ class Worker {
       serverSpeeds_.clear();
     }
     const auto now = TrayModel::Clock::now();
-    const bool poll = !serverSpeedsPolled_ || now - *serverSpeedsPolled_ >= kExitIpPoll;
+    const bool poll = !serverSpeedsPolled_ || now - *serverSpeedsPolled_ >= std::chrono::milliseconds(900);
     std::vector<std::string> tags;
     if (asked) {
       tags.push_back(*asked);
@@ -3318,6 +3350,10 @@ class Worker {
         const auto it = serverSpeeds_.find(option);
         v.speeds.push_back(it == serverSpeeds_.end() ? sovereign::tray::SpeedRun{} : it->second);
       }
+      {
+        const auto it = serverSpeeds_.find(kDirectSpeedTag);
+        v.directSpeed = it == serverSpeeds_.end() ? sovereign::tray::SpeedRun{} : it->second;
+      }
       v.hideExitIp = settings_.hideExitIp;
       v.delaysDetailed = settings_.delaysDetailed;
       v.serversByDelay = settings_.serversByDelay;
@@ -3347,6 +3383,8 @@ class Worker {
   std::optional<bool> bootTold_;  // what box_boot last said (SyncBoot); none yet this run
   bool wasRunning_ = false;       // the box ran at the last poll (ScheduleProtectionCheck)
   std::optional<TrayModel::Clock::time_point> protectionCheckAt_;  // the quiet check is due then
+  std::optional<TrayModel::Clock::time_point> protectionCheckedAt_;  // it was last asked for then
+  std::string checkedExitIp_;  // the exit's address it looked at (a new one: looked at again)
   std::string cacheFile_;  // UTF-8; empty: no cache file
   std::map<std::string, ProfileRuntime> runtime_;  // by profile id
   unsigned noticeId_ = 0;
@@ -4129,7 +4167,7 @@ void ForgetProtectionResults(Shared& shared) {
   if (shared.view.checksRunning) {
     return;
   }
-  for (const CheckId id : {CheckId::Exit, CheckId::RussiaDirect, CheckId::WebRtc, CheckId::Ipv6}) {
+  for (const CheckId id : {CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6}) {
     shared.view.checks[static_cast<std::size_t>(id)] = {};
   }
 }
@@ -4223,6 +4261,9 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
       auto& s = State();
       const std::scoped_lock lock(s.mutex);
       (speed ? s.view.speedRunning : s.view.checksRunning) = false;
+      if (std::find(which.begin(), which.end(), sovereign::tray::CheckId::Exit) != which.end()) {
+        s.view.protectionChecked = static_cast<std::int64_t>(std::time(nullptr));
+      }
       if (quiet) {
         using sovereign::tray::CheckId;
         static constexpr std::array<std::pair<CheckId, const wchar_t*>, 3> kGuarded = {
@@ -4233,9 +4274,13 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
             trouble += (trouble.empty() ? L"" : L", ") + std::wstring(name);
           }
         }
-        if (!trouble.empty()) {
-          s.pendingProtectionAlert = std::move(trouble);
-          alert = true;
+        // Said when it changes: the round every half hour found the same and kept quiet.
+        if (trouble != s.protectionTrouble) {
+          s.protectionTrouble = trouble;
+          if (!trouble.empty()) {
+            s.pendingProtectionAlert = std::move(trouble);
+            alert = true;
+          }
         }
       }
     }
@@ -4957,8 +5002,6 @@ sovereign::tray::UiCheck LeaksLine(const View& v) {
                .hint = L"Не уходит ли что-то мимо VPN: DNS-запросы (кто узнаёт адреса сайтов), WebRTC (адрес, "
                        L"который браузер может выдать сайту) и IPv6. «Нет» — всё идёт как надо.",
                .fix = UiCheck::Fix::None,
-               .speedDown = {},
-               .speedUp = {},
                .site = {},
                .siteWay = -1};
   bool any = false;
@@ -5137,10 +5180,10 @@ UiContent ContentFrom(const View& v) {
     }
     c.profiles.push_back(std::move(shown));
   }
-  // The page's lines (16.10.2026, his pass over the tools): what the internet
-  // sees of the VPN, the leaks as one line, the speed; where an address goes
-  // is the routing page's. The Russian sites' check runs unseen - WebRTC
-  // tells a leak by the address they see.
+  // The checks' four lines (ui_content.h kCheck*): what the internet sees of the VPN and the leaks as one -
+  // the overview's, where an address goes - the routing page's, seen in the network - the settings'. The
+  // Russian sites' check runs unseen - WebRTC tells a leak by the address they see. The speed is each
+  // way's on the servers' page (11.11.2026).
   using sovereign::tray::CheckId;
   using sovereign::tray::UiCheck;
   const auto line = [&](CheckId id, const wchar_t* title, const wchar_t* hint) {
@@ -5153,8 +5196,6 @@ UiContent ContentFrom(const View& v) {
                    .fix = result.status == sovereign::tray::CheckResult::Status::Fail
                               ? static_cast<UiCheck::Fix>(result.fix)
                               : UiCheck::Fix::None,
-                   .speedDown = result.speedDown,
-                   .speedUp = result.speedUp,
                    .site = Widen(result.site),
                    .siteWay = result.siteWay};
   };
@@ -5162,21 +5203,16 @@ UiContent ContentFrom(const View& v) {
                           L"Какой адрес и страну видят сайты, которые идут через VPN. Должен быть адрес сервера, а "
                           L"не твой."));
   c.checks.push_back(LeaksLine(v));
-  c.checks.push_back(line(CheckId::Speed, L"Скорость интернета",
-                          L"Скорость скачивания и отдачи до ближайшего узла Cloudflare: несколько секунд в каждую "
-                          L"сторону, график по ходу. Меряет путь самого клиента — в режиме «только выбранное» это "
-                          L"твой канал напрямую, а не VPN."));
   c.checks.push_back(line(CheckId::Route, L"Не открывается сайт?",
                           L"Введи адрес — клиент откроет его и спросит ядро, как он пошёл: напрямую, через VPN, через "
                           L"WARP или заблокирован, и по какому правилу."));
-  // Seen from the network: shown once it has been run (the page's button).
-  if (v.checks[static_cast<std::size_t>(CheckId::Exposure)].status != sovereign::tray::CheckResult::Status::NotRun) {
-    c.checks.push_back(line(CheckId::Exposure, L"Виден ли компьютер в сети",
-                            L"Включён ли брандмауэр, блокирует ли он входящие, работают ли службы общего доступа. "
-                            L"Показывает, что видно другим устройствам в Wi-Fi."));
-  }
+  c.checks.push_back(line(CheckId::Exposure, L"Виден ли компьютер в сети",
+                          L"Включён ли брандмауэр, блокирует ли он входящие, работают ли службы общего доступа. "
+                          L"Показывает, что видно другим устройствам в Wi-Fi. Проверяется сам после подключения."));
   c.checksRunning = v.checksRunning;
-  c.speedRunning = v.speedRunning;
+  if (v.wantOn && v.protectionChecked > 0) {
+    c.protectionMinutes = static_cast<int>(std::max<std::int64_t>(0, (std::time(nullptr) - v.protectionChecked) / 60));
+  }
   using sovereign::tray::RoutingSettings;
   const RoutingSettings& r = v.routing;
   c.routing.russia = r.russia ? static_cast<int>(*r.russia) : -1;
@@ -5350,9 +5386,7 @@ UiContent ContentFrom(const View& v) {
     }
     c.delays.push_back(d);
   }
-  for (std::size_t i = 0; i < c.delays.size() && i < v.speeds.size(); ++i) {
-    const sovereign::tray::SpeedRun& run = v.speeds[i];
-    sovereign::tray::UiDelay& d = c.delays[i];
+  const auto speedOf = [](const sovereign::tray::SpeedRun& run, sovereign::tray::UiDelay& d) {
     d.measuring = run.pending;
     d.measuredKbps = run.kbps;
     // The core's words, said plainly where they are known.
@@ -5361,7 +5395,12 @@ UiContent ContentFrom(const View& v) {
                    : run.error == "box not running"          ? std::wstring(L"VPN выключен")
                    : run.error == "the service did not answer" ? std::wstring(L"служба не ответила")
                                                              : Widen(run.error);
+  };
+  for (std::size_t i = 0; i < c.delays.size() && i < v.speeds.size(); ++i) {
+    speedOf(v.speeds[i], c.delays[i]);
   }
+  speedOf(v.directSpeed, c.directSpeed);
+  c.directSpeed.state = sovereign::tray::UiDelay::State::Ok;
   c.delaysTesting = v.delaysTesting;
   c.canTestDelays = v.display == Display::On && !v.protocols.empty();
   c.reportPending = g_pendingReport.has_value();
@@ -6456,22 +6495,15 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
       }
       break;
     }
-    case UiCommand::OpenChecks: {  // the settings' row (the title bar's wrench gone, 30.10.2026): the page, run at once
+    case UiCommand::RunChecks: {  // a line's "again": the settings' exposure, or the protection (the server card's menu)
       using sovereign::tray::CheckId;
-      ShowMainWindow(UiPage::Checks);
-      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure}, {});
+      if (std::cmp_equal(args.index, sovereign::tray::kCheckExposure)) {
+        StartChecks({CheckId::Exposure}, {});
+      } else {
+        StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6}, {});
+      }
       break;
     }
-    case UiCommand::RunChecks: {
-      using sovereign::tray::CheckId;
-      // Where sites go is the routing page's (its row and its tiles' "Проверить"), not here.
-      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure},
-                  {});
-      break;
-    }
-    case UiCommand::RunSpeed:
-      StartChecks({sovereign::tray::CheckId::Speed}, {});
-      break;
     case UiCommand::CheckRoute:  // the address, typed over the button
       if (g_mainWindow != nullptr) {
         g_mainWindow->EditInPlace(UiCommand::CheckRoute, 0, UiCommand::CheckRouteText, L"", false);
@@ -6759,7 +6791,9 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
       RequestUrlTest();
       break;
     case UiCommand::MeasureSpeed:
-      if (args.index >= 0 && static_cast<std::size_t>(args.index) < view.protocols.size()) {
+      if (args.index == sovereign::tray::kDirectWay) {
+        RequestSpeed(kDirectSpeedTag);
+      } else if (args.index >= 0 && static_cast<std::size_t>(args.index) < view.protocols.size()) {
         RequestSpeed(view.protocols[static_cast<std::size_t>(args.index)]);
       }
       break;
@@ -6835,6 +6869,9 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
       } catch (...) {
         LOG_CAUGHT_EXCEPTION();
       }
+      break;
+    case UiCommand::OpenFirewall:  // the settings' exposure line failed: Windows' own firewall, where it's switched back on
+      ShellExecuteW(nullptr, L"open", L"control.exe", L"firewall.cpl", nullptr, SW_SHOWNORMAL);
       break;
     case UiCommand::Exit:  // the window's cross; the tray menu's «Выход» doesn't come this way
       Ask(owner,
@@ -7039,7 +7076,8 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     case kAutoCheckMessage: {  // the worker: a connection came up - the protection, quietly
       using sovereign::tray::CheckId;
-      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::WebRtc, CheckId::Ipv6}, {}, true);
+      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure},
+                  {}, true);
       return 0;
     }
     case kViewChangedMessage: {

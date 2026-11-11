@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/constant"
 	M "github.com/sagernet/sing/common/metadata"
@@ -37,6 +38,10 @@ const (
 	speedWindow   = 3 * time.Second
 	speedMaxTags  = 512
 )
+
+// The tray's name for the line without the VPN ("Напрямую" on the servers
+// page): the config's direct outbound, whatever its tag.
+const speedDirectTag = "sov-direct"
 
 type speedState struct {
 	Tag     string `json:"tag"`
@@ -113,7 +118,7 @@ func box_speed(requestJSON *C.char) (reply *C.char) {
 	if instance == nil {
 		return marshalSpeed(speedState{Tag: request.Tag, Error: "box not running"})
 	}
-	outbound, found := instance.Outbound().Outbound(request.Tag)
+	outbound, found := speedOutbound(instance, request.Tag)
 	if !found {
 		return marshalSpeed(speedState{Tag: request.Tag, Error: "no such outbound"})
 	}
@@ -146,7 +151,13 @@ func box_speed(requestJSON *C.char) (reply *C.char) {
 		var result speedState
 		func() {
 			defer catchPanic("speed run", func(message string) { result = speedState{Error: message} })
-			result = runSpeed(ctx, outbound)
+			result = runSpeed(ctx, outbound, func(kbps int64) {
+				speedMu.Lock()
+				defer speedMu.Unlock()
+				if current, ok := speedStates[request.Tag]; ok && current.round == round && current.state.Pending {
+					current.state.Kbps = kbps
+				}
+			})
 		}()
 		result.Tag = request.Tag
 		speedMu.Lock()
@@ -167,7 +178,24 @@ func marshalSpeed(state speedState) *C.char {
 	return C.CString(string(out))
 }
 
-func runSpeed(ctx context.Context, outbound adapter.Outbound) speedState {
+// speedOutbound: the outbound `tag` names, or for speedDirectTag the config's
+// first direct one - its tag is the user's or ours ("direct", "direct 2":
+// routing.cpp), the tray only knows it wants the line itself.
+func speedOutbound(instance *box.Box, tag string) (adapter.Outbound, bool) {
+	if tag != speedDirectTag {
+		return instance.Outbound().Outbound(tag)
+	}
+	for _, outbound := range instance.Outbound().Outbounds() {
+		if outbound.Type() == constant.TypeDirect {
+			return outbound, true
+		}
+	}
+	return nil, false
+}
+
+// runSpeed: the run itself; `progress` hears the last second's speed, a few
+// times a second, for the figure that grows on the page while it goes.
+func runSpeed(ctx context.Context, outbound adapter.Outbound, progress func(kbps int64)) speedState {
 	ctx, cancel := context.WithTimeout(ctx, speedDuration+10*time.Second)
 	defer cancel()
 	client := http.Client{
@@ -205,14 +233,24 @@ func runSpeed(ctx context.Context, outbound adapter.Outbound) speedState {
 	var total int64
 	buffer := make([]byte, 64<<10)
 	var readErr error
+	var told time.Duration
+	back := 0 // the earliest sample within the last second
 	for time.Since(start) < speedDuration {
 		n, err := response.Body.Read(buffer)
 		total += int64(n)
-		at = append(at, time.Since(start))
+		now := time.Since(start)
+		at = append(at, now)
 		counts = append(counts, total)
 		if err != nil {
 			readErr = err
 			break
+		}
+		for back < len(at)-1 && now-at[back+1] >= time.Second {
+			back++
+		}
+		if now-told >= 250*time.Millisecond && now-at[back] >= 500*time.Millisecond {
+			told = now
+			progress((total - counts[back]) * 8 / int64((now-at[back])/time.Millisecond))
 		}
 	}
 	kbps := speedFigure(at, counts)

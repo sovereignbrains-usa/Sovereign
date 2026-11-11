@@ -67,12 +67,8 @@ constexpr float kCheckRow = 42;    // a check: its title and "?", its result on 
 constexpr float kSwitchRow = 48;   // a switch whose explanation is in its "?"
 constexpr float kHint = 18;        // a "?" that shows a tip when pointed at
 
-// The checks with a button of their own, by their place in UiContent::checks (main.cpp ContentFrom).
-constexpr std::size_t kCheckSpeed = 2;
-constexpr std::size_t kCheckRoute = 3;
 constexpr float kRouteButton = 100;  // the route's "Проверить", a word, not an arrow
 constexpr float kStackLine = 18;     // what a row grows by when its value stands under its title (2026-11-03: words wrap, they aren't cut with "…")
-constexpr float kSpeedGraph = 150;  // the speed test's graph under the checks
 constexpr float kServerRow = 60;   // a server on a configuration's page: its name, protocol and switch
 constexpr float kButton = 34;
 constexpr float kGap = 8;          // between cards (the law's 8)
@@ -133,6 +129,7 @@ constexpr UINT kMenuCopyAll = 113;
 constexpr UINT kMenuToggleExitIp = 114;
 constexpr UINT kMenuCopyValue = 115;
 constexpr UINT kMenuRefreshDirect = 116;
+constexpr UINT kMenuCheckProtection = 117;
 constexpr UINT kMenuHysteriaSpeed = 120;  // + its index in kHysteriaSpeeds
 
 // A tip (TipText) shows when its item is pointed at this long; a "?"'s at once.
@@ -182,7 +179,6 @@ constexpr const wchar_t* kGlyphRename = L"\xE8AC";
 constexpr const wchar_t* kGlyphClock = L"\xE917";
 constexpr const wchar_t* kGlyphRoute = L"\xE8F0";
 constexpr const wchar_t* kGlyphShield = L"\xEA18";
-constexpr const wchar_t* kGlyphSpeed = L"\xEC4A";
 constexpr const wchar_t* kGlyphLightning = L"\xE945";   // auto: the fastest server by itself
 constexpr const wchar_t* kGlyphDiagnostic = L"\xE9D9";  // the measurements in full
 constexpr const wchar_t* kGlyphReport = L"\xEBE8";
@@ -238,7 +234,6 @@ enum class Kind : std::uint8_t {
   Meter,         // a thin bar: how much is used (index: per mille)
   Tag,           // a thing on the routing board: a program's icon (text2: its exe), its name, a detail after it
   AppTitle,      // our title bar's name, after the app's icon (text2: the exe it's taken from)
-  SpeedGraph,    // the speed test's throughput over time, down and up (index: its check's, UiCheck speedDown/Up)
   Question,      // MainWindow::Ask's card, the window dimmed round it (index: its UiQuestion::Tone)
   Pill,          // a small label in a rounded outline, not a button (`warn`: amber)
   Day,           // a calendar's key on a question's card: a day (text: its number, checked: chosen, sub 1: today) or a step (glyph set, sub: -1 back, 1 on)
@@ -705,7 +700,7 @@ float CheckButtonRoom(const Item& it) {
   if (!it.checked) {
     return 16;  // the line 20 from the card, the row being 4 in
   }
-  const bool word = std::cmp_equal(it.sub, kCheckRoute) && it.index == static_cast<int>(UiCheck::Status::NotRun);
+  const bool word = it.index == static_cast<int>(UiCheck::Status::NotRun);  // CheckLine's "Проверить"
   return word ? 16 + kRouteButton + 8 : 44;  // the word's button ends on the line 20; a key's zone on 14
 }
 
@@ -801,11 +796,10 @@ bool AnyWaiting(const UiContent& c) {
 }
 
 // Where a page's "back" (and Esc) leads: a configuration to the list, the
-// checks to the settings, the rest to the overview.
+// rest to the overview.
 UiPage BackOf(UiPage page) {
   switch (page) {
     case UiPage::Profile: return UiPage::Subscription;
-    case UiPage::Checks: return UiPage::Settings;  // its row is there
     default: return UiPage::Overview;  // the routing and the log too: the title bar's keys open them
   }
 }
@@ -978,10 +972,6 @@ wil::com_ptr<IDWriteTextLayout> MakeTextLayout(IDWriteFactory* dwrite, std::wstr
 // or, for snapshots, a WIC bitmap's.
 class Painter {
  public:
-  // The speed test's graph: how far the line has gone towards its newest
-  // sample (0..1) - Impl eases it frame by frame, so the graph grows
-  // smoothly, not a quarter of a second at a time (he: "like 10 fps").
-  float speedTip = 1;
   // MainWindow::Ask's card coming in (0..1): the dimming deepens, the card
   // grows to its size from a little smaller.
   float questionShown = 1;
@@ -1065,7 +1055,6 @@ class Painter {
       case UiPage::Settings: y = Settings(l, c, x0, x1, y); break;
       case UiPage::Profile: y = ProfilePage(l, c, profile, x0, x1, y, nameWhole); break;
       case UiPage::Routing: y = Routing(l, c, x0, x1, y); break;
-      case UiPage::Checks: y = Checks(l, c, x0, x1, y); break;
     }
     l.contentHeight = y + kPad - l.viewTop;  // from under our title bar, as the viewport
 
@@ -1394,7 +1383,6 @@ class Painter {
         return std::min(left, right) + bleed >= 20 - 0.5f;
       }
       case Kind::Banner:
-      case Kind::SpeedGraph:
       case Kind::LogBox: return true;  // not on a card's lines: a card of its own, or the page's
       default: return left >= 20 - 0.5f && right >= 20 - 0.5f;
     }
@@ -1405,12 +1393,12 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 44> kNames = {
+    static constexpr std::array<const wchar_t*, 43> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
-        L"AppTitle", L"Speed",    L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
+        L"AppTitle", L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
         L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
     static_assert(kNames.size() == static_cast<std::size_t>(Kind::Link) + 1);
@@ -1862,12 +1850,6 @@ class Painter {
                 L"иначе: через VPN, напрямую, через WARP или никуда. У каждого режима свои списки: при смене они "
                 L"не теряются.\n\nНаведи на сайт или программу — подсветится её путь. Нажми — перенести или "
                 L"убрать."};
-      case UiPage::Checks:
-        return {L"Проверка",
-                L"Запросы трея идут как у любой программы — по тем же правилам, поэтому видно то же, что "
-                L"видят твои программы и сайты.\n\n«Проверить всё» — все строки, кроме скорости и адреса: у них "
-                L"свои кнопки справа. Наведи на «?» у строки — что она проверяет и что значит результат. Правый "
-                L"клик — проверить снова или скопировать результат."};
       case UiPage::Logs: return {L"Журнал", {}};
       case UiPage::Settings:
         return {L"Настройки",
@@ -2259,9 +2241,9 @@ class Painter {
     };
     // On the main screen what is opened now and then a click away (the
     // wrench's menu of 17.10 gone, 30.10.2026, his: "журнал и маршруты рядом
-    // с шестиренкой"); the checks are a row of the settings.
+    // с шестиренкой").
     if (page == UiPage::Overview) {
-      page_key(L"Настройки", kGlyphSettings, UiPage::Settings, L"Настройки: Kill switch, DNS, автозапуск, проверка");
+      page_key(L"Настройки", kGlyphSettings, UiPage::Settings, L"Настройки: Kill switch, автозапуск, локальная сеть, блокировка");
       page_key(L"Журнал", kGlyphLog, UiPage::Logs, L"Журнал: что делает ядро, ошибки");
       page_key(L"Маршруты", kGlyphRoute, UiPage::Routing, L"Маршруты: что идёт через VPN, а что напрямую");
     }
@@ -2406,8 +2388,9 @@ class Painter {
 
   // The one screen for every day, top to bottom: the state, what waits for a
   // click (a new subscription), the switch, the server it runs on and
-  // where it comes out. The rest of the window - routing, the checks, the
-  // log, the kill switch - is in the settings, a key in the title bar.
+  // where it comes out, and what the quiet protection check found (a banner
+  // with its fix). The rest of the window - routing, the log, the kill
+  // switch - is in the settings, a key in the title bar.
   float Overview(Layout& l, const UiContent& c, float x0, float x1, float y, float bottom) const {
     // The state is the cube's: words only when there's something to say.
     // What's wrong is one quiet line, the whole of it in the log (Issues).
@@ -2445,6 +2428,7 @@ class Painter {
                                     UiCommand::OpenWithoutVpn));
       y += 40 + 8;
     }
+    y = ProtectionBanners(l, c, x0, x1, y);
 
     y = SubscriptionCard(l, c, x0, x1, y);
 
@@ -2699,6 +2683,22 @@ class Painter {
     card.text = std::move(name);
     card.detail = detail.empty() ? std::wstring(L"нажми, чтобы выбрать сервер") : std::move(detail);
     card.tip = L"Выбрать сервер; авто сам берёт самый быстрый";
+    // What the quiet check found (main.cpp ScheduleProtectionCheck) and how long ago: the place
+    // where the checks' page said it, the exit known here anyway.
+    if (c.display == Display::On && c.checks.size() > kCheckLeaks) {
+      const UiCheck& exit = c.checks[kCheckExit];
+      const UiCheck& leaks = c.checks[kCheckLeaks];
+      if (exit.status == UiCheck::Status::Running || leaks.status == UiCheck::Status::Running) {
+        card.tip += L"\n\nЗащита: проверяю…";
+      } else if (exit.status != UiCheck::Status::NotRun) {
+        const std::wstring when = c.protectionMinutes < 0   ? std::wstring()
+                                  : c.protectionMinutes < 1 ? std::wstring(L" только что")
+                                                            : std::format(L" {} мин назад", c.protectionMinutes);
+        card.tip += L"\n\nЗащита проверена" + when + L": выход — " + exit.summary + L", утечки — " +
+                    (leaks.summary.empty() ? std::wstring(L"—") : leaks.summary) +
+                    L". Проверяется сама после подключения, при смене сервера и раз в полчаса.";
+      }
+    }
     l.items.push_back(std::move(card));
     return y + h;
   }
@@ -2844,7 +2844,30 @@ class Painter {
       l.items[card].rect.bottom = top;
       y = top + (g + 1 < members.size() ? kGap : 0.0f);
     }
-    return y;
+    return DirectWay(l, c, x0, x1, y + kGap);
+  }
+
+  // The line itself, without the VPN, under the servers: its speed beside theirs tells a slow server
+  // from a slow line (the checks' page measured only the tray's own way, which in "only what's
+  // chosen" is this one - "—" beside a VPN that worked, 11.11.2026).
+  float DirectWay(Layout& l, const UiContent& c, float x0, float x1, float y) const {
+    const UiDelay& delay = c.directSpeed;
+    const std::size_t card = l.items.size();
+    l.items.push_back(Make(Kind::Card, {x0, y, x1, y}));
+    const float top = y + 4;
+    Item way = Make(Kind::Way, {x0 + 4, top, x1 - 4, top + kWayLine}, L"Напрямую, без VPN");
+    way.index = kDirectWay;
+    way.stacked = std::ceil(TextWidth(way.text, body_.get())) > x1 - x0 - 8 - kWayLeft - WayColumnsWidth() - 8;
+    way.detail = WayNote(delay);  // the run's error, if any: it has no latency of its own
+    const float h = kWayLine + (way.stacked ? kWayNote + 4 : 0.0f) + (way.detail.empty() ? 0.0f : kWayNote);
+    way.rect.bottom = top + h;
+    const float line = way.stacked ? top + kWayLine - 4 : top;
+    l.items.push_back(std::move(way));
+    if (CanMeasure(c, delay)) {
+      l.items.push_back(MeasureKey(delay, WayCells(x1 - 4, line, line + kWayLine)[2], kDirectWay, L"без VPN"));
+    }
+    l.items[card].rect.bottom = top + h + 4;
+    return top + h + 4;
   }
 
   // The columns of a way, right to left from its row's `right`: what a new site waits (ОТКРЫТИЕ),
@@ -2889,14 +2912,30 @@ class Painter {
     way.tip = way.sub == 1 ? L"Закреплён: авто его не сменит. Авто — ключ в заголовке" : L"Закрепить этот способ";
     const float line = way.stacked ? top + kWayLine - 4 : top;  // the columns' line
     l.items.push_back(std::move(way));
-    if (c.canTestDelays && delay.state == UiDelay::State::Ok && SpeedText(delay).empty()) {
+    if (CanMeasure(c, delay)) {
       const D2D1_RECT_F cell = WayCells(right, line, line + kWayLine)[2];
-      Item measure = CommandItem(Kind::Link, {cell.left + 8, cell.top + 4, cell.right, cell.bottom - 4}, L"замерить",
-                                 nullptr, UiCommand::MeasureSpeed, static_cast<int>(i));
-      measure.tip = L"8 секунд загрузки через этот способ (до 100 МБ)";
-      l.items.push_back(std::move(measure));
+      l.items.push_back(MeasureKey(delay, cell, static_cast<int>(i), L"через этот способ"));
     }
     return top + h;
+  }
+
+  // The speed cell takes a click whenever a run can start: "замерить" where nothing is known, the
+  // figure itself where something is - "замерить" stood on one way of five, the others showing
+  // what they had carried, with no way to measure them (11.11.2026).
+  static bool CanMeasure(const UiContent& c, const UiDelay& delay) {
+    return c.canTestDelays && delay.state == UiDelay::State::Ok && !delay.measuring;
+  }
+  Item MeasureKey(const UiDelay& delay, const D2D1_RECT_F& cell, int index, const std::wstring& through) const {
+    const std::wstring figure = SpeedText(delay);
+    Item measure = CommandItem(Kind::Link, {cell.left + 8, cell.top + 4, cell.right, cell.bottom - 4},
+                               figure.empty() ? std::wstring(L"замерить") : figure, nullptr, UiCommand::MeasureSpeed,
+                               index);
+    measure.sub = figure.empty() ? 0 : 1;  // a figure: its own ink, the key's blue under the mouse
+    const std::wstring run = L"8 секунд загрузки " + through + L" (до 100 МБ)";
+    measure.tip = figure.empty()               ? L"Замерить: " + run
+                  : delay.measuredKbps > 0 ? L"Замерено. Нажми — ещё раз: " + run
+                                           : L"Столько через него шло за последний час. Нажми — замерить: " + run;
+    return measure;
   }
 
   // A way's row (Servers' Way): the dot of whether it works here, its name - "сейчас" or
@@ -2910,7 +2949,9 @@ class Painter {
       k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
     }
     const UiDelay none{};
-    const UiDelay& delay = it.index >= 0 && static_cast<std::size_t>(it.index) < c.delays.size()
+    const bool direct = it.index == kDirectWay;  // DirectWay: no dot, it isn't a way to a server
+    const UiDelay& delay = direct ? c.directSpeed
+                           : it.index >= 0 && static_cast<std::size_t>(it.index) < c.delays.size()
                                ? c.delays[static_cast<std::size_t>(it.index)]
                                : none;
     const D2D1_COLOR_F primary = FromColorRef(ui::kPrimaryText);
@@ -2923,7 +2964,9 @@ class Painter {
                                                          : dim;
     const D2D1_RECT_F first{r.left, r.top, r.right, r.top + kWayLine};
     const float cy = (first.top + first.bottom) / 2;
-    k.t->FillEllipse(D2D1::Ellipse({r.left + 22, cy}, 4, 4), k.Color(toneInk));
+    if (!direct) {
+      k.t->FillEllipse(D2D1::Ellipse({r.left + 22, cy}, 4, 4), k.Color(toneInk));
+    }
     const D2D1_RECT_F figures = it.stacked ? D2D1_RECT_F{r.left, first.bottom - 4, r.right, first.bottom + kWayLine - 4}
                                            : first;
     const float nameRight = it.stacked ? r.right - kColGap : WayCells(r.right, 0, 0)[0].left - 8;
@@ -2952,7 +2995,9 @@ class Painter {
     k.Text(open.empty() ? dash : open, trailing_.get(), cells[0], open.empty() ? dim : (delay.connect >= 1500 ? FromColorRef(ui::kWarning) : primary));
     k.Text(games.empty() ? dash : games, trailing_.get(), cells[1],
            games.empty() || games == L"нет UDP" ? dim : (GamesWarn(delay) || games == L"не отвечает" ? FromColorRef(ui::kWarning) : primary));
-    k.Text(speed.empty() ? dash : speed, trailing_.get(), cells[2], delay.measuring || speed.empty() ? dim : primary);
+    if (!CanMeasure(c, delay)) {  // else its key (MeasureKey) says it
+      k.Text(speed.empty() ? dash : speed, trailing_.get(), cells[2], delay.measuring || speed.empty() ? dim : primary);
+    }
     if (!it.detail.empty()) {
       const D2D1_COLOR_F ink = tone == WayTone::Bad    ? FromColorRef(ui::kDanger)
                                : tone == WayTone::Warn ? FromColorRef(ui::kWarning)
@@ -3302,8 +3347,9 @@ class Painter {
   }
 
   // Where traffic goes (routing.h): the metro scheme (Board), the lists' state under it, the listed
-  // programs' mode; the mode's menu over all of it while open. (The route check is the checks'
-  // since 03.11.2026, his: "ни разу не пригодилась кнопка".)
+  // programs' mode; the mode's menu over all of it while open. The route check is a line under the
+  // lists again since the checks' page went (11.11.2026): one compact row, its "Проверить" the
+  // only key (03.11.2026, his: "ни разу не пригодилась кнопка" - the tiles' one went).
   float Routing(Layout& l, const UiContent& c, float x0, float x1, float y) const {
     const UiRouting& r = c.routing;
     float leadBottom = y;
@@ -3312,81 +3358,15 @@ class Painter {
       y = Paragraph(l, r.listsFailed ? Kind::ErrorText : Kind::Caption, r.lists, x0 + kSchemeIndent, x1, y) + 4;
     }
     y += kGap;
+    if (c.checks.size() > kCheckRoute) {
+      const std::size_t card = l.items.size();
+      l.items.push_back(Make(Kind::Card, {x0, y, x1, y}));
+      y += kCheckRow + CheckLine(l, c, kCheckRoute, x0, x1, y);
+      l.items[card].rect.bottom = y;
+      y += kGap;
+    }
     const float end = c.appsInclude ? Apps(l, c, x0, x1, y) : y;
     return c.routeMenu ? std::max(end, RouteMenu(l, r, x0, x1, leadBottom + 8)) : end;
-  }
-
-  // The checks: what the internet sees, leaks, the local network, DNS, and -
-  // on their own buttons - speed and where an address goes.
-  float Checks(Layout& l, const UiContent& c, float x0, float x1, float y) const {
-    // "Check all" first, the page's width (the page's name and "?" are the title bar's).
-    Item all = CommandItem(Kind::AccentButton, {x0, y, x1, y + kButton},
-                           c.checksRunning ? L"Проверяю…" : L"Проверить всё", kGlyphShield, UiCommand::RunChecks);
-    all.enabled = !c.checksRunning;
-    l.items.push_back(std::move(all));
-    y += kButton + kGap;
-
-    // One card, a line each: status, title and "?", the result on the right.
-    // Speed makes traffic: a button of its own; so does where an address goes
-    // (back from the routing page, 03.11.2026, his: "ни разу не пригодилась кнопка").
-    std::vector<std::size_t> shown;
-    shown.reserve(c.checks.size());
-    for (std::size_t i = 0; i < c.checks.size(); ++i) {
-      shown.push_back(i);
-    }
-    // A line whose result won't fit beside its title is taller (CheckLine's answer): the card's foot
-    // is known when the last is placed.
-    const std::size_t listCard = l.items.size();
-    l.items.push_back(Make(Kind::Card, {x0, y, x1, y}));
-    float top = y;
-    for (std::size_t k = 0; k < shown.size(); ++k) {
-      if (k > 0) {
-        l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
-      }
-      top += kCheckRow + CheckLine(l, c, shown[k], x0, x1, top);
-    }
-    l.items[listCard].rect.bottom = top;
-    y = top;
-
-    // The speed test's graph, growing while it runs and kept after.
-    if (c.checks.size() > kCheckSpeed &&
-        (!c.checks[kCheckSpeed].speedDown.empty() || !c.checks[kCheckSpeed].speedUp.empty())) {
-      y += 8;
-      l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kSpeedGraph}));
-      Item graph = Make(Kind::SpeedGraph, {x0, y, x1, y + kSpeedGraph});
-      graph.index = static_cast<int>(kCheckSpeed);
-      l.items.push_back(std::move(graph));
-      y += kSpeedGraph;
-    }
-
-    // The failed ones' way out, under the results: a banner an action, the
-    // checks it helps named in it (WebRTC and IPv6 both want the kill switch).
-    std::vector<FixAction> ways;
-    for (std::size_t i = 0; i < c.checks.size(); ++i) {
-      const UiCheck& check = c.checks[i];
-      if (check.status != UiCheck::Status::Fail || check.fix == UiCheck::Fix::None) {
-        continue;
-      }
-      FixAction way = FixWay(check.fix, c);
-      const auto same =
-          std::find_if(ways.begin(), ways.end(), [&](const FixAction& w) { return w.label == way.label; });
-      if (same != ways.end()) {
-        same->titles += L", " + check.title;
-        continue;
-      }
-      way.titles = check.title;
-      ways.push_back(std::move(way));
-    }
-    for (const FixAction& way : ways) {
-      y += 8;
-      Item banner = Make(Kind::Banner, {x0, y, x1, y + 40}, way.titles + L" — " + way.label, kGlyphWarning);
-      banner.action = way.action;
-      banner.command = way.command;
-      banner.index = way.index;
-      l.items.push_back(std::move(banner));
-      y += 40;
-    }
-    return y;
   }
 
   // What a row grows by (0 or kStackLine) when its value doesn't fit beside its title in the room the
@@ -3421,16 +3401,17 @@ class Painter {
 
   // A check's line (c.checks[i]) at `top`: its status dot, its title and
   // "?" (what it does, and the last result in full), the result on the
-  // right; the speed test and an address with a button of their own.
+  // right; an address and the exposure with a button of their own (the routing
+  // page's line and the settings' - the rest is said on the overview).
   // Returns what the line grew by (0, or kStackLine: the result under the title).
   float CheckLine(Layout& l, const UiContent& c, std::size_t i, float x0, float x1, float top) const {
     const UiCheck& check = c.checks[i];
-    const bool hasButton = i == kCheckSpeed || i == kCheckRoute;
+    const bool hasButton = i == kCheckRoute || i == kCheckExposure;
     Item row = Make(Kind::CheckRow, {x0 + 4, top + 1, x1 - 4, top + kCheckRow - 1}, check.title);
     // Not run, a dash - unless the row's own button says what to do (the route's
     // "—" read as a "minus" to fold, 30.10.2026).
     row.detail = check.status != UiCheck::Status::NotRun ? check.summary
-                 : i == kCheckRoute                      ? std::wstring()
+                 : hasButton                             ? std::wstring()
                                                          : std::wstring(L"—");
     row.index = static_cast<int>(check.status);
     row.sub = static_cast<int>(i);
@@ -3452,7 +3433,7 @@ class Painter {
     }
     // With a result, its room (120) is the "?"'s limit; with the word "Проверить" and no result - the
     // button's edge: at 350 wide the "?" sat on "сайт?" (31.10.2026).
-    const bool word = i == kCheckRoute && check.status == UiCheck::Status::NotRun;
+    const bool word = hasButton && check.status == UiCheck::Status::NotRun;
     const float hintRight = word ? x1 - 20 - kRouteButton - 6 : x1 - 120;
     HintAfter(l, check.title, body_.get(), x0 + 4 + 34, hintRight, top + kCheckRow / 2, std::move(hint));
 
@@ -3460,15 +3441,17 @@ class Painter {
       // The route's a word, not an arrow: an arrow there read as "unfold" (30.10.2026);
       // with a result in the room, "again" - the icons' refresh. The word's button ends on
       // the line 20, the key (28) in the zone that ends on 14: its glyph ends on 20.
+      const bool route = i == kCheckRoute;
+      const UiCommand command = route ? UiCommand::CheckRoute : UiCommand::RunChecks;
+      const int index = route ? 0 : static_cast<int>(i);
       Item run = word ? CommandItem(Kind::Button, {x1 - 20 - kRouteButton, top + 4, x1 - 20, top + kCheckRow - 4},
-                                    L"Проверить", nullptr, UiCommand::CheckRoute)
+                                    L"Проверить", nullptr, command, index)
                       : CommandItem(Kind::IconButton, {x1 - 14 - 28, top + 7, x1 - 14, top + kCheckRow - 7},
-                                    i == kCheckSpeed ? L"Замерить скорость" : L"Проверить другой сайт…",
-                                    i == kCheckSpeed ? kGlyphSpeed : kGlyphRefresh,
-                                    i == kCheckSpeed ? UiCommand::RunSpeed : UiCommand::CheckRoute);
-      run.enabled = i == kCheckSpeed ? !c.speedRunning : !c.checksRunning;
-      run.tip = i == kCheckSpeed ? L"Замерить скорость приёма и отдачи через VPN"
-                                 : L"Ввести сайт и узнать, каким путём он пойдёт";
+                                    route ? L"Проверить другой сайт…" : L"Проверить снова", kGlyphRefresh, command,
+                                    index);
+      run.enabled = !c.checksRunning;
+      run.tip = route ? L"Ввести сайт и узнать, каким путём он пойдёт"
+                      : L"Проверить ещё раз, что видно этот компьютер в локальной сети";
       l.items.push_back(std::move(run));
     }
     return grown;
@@ -3512,6 +3495,63 @@ class Painter {
       case UiCheck::Fix::None: break;
     }
     return reconnect();
+  }
+
+  // The protection on the overview (11.11.2026, the checks' page gone, his: "надо думать не как
+  // обертка"): the quiet check's failures (main.cpp ScheduleProtectionCheck) a banner each way out,
+  // what it helps named in it; and the kill switch off while on - nothing holds the traffic when the
+  // VPN drops. Nothing at all while it's fine.
+  float ProtectionBanners(Layout& l, const UiContent& c, float x0, float x1, float y) const {
+    std::vector<FixAction> ways;
+    std::vector<std::wstring> tips;
+    for (const std::size_t i : {kCheckExit, kCheckLeaks}) {
+      if (c.display != Display::On || i >= c.checks.size() || c.checks[i].status != UiCheck::Status::Fail) {
+        continue;
+      }
+      const UiCheck& check = c.checks[i];
+      std::wstring what;
+      if (i == kCheckExit) {
+        what = check.fix == UiCheck::Fix::KillSwitch ? L"Сайты видят не адрес VPN" : L"Через VPN сайты не открываются";
+      } else {
+        constexpr std::wstring_view kHas = L"есть: ";
+        const std::wstring_view names = std::wstring_view(check.summary).starts_with(kHas)
+                                            ? std::wstring_view(check.summary).substr(kHas.size())
+                                            : std::wstring_view(check.summary);
+        what = L"Утечка мимо VPN: " + std::wstring(names);
+      }
+      FixAction way = FixWay(check.fix, c);
+      const auto same =
+          std::find_if(ways.begin(), ways.end(), [&](const FixAction& w) { return w.label == way.label; });
+      if (same != ways.end()) {
+        same->titles += L"; " + what;
+        tips[static_cast<std::size_t>(same - ways.begin())] += L"\n\n" + check.detail;
+        continue;
+      }
+      way.titles = std::move(what);
+      ways.push_back(std::move(way));
+      tips.push_back(check.detail);
+    }
+    bool offered = false;  // a banner above already turns the kill switch on
+    for (std::size_t k = 0; k < ways.size(); ++k) {
+      const FixAction& way = ways[k];
+      offered = offered || (way.action == ItemAction::Command && way.command == UiCommand::ToggleKillSwitch);
+      Item banner = Make(Kind::Banner, {x0, y, x1, y + 40}, way.titles + L" — " + way.label, kGlyphWarning);
+      banner.action = way.action;
+      banner.command = way.command;
+      banner.index = way.index;
+      banner.tip = tips[k];
+      l.items.push_back(std::move(banner));
+      y += 40 + 8;
+    }
+    if (c.on && !c.killSwitch && !offered) {
+      Item off = CommandItem(Kind::Banner, {x0, y, x1, y + 40}, L"Защита от утечек выключена — включить", kGlyphShield,
+                             UiCommand::ToggleKillSwitch, kFromChecks);
+      off.tip = L"Kill switch выключен: если VPN оборвётся, программы пойдут напрямую, с твоим адресом. Включить — "
+                L"интернет закроется до восстановления подключения. Он же в «Настройках».";
+      l.items.push_back(std::move(off));
+      y += 40 + 8;
+    }
+    return y;
   }
 
   // The per-app list - a section of Routing: which programs go through the proxy.
@@ -3734,15 +3774,6 @@ class Painter {
       return grown;
     };
 
-    {
-      const std::size_t card = open(y);
-      // The routing is not here: the title bar's key opens it (30.10.2026, his: "на главной пусть будут").
-      Item checks = CommandItem(Kind::ValueRow, row(y), L"Проверка подключения", nullptr, UiCommand::OpenChecks);
-      checks.detail = L"утечки, скорость";
-      l.items.push_back(std::move(checks));
-      y = close(card, y + kSettingsRow);
-    }
-
     y = Heading(l, L"Подключение", x0, x1, y);
     {
       const std::size_t card = open(y);
@@ -3805,7 +3836,25 @@ class Painter {
         l.items.push_back(CommandItem(Kind::ValueRow, row(top), L"Разрешить устройство", kGlyphAdd, UiCommand::LanAdd));
         top += kSettingsRow;
       }
+      // What the network sees of this computer (the checks' page's till 11.11.2026), looked at by itself
+      // after a connect; its way out under the card.
+      if (c.checks.size() > kCheckExposure) {
+        line(top);
+        top += kCheckRow + CheckLine(l, c, kCheckExposure, x0, x1, top);
+      }
       y = close(card, top);
+    }
+    if (c.checks.size() > kCheckExposure) {
+      const UiCheck& seen = c.checks[kCheckExposure];
+      if (seen.status == UiCheck::Status::Fail) {
+        l.items.push_back(CommandItem(Kind::Banner, {x0, y, x1, y + 40}, L"Брандмауэр: " + seen.summary + L" — открыть его",
+                                      kGlyphWarning, UiCommand::OpenFirewall));
+        y += 40 + kSettingsGap;
+      } else if (seen.status == UiCheck::Status::Warn && !c.lanClosed) {
+        l.items.push_back(CommandItem(Kind::Banner, {x0, y, x1, y + 40}, L"Виден в сети — закрыть от локальной сети",
+                                      kGlyphWarning, UiCommand::ToggleLanClosed));
+        y += 40 + kSettingsGap;
+      }
     }
     if (!c.killSwitchError.empty()) {
       y = Paragraph(l, Kind::ErrorText, L"Kill switch: " + c.killSwitchError, x0, x1, y) + kSettingsGap;
@@ -4147,10 +4196,11 @@ class Painter {
       }
       case Kind::Way: DrawWay(k, it, c, hoverAlpha); break;
       case Kind::Link:
-        k.Text(it.text, trailing_.get(), r, FromColorRef(ui::kVpn, pressed ? 0.7f : (hovered ? 1.0f : 0.85f)));
+        k.Text(it.text, trailing_.get(), r,
+               it.sub == 1 && !hovered && !pressed ? FromColorRef(ui::kPrimaryText)
+                                                   : FromColorRef(ui::kVpn, pressed ? 0.7f : (hovered ? 1.0f : 0.85f)));
         break;
       case Kind::Power: DrawPower(k, it, c, hovered, pressed); break;
-      case Kind::SpeedGraph: DrawSpeed(k, it, c); break;
       case Kind::Question: DrawQuestion(k, c); break;
       case Kind::Day: DrawDay(k, it, hovered, pressed); break;
       case Kind::ServerCard: {
@@ -4738,146 +4788,6 @@ class Painter {
   // The live traffic's dots round the switch's square `cube`: each with a
   // soft halo and a short trail behind it, fading in and out along its path;
   // sparks fade as they fly.
-  // The speed test's graph: one timeline as the test runs - the download
-  // (kSpeedDownSeconds) in the VPN's blue, then the upload
-  // (kSpeedUpSeconds) in green after it - each smoothed over three samples,
-  // growing from the left; the scale rounded up, lines at its top and half;
-  // the speeds on top: the mean past the first second, as the test's result.
-  // (Both laid over the whole width at once read as one thing - 16.10.2026.)
-  void DrawSpeed(const Canvas& k, const Item& it, const UiContent& c) const {
-    if (it.index < 0 || static_cast<std::size_t>(it.index) >= c.checks.size()) {
-      return;
-    }
-    const UiCheck& check = c.checks[static_cast<std::size_t>(it.index)];
-    const D2D1_RECT_F r = it.rect;
-    const D2D1_COLOR_F down = FromColorRef(ui::kVpn);
-    const D2D1_COLOR_F up = FromColorRef(ui::kUpload);
-    const D2D1_COLOR_F secondary = FromColorRef(ui::kSecondaryText);
-    const auto smooth = [](const std::vector<float>& s) {
-      std::vector<float> out(s.size());
-      for (std::size_t i = 0; i < s.size(); ++i) {
-        const std::size_t lo = i > 1 ? i - 2 : 0;
-        const std::size_t hi = std::min(i + 2, s.empty() ? 0 : s.size() - 1);
-        float sum = 0;
-        for (std::size_t j = lo; j <= hi; ++j) {
-          sum += s[j];
-        }
-        out[i] = sum / static_cast<float>(hi - lo + 1);
-      }
-      return out;
-    };
-    const std::vector<float> downs = smooth(check.speedDown);
-    const std::vector<float> ups = smooth(check.speedUp);
-    float peak = 1;
-    for (const auto* s : {&downs, &ups}) {
-      for (const float v : *s) {
-        peak = std::max(peak, v);
-      }
-    }
-    static constexpr std::array<float, 14> kScales = {10, 20, 50, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 5000, 10000};
-    float scale = kScales.back();
-    for (const float s : kScales) {
-      if (s >= peak * 1.1f) {
-        scale = s;
-        break;
-      }
-    }
-
-    const float pad = 16;
-    const float legend = r.top + 10;
-    // Each one as wide as its text: boxes of a fixed width left the units
-    // "Мбит/с · чере…" on a narrow window (24.10.2026).
-    float x = r.left + pad;
-    const auto speed = [&](const std::wstring& text, D2D1_COLOR_F color) {
-      const float width = TextWidth(text, heading_.get());
-      k.Text(text, heading_.get(), {x, legend, x + width + 2, legend + 22}, color);
-      x += width + 14;
-    };
-    speed(std::format(L"↓ {:.0f}", StreamMbps(check.speedDown)), down);
-    if (!check.speedUp.empty()) {
-      speed(std::format(L"↑ {:.0f}", StreamMbps(check.speedUp)), up);
-    }
-    const std::wstring scaleText = std::format(L"{:.0f}", scale);
-    const float scaleLeft = r.right - pad - TextWidth(scaleText, trailing_.get()) - 2;
-    // Which way it measured, said with the units: in "only what's chosen" the
-    // tray's own requests go directly - the line, not the VPN (its detail
-    // starts so: diagnose.cpp Speed).
-    const bool direct = check.detail.starts_with(L"Напрямую");
-    k.Text(direct ? L"Мбит/с · напрямую" : L"Мбит/с · через VPN", caption_.get(),
-           {x, legend + 3, scaleLeft - 8, legend + 22}, secondary);
-    k.Text(scaleText, trailing_.get(), {scaleLeft, legend + 3, r.right - pad, legend + 22}, secondary);
-
-    const D2D1_RECT_F plot{r.left + pad, r.top + 42, r.right - pad, r.bottom - 14};
-    const float mid = (plot.top + plot.bottom) / 2;
-    k.Line({plot.left, plot.top}, {plot.right, plot.top}, Rgb(255, 255, 255, 0.05f));
-    k.Line({plot.left, mid}, {plot.right, mid}, Rgb(255, 255, 255, 0.05f));
-    k.Line({plot.left, plot.bottom}, {plot.right, plot.bottom}, Rgb(255, 255, 255, 0.12f));
-
-    const float perSecond = 1000.0f / static_cast<float>(kSpeedSampleMs);
-    const float downSlots = static_cast<float>(kSpeedDownSeconds) * perSecond;
-    const float allSlots = downSlots + static_cast<float>(kSpeedUpSeconds) * perSecond;
-    const float dx = (plot.right - plot.left) / std::max(1.0f, allSlots - 1);
-    // Where the download hands over to the upload.
-    if (!ups.empty()) {
-      const float seam = plot.left + (downSlots - 0.5f) * dx;
-      k.Line({seam, plot.top}, {seam, plot.bottom}, Rgb(255, 255, 255, 0.06f));
-    }
-    // `growing`: the series the test is on - its newest point drawn only
-    // speedTip of the way from the one before, eased there frame by frame.
-    const auto series = [&](const std::vector<float>& s, float firstSlot, D2D1_COLOR_F color, bool growing) {
-      if (s.size() < 2) {
-        return;
-      }
-      std::vector<D2D1_POINT_2F> points;
-      points.reserve(s.size());
-      for (std::size_t i = 0; i < s.size(); ++i) {
-        const float x = std::min(plot.right, plot.left + (firstSlot + static_cast<float>(i)) * dx);
-        const float y = plot.bottom - std::min(s[i] / scale, 1.0f) * (plot.bottom - plot.top);
-        points.push_back({x, y});
-      }
-      if (growing) {
-        const D2D1_POINT_2F from = points[points.size() - 2];
-        D2D1_POINT_2F& to = points.back();
-        const float t = std::clamp(speedTip, 0.0f, 1.0f);
-        to = {from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t};
-      }
-      // A curve through the points' midpoints (each point its control): no corners, as speed tests draw.
-      const auto trace = [&](ID2D1GeometrySink* sink) {
-        for (std::size_t i = 1; i + 1 < points.size(); ++i) {
-          const D2D1_POINT_2F mid{(points[i].x + points[i + 1].x) / 2, (points[i].y + points[i + 1].y) / 2};
-          sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(points[i], mid));
-        }
-        sink->AddLine(points.back());
-      };
-      wil::com_ptr<ID2D1PathGeometry> area;
-      wil::com_ptr<ID2D1GeometrySink> sink;
-      if (SUCCEEDED(d2d_->CreatePathGeometry(area.put())) && SUCCEEDED(area->Open(sink.put()))) {
-        sink->BeginFigure({points.front().x, plot.bottom}, D2D1_FIGURE_BEGIN_FILLED);
-        sink->AddLine(points.front());
-        trace(sink.get());
-        sink->AddLine({points.back().x, plot.bottom});
-        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-        if (SUCCEEDED(sink->Close())) {
-          D2D1_COLOR_F fill = color;
-          fill.a = 0.12f;
-          k.t->FillGeometry(area.get(), k.Color(fill));
-        }
-      }
-      wil::com_ptr<ID2D1PathGeometry> line;
-      wil::com_ptr<ID2D1GeometrySink> lineSink;
-      if (SUCCEEDED(d2d_->CreatePathGeometry(line.put())) && SUCCEEDED(line->Open(lineSink.put()))) {
-        lineSink->BeginFigure(points.front(), D2D1_FIGURE_BEGIN_HOLLOW);
-        trace(lineSink.get());
-        lineSink->EndFigure(D2D1_FIGURE_END_OPEN);
-        if (SUCCEEDED(lineSink->Close())) {
-          k.t->DrawGeometry(line.get(), k.Color(color), 2);
-        }
-      }
-    };
-    series(downs, 0, down, ups.empty());
-    series(ups, downSlots, up, !ups.empty());
-  }
-
   void DrawLive(const Canvas& k, const LiveTraffic& live, D2D1_RECT_F cube) const {
     for (const Particle& p : live.particles) {
       D2D1_COLOR_F color = FromColorRef(ui::kVpn);
@@ -5414,40 +5324,6 @@ struct MainWindow::Impl {
   // 64 a second, and its 15.6 ms ticks made the dots jerk). The last step,
   // by the precise clock; empty: not running.
   std::optional<std::chrono::steady_clock::time_point> liveAt;
-  // The speed test's graph easing to its newest sample (NoteSpeed): how many it had, and when the last came.
-  std::size_t speedSamples = 0;
-  std::chrono::steady_clock::time_point speedSampleAt{};
-
-  // New speed samples in the content: the graph's tip starts again from the
-  // one before (Painter::speedTip), frames asked for while it eases.
-  void NoteSpeed() {
-    std::size_t samples = 0;
-    if (content.checks.size() > kCheckSpeed) {
-      samples = content.checks[kCheckSpeed].speedDown.size() + content.checks[kCheckSpeed].speedUp.size();
-    }
-    const bool more = samples > speedSamples;
-    speedSamples = samples;
-    if (more && Motion()) {
-      speedSampleAt = std::chrono::steady_clock::now();
-      painter.speedTip = 0;
-      if (hwnd != nullptr && IsWindowVisible(hwnd) != FALSE && page == UiPage::Checks) {
-        InvalidateRect(hwnd, nullptr, FALSE);
-      }
-    }
-  }
-
-  // A frame of the speed test's graph: its tip eased towards the newest
-  // sample over one sample's time; true while there's way to go.
-  bool StepSpeed() {
-    if (page != UiPage::Checks || IsWindowVisible(hwnd) == FALSE || !Motion() || Blocked()) {
-      painter.speedTip = 1;
-      return false;
-    }
-    const float t = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - speedSampleAt).count() /
-                    static_cast<float>(kSpeedSampleMs);
-    painter.speedTip = std::min(1.0f, t);
-    return t < 1.0f;
-  }
 
   // A fold opening or closing (the fine settings', the relay's): how open it is, eased over
   // kFoldMs from where it was; its flag in the content says where it goes.
@@ -6051,12 +5927,8 @@ struct MainWindow::Impl {
         add(kMenuRemove, L"Удалить…");
         break;
       case Kind::CheckRow: {
-        const bool running = item.sub == static_cast<int>(kCheckSpeed) ? content.speedRunning : content.checksRunning;
-        add(kMenuRun,
-            item.sub == static_cast<int>(kCheckSpeed)   ? L"Замерить скорость"
-            : item.sub == static_cast<int>(kCheckRoute) ? L"Проверить адрес…"
-                                                        : L"Проверить снова",
-            !running);
+        add(kMenuRun, item.sub == static_cast<int>(kCheckRoute) ? L"Проверить адрес…" : L"Проверить снова",
+            !content.checksRunning);
         separator();
         add(kMenuCopyResult, L"Копировать результат", item.index > 1);
         add(kMenuCopyAll, L"Копировать все результаты");
@@ -6069,6 +5941,7 @@ struct MainWindow::Impl {
       case Kind::ServerCard:
         add(kMenuOpen, L"Выбрать сервер…", item.enabled);
         add(kMenuTestDelays, L"Проверить задержку", true);
+        add(kMenuCheckProtection, L"Проверить защиту от утечек", content.on && !content.checksRunning);
         separator();
         add(kMenuCopyIp, content.exitIp.empty() ? std::wstring(L"Копировать IP выхода")
                                                 : L"Копировать IP выхода: " + content.exitIp,
@@ -6090,6 +5963,10 @@ struct MainWindow::Impl {
     }
     switch (command) {
       case kMenuTestDelays: onCommand(UiCommand::TestDelays, args); break;
+      case kMenuCheckProtection:
+        args.index = static_cast<int>(kCheckExit);
+        onCommand(UiCommand::RunChecks, args);
+        break;
       case kMenuCopyName: CopyToClipboard(hwnd, name); break;
       case kMenuCopyIp: CopyToClipboard(hwnd, ip); break;
       case kMenuCopyValue: CopyToClipboard(hwnd, item.detail); break;
@@ -6119,11 +5996,8 @@ struct MainWindow::Impl {
         onCommand(item.kind == Kind::AppRow ? UiCommand::RemoveApp : UiCommand::RemoveProfile, args);
         break;
       case kMenuRun:
-        args.index = 0;
-        onCommand(item.sub == static_cast<int>(kCheckSpeed)   ? UiCommand::RunSpeed
-                  : item.sub == static_cast<int>(kCheckRoute) ? UiCommand::CheckRoute
-                                                              : UiCommand::RunChecks,
-                  args);
+        args.index = item.sub == static_cast<int>(kCheckRoute) ? 0 : item.sub;
+        onCommand(item.sub == static_cast<int>(kCheckRoute) ? UiCommand::CheckRoute : UiCommand::RunChecks, args);
         break;
       case kMenuCopyResult:
         if (at(content.checks, item.sub)) {
@@ -6549,14 +6423,13 @@ struct MainWindow::Impl {
           }
         }
         const bool going = liveAt && StepLiveTraffic();
-        const bool easing = StepSpeed();
         const bool coming = StepQuestion();
         const bool folding = StepFold();
         PAINTSTRUCT ps;
         BeginPaint(w, &ps);
         Paint();
         EndPaint(w, &ps);
-        if (going || easing || coming || folding) {
+        if (going || coming || folding) {
           InvalidateRect(w, nullptr, FALSE);  // the next frame: this one waited for the screen's refresh
         }
         return 0;
@@ -7051,7 +6924,6 @@ void MainWindow::Update(const UiContent& content) {
     m.serverOrder = ServerOrder(content);
   }
   m.content = content;
-  m.NoteSpeed();
   m.NoteFolds();
   if (IsVisible()) {
     m.Relayout();

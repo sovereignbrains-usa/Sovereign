@@ -228,7 +228,9 @@ void TestWays() {
   way.measuredKbps = 140'000;
   CHECK(SpeedText(way) == L"140 Мбит/с");  // the run's figure over the seen one
   way.measuring = true;
-  CHECK(SpeedText(way) == L"меряю…");
+  CHECK(SpeedText(way) == L"140 Мбит/с…");  // the figure so far, growing while it runs
+  way.measuredKbps = 0;
+  CHECK(SpeedText(way) == L"меряю…");  // nothing heard from the run yet
   way.udpJitter = 24;
   CHECK(GamesWarn(way));
   way.failedRecently = true;

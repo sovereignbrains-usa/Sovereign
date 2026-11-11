@@ -4,6 +4,22 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.1 — 11.11.2026
+
+**No "Проверка" page any more: the client checks its protection by itself.** While you're connected it looks at what sites see and whether anything leaks past the VPN (DNS, WebRTC, IPv6): a few seconds after connecting, when the exit address changes (another server, or auto moved), and every half hour. Nothing is shown while all is fine. A problem is said once in a notification and stays on the main screen as a banner with its fix, e.g. «Утечка мимо VPN: IPv6 — включить Kill switch». The server card's tooltip says what was found and how long ago; its right-click menu checks again.
+
+**With the kill switch off while connected, the main screen says so**: «Защита от утечек выключена — включить».
+
+### Servers
+
+- **"Замерить" no longer hangs.** A speed run said «меряю…» for good and measured nothing.
+- **Every server can be measured**, not just the one in use, and a «Напрямую» row measures your line without the VPN. The figure grows while the run goes.
+
+### Moved from the checks page
+
+- **«Не открывается сайт?»** is a line on the Routing page.
+- **Whether the computer is seen in the network** is a line in Settings, checked by itself after connecting. With the firewall off or letting everything in, a banner opens Windows Firewall. With sharing services answering, a banner offers to close the local network.
+
 ## 0.6.0 — 11.11.2026
 
 **A new home.** The project lives at [github.com/sovereignbrains-usa/Sovereign](https://github.com/sovereignbrains-usa/Sovereign) now. Updates, the problem report and the installer's links all point here.

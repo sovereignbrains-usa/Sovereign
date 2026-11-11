@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.2 — 11.11.2026
+
+**«Виден ли компьютер в сети» no longer warns while «Закрыть от локальной сети» is on.** With the VPN on, Sovereign's filters keep the local network away from file sharing and the other services, so the line says «закрыт фильтром Sovereign» in green; its tooltip names the services and reminds that without the VPN they're open to the network again. The firewall turned off is still shown in red. Switching «Закрыть от локальной сети» checks the line again at once.
+
 ## 0.6.1 — 11.11.2026
 
 **No "Проверка" page any more: the client checks its protection by itself.** While you're connected it looks at what sites see and whether anything leaks past the VPN (DNS, WebRTC, IPv6): a few seconds after connecting, when the exit address changes (another server, or auto moved), and every half hour. Nothing is shown while all is fine. A problem is said once in a notification and stays on the main screen as a banner with its fix, e.g. «Утечка мимо VPN: IPv6 — включить Kill switch». The server card's tooltip says what was found and how long ago; its right-click menu checks again.

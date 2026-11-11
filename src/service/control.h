@@ -43,7 +43,7 @@ using CommandObserver = std::function<void(const CommandRecord&)>;
 // box_stats, box_logs {since}, box_urltest {tags, url?, timeout_ms?},
 // box_delays, box_exitip {tag, refresh?}, box_sites {tag, refresh?}, box_speed {tag, start?}, box_route {targets}, box_smart,
 // kill_switch {enabled, allow_lan?, lan_closed?, lan_allowed?},
-// update_install {version, installer, session}.
+// update_install {version, installer, session, release?}.
 class ControlHandler {
  public:
   // box_urltest's limits: what one test may ask of the core.
@@ -86,13 +86,16 @@ class ControlHandler {
   // user's "connect at startup" switched while connected.
   //
   // updates may be null too: update_install then answers an error. It runs
-  // outside the state lock - it downloads a checksum.
+  // outside the state lock. A signed description (release) is checked again
+  // there; without one, a tray from before that, it downloads a checksum.
   ControlHandler(ICore* core, const LogRing& coreLog, std::optional<std::string>& lastConfig,
                  CommandObserver observer = {}, IKillSwitch* killSwitch = nullptr, IBootStore* boot = nullptr,
                  IUpdateRunner* updates = nullptr);
 
   // update_install's limit on the installer's path.
   static constexpr std::size_t kMaxInstallerPathBytes = 2048;
+  // update_install's limit on the signed description (update.json).
+  static constexpr std::size_t kMaxSignedReleaseBytes = 64 * 1024;
   // update_install with the VPN on and the kill switch off holds the kill
   // switch on - nothing goes out by the real address while the service is
   // replaced - and the next service keeps it (IUpdateRunner::HeldSince) till

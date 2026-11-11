@@ -1,9 +1,11 @@
 // The updater's pure rules (src/tray/update.h).
 
+#include <array>
 #include <chrono>
 #include <exception>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 #include "check.h"
 #include "update.h"
@@ -40,40 +42,122 @@ void TestModes() {
   CHECK(ParseUpdateMode("Install") == UpdateMode::Check);
 }
 
-// Where the v0.2.0 files live (a function: a static std::string may throw at startup).
-std::string Base() { return "https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/"; }
+// update.json for the 9-byte sample, as tools/release/sign-update.ps1 writes it, including the
+// trailing newline. The primary and the spare are kUpdateKeys; the test key is not.
+constexpr std::string_view kSignedByPrimary =
+    R"upd({"signed":"{\"version\":\"0.2.0\",\"size\":9,\"sha256\":\"9c0d294c05fc1d88d698034609bb81c0c69196327594e4c69d2915c80fd9850c\",\"page\":\"https://github.com/sovereignbrains-usa/Sovereign/releases/tag/v0.2.0\",\"urls\":[\"https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/Sovereign-Setup-0.2.0.exe\",\"https://updates.packetlab.tech/v0.2.0/Sovereign-Setup-0.2.0.exe\"],\"sources\":[\"https://github.com/sovereignbrains-usa/Sovereign/releases/latest/download/update.json\",\"https://updates.packetlab.tech/update.json\"]}","signature":"0694e708cad2535d815f59951e53a86d280957b88c5fc4d41b7ad308508d5a61ab92039c9ac05e67e44152ae1f4a40c18f29ff16f3a5febb4e595014da01a042"})upd"
+    "\n";
+constexpr std::string_view kSignedBySpare =
+    R"upd({"signed":"{\"version\":\"0.2.0\",\"size\":9,\"sha256\":\"9c0d294c05fc1d88d698034609bb81c0c69196327594e4c69d2915c80fd9850c\",\"page\":\"https://github.com/sovereignbrains-usa/Sovereign/releases/tag/v0.2.0\",\"urls\":[\"https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/Sovereign-Setup-0.2.0.exe\",\"https://updates.packetlab.tech/v0.2.0/Sovereign-Setup-0.2.0.exe\"],\"sources\":[\"https://github.com/sovereignbrains-usa/Sovereign/releases/latest/download/update.json\",\"https://updates.packetlab.tech/update.json\"]}","signature":"70e0cfca745c06925a58b234ef9d29603161a4d8c52222f8481c0e4cf3d5dbf1c27ebe918f426323eed85b7ace0eb58c5aa2af0ff2c5f725d11163822dae54c6"})upd"
+    "\n";
+constexpr std::string_view kSignedByTest =
+    R"upd({"signed":"{\"version\":\"0.2.0\",\"size\":9,\"sha256\":\"9c0d294c05fc1d88d698034609bb81c0c69196327594e4c69d2915c80fd9850c\",\"page\":\"https://github.com/sovereignbrains-usa/Sovereign/releases/tag/v0.2.0\",\"urls\":[\"https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/Sovereign-Setup-0.2.0.exe\",\"https://updates.packetlab.tech/v0.2.0/Sovereign-Setup-0.2.0.exe\"],\"sources\":[\"https://github.com/sovereignbrains-usa/Sovereign/releases/latest/download/update.json\",\"https://updates.packetlab.tech/update.json\"]}","signature":"835e5eae1055cf11a31be044af229461cf366b4d50143a461f9293b45bd401bf4dfe82bbb691d7f7f1e1c775fb4a456941eb18cceac41844a2aaf649548fb588"})upd"
+    "\n";
+constexpr std::string_view kTestKey =
+    "8b6adc5c59b9e753354ce8322d9dd570b6cad43d19d05ffd4de682a4836381bf"
+    "03be33cbf2024da6f762b30c7f446f32d5c9f16b411728211837fc921edf3c22";
 
-std::string ReleaseJson(const std::string& extra, const std::string& tag = "v0.2.0") {
-  return R"({"tag_name":")" + tag + R"(","html_url":"https://github.com/sovereignbrains-usa/Sovereign/releases/tag/v0.2.0",)" +
-         extra + R"("assets":[)" + R"({"name":"Sovereign-Setup-0.2.0.exe","size":31457280,"browser_download_url":")" +
-         Base() + R"(Sovereign-Setup-0.2.0.exe"},)" +
-         R"({"name":"Sovereign-Setup-0.2.0.exe.sha256","size":90,"browser_download_url":")" + Base() +
-         R"(Sovereign-Setup-0.2.0.exe.sha256"}]})";
+void CheckSample(const std::optional<Release>& release, std::string_view file) {
+  CHECK(release.has_value());
+  if (!release) {
+    return;
+  }
+  CHECK((release->version == Version{0, 2, 0}));
+  CHECK(release->installerSize == 9);
+  CHECK(release->sha256 == "9c0d294c05fc1d88d698034609bb81c0c69196327594e4c69d2915c80fd9850c");
+  CHECK(release->urls.size() == 2);
+  CHECK(release->urls.front() ==
+        "https://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/Sovereign-Setup-0.2.0.exe");
+  CHECK(release->urls.back() == "https://updates.packetlab.tech/v0.2.0/Sovereign-Setup-0.2.0.exe");
+  CHECK(release->sources.size() == 2);
+  CHECK(release->pageUrl == "https://github.com/sovereignbrains-usa/Sovereign/releases/tag/v0.2.0");
+  CHECK(release->signedText == file);
+  CHECK(!file.empty() && file.back() == '\n');
 }
 
-void TestLatestRelease() {
-  const auto release = ParseLatestRelease(ReleaseJson(""));
-  CHECK(release.has_value());
-  if (release) {
-    CHECK((release->version == Version{0, 2, 0}));
-    CHECK(release->installerUrl == Base() + "Sovereign-Setup-0.2.0.exe");
-    CHECK(release->checksumUrl == Base() + "Sovereign-Setup-0.2.0.exe.sha256");
-    CHECK(release->installerSize == 31457280);
+// A description with the fields filled in as text, so a size can be a number or not one.
+std::string Description(const std::string& version, const std::string& size, const std::string& sha256,
+                        const std::string& urls) {
+  return std::string(R"({"version":")") + version + R"(","size":)" + size + R"(,"sha256":")" + sha256 +
+         R"(","urls":)" + urls + "}";
+}
+
+void TestSignedRelease() {
+  const std::string sha = "9c0d294c05fc1d88d698034609bb81c0c69196327594e4c69d2915c80fd9850c";
+  const std::string urls = R"(["https://updates.packetlab.tech/v0.2.0/Sovereign-Setup-0.2.0.exe"])";
+  CheckSample(ParseSignedRelease(kSignedByPrimary), kSignedByPrimary);
+  CheckSample(ParseSignedRelease(kSignedBySpare), kSignedBySpare);
+
+  std::string tampered(kSignedByPrimary);
+  const auto at = tampered.rfind("0694e708");
+  CHECK(at != std::string::npos);
+  if (at != std::string::npos) {
+    tampered[at] = '1';
   }
-  CHECK(!ParseLatestRelease(ReleaseJson(R"("draft":true,)")));
-  CHECK(!ParseLatestRelease(ReleaseJson(R"("prerelease":true,)")));
-  CHECK(!ParseLatestRelease(ReleaseJson("", "nightly")));
-  // The tag says 0.3.0 but the files are 0.2.0's: no installer for this release.
-  CHECK(!ParseLatestRelease(ReleaseJson("", "v0.3.0")));
-  // Files from anywhere but this repository's releases are not downloaded.
-  CHECK(!IsReleaseAssetUrl("https://evil.example/Sovereign-Setup-0.2.0.exe"));
-  CHECK(!IsReleaseAssetUrl("http://github.com/sovereignbrains-usa/Sovereign/releases/download/v0.2.0/x.exe"));
-  CHECK(!IsReleaseAssetUrl("https://github.com/someone/Sovereign/releases/download/v0.2.0/x.exe"));
-  CHECK(!IsReleaseAssetUrl(Base() + "a b.exe"));
-  CHECK(IsReleaseAssetUrl(Base() + "Sovereign-Setup-0.2.0.exe"));
-  CHECK(!ParseLatestRelease("not json"));
-  CHECK(!ParseLatestRelease(R"({"tag_name":"v0.2.0","assets":{}})"));
-  CHECK(!ParseLatestRelease(R"({"message":"API rate limit exceeded"})"));
+  CHECK(!ParseSignedRelease(tampered));
+  CHECK(!ParseSignedRelease(kSignedByTest));
+  const std::array<std::string_view, 1> testKeys{kTestKey};
+  CheckSample(ParseSignedRelease(kSignedByTest, testKeys), kSignedByTest);
+
+  const auto plain = ParseReleaseDescription(Description("0.2.0", "9", sha, urls));
+  CHECK(plain.has_value());
+  if (plain) {
+    CHECK(plain->urls.size() == 1 && plain->sha256 == sha);
+  }
+  CHECK(!ParseReleaseDescription(Description("v0.2.0", "9", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "9", sha, "[]")));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "9", sha.substr(1), urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "9", "zz" + sha.substr(2), urls)));
+  CHECK(!ParseReleaseDescription("not json"));
+  CHECK(!ParseReleaseDescription(R"({"version":"0.2.0"})"));
+
+  // An address that is not plain https is left out; a field the client doesn't know is ignored.
+  const auto mixed = ParseReleaseDescription(Description(
+      "0.2.0", "9", sha,
+      R"(["http://updates.packetlab.tech/a.exe","https://updates.packetlab.tech/a.exe","https://updates.packetlab.tech/a.exe"])"));
+  CHECK(mixed.has_value());
+  if (mixed) {
+    CHECK(mixed->urls.size() == 1);
+  }
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "9", sha, R"(["http://updates.packetlab.tech/a.exe"])")));
+  std::string noted = Description("0.2.0", "9", sha, urls);
+  noted.insert(noted.size() - 1, R"(,"note":"later")");
+  CHECK(ParseReleaseDescription(noted).has_value());
+  const auto upper = ParseReleaseDescription(Description("0.2.0", "9", "9C0D294C05FC1D88D698034609BB81C0C69196327594E4C69D2915C80FD9850C", urls));
+  CHECK(upper.has_value());
+  if (upper) {
+    CHECK(upper->sha256 == sha);
+  }
+
+  const auto capped = ParseReleaseDescription(Description(
+      "0.2.0", "9", sha,
+      R"(["https://updates.packetlab.tech/0.exe","https://updates.packetlab.tech/1.exe","https://updates.packetlab.tech/2.exe","https://updates.packetlab.tech/3.exe","https://updates.packetlab.tech/4.exe","https://updates.packetlab.tech/5.exe","https://updates.packetlab.tech/6.exe","https://updates.packetlab.tech/7.exe","https://updates.packetlab.tech/8.exe"])"));
+  CHECK(capped.has_value());
+  if (capped) {
+    CHECK(capped->urls.size() == 8 && capped->urls.back() == "https://updates.packetlab.tech/7.exe");
+  }
+
+  // A size that is not a byte count is refused, and none of these may throw.
+  CHECK(ParseReleaseDescription(Description("0.2.0", "536870912", sha, urls)).has_value());
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "536870913", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "0", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "-1", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "\"9\"", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "9.5", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "9.0", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "1e30", sha, urls)));
+  CHECK(!ParseReleaseDescription(Description("0.2.0", "18446744073709551615", sha, urls)));
+
+  CHECK(IsUpdateUrl("https://evil.example/Sovereign-Setup-0.2.0.exe"));
+  CHECK(!IsUpdateUrl("http://updates.packetlab.tech/update.json"));
+  CHECK(!IsUpdateUrl("https://"));
+  CHECK(!IsUpdateUrl("https:///x"));
+  CHECK(!IsUpdateUrl("https://updates.packetlab.tech/a b.exe"));
+  CHECK(!IsUpdateUrl("https://updates.packetlab.tech/a\n.exe"));
+  CHECK(!IsUpdateUrl("https://updates.packetlab.tech/a\r.exe"));
+  const std::string longUrl = std::string("https://") + std::string(2040, 'a');
+  CHECK(longUrl.size() == 2048 && IsUpdateUrl(longUrl));
+  CHECK(!IsUpdateUrl(longUrl + "a"));
 }
 
 void TestChecksum() {
@@ -129,7 +213,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
   try {
     TestVersions();
     TestModes();
-    TestLatestRelease();
+    TestSignedRelease();
     TestChecksum();
     TestQuiet();
     TestUpstream();

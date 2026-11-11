@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.3 — 11.11.2026
+
+**Updates no longer depend on one GitHub account.** A release is a signed description (update.json): the version, the installer's size and sha256, where the installer is and where to ask for the next description. The client trusts the signature, not the address it came from. It asks GitHub and updates.packetlab.tech, and remembers addresses a release names, so a release can move the next update. The .sha256 file is still published for versions older than this one.
+
 ## 0.6.2 — 11.11.2026
 
 **«Виден ли компьютер в сети» no longer warns while «Закрыть от локальной сети» is on.** With the VPN on, Sovereign's filters keep the local network away from file sharing and the other services, so the line says «закрыт фильтром Sovereign» in green; its tooltip names the services and reminds that without the VPN they're open to the network again. The firewall turned off is still shown in red. Switching «Закрыть от локальной сети» checks the line again at once.

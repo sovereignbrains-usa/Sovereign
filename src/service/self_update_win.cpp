@@ -94,7 +94,8 @@ SelfUpdate::SelfUpdate(tray::Version current, std::wstring directory, std::wstri
   }
 }
 
-std::string SelfUpdate::Install(const std::string& version, const std::string& installer, std::uint32_t session) {
+std::string SelfUpdate::Install(const std::string& version, const std::string& installer, std::uint32_t session,
+                                const std::string& signedRelease) {
   const auto wanted = tray::ParseVersion(version);
   if (!wanted) {
     return "непонятная версия";
@@ -108,29 +109,50 @@ std::string SelfUpdate::Install(const std::string& version, const std::string& i
   if (*wanted < current_) {
     return "эта версия старее установленной";
   }
-  // What the installer must be: the release's own word, from GitHub.
-  const auto checksumText = tray::Download(Widen(tray::ChecksumUrl(*wanted)), userAgent_, kMaxChecksumBytes);
-  if (!checksumText) {
-    return "контрольная сумма не скачалась: " + checksumText.error();
-  }
+  // What the installer must be. A tray that sends update.json is checked against that signature
+  // again: the address it fetched is not trusted. One that sends none (older than 0.6.3, or a
+  // repair asked by the old tray) is checked against the release's checksum on GitHub.
   const std::string name = tray::InstallerName(*wanted);
-  const auto expected = tray::ParseChecksum(*checksumText, name);
-  if (!expected) {
-    return "в файле контрольной суммы нет установщика";
+  std::string expected;
+  std::optional<std::uint64_t> expectedSize;
+  if (!signedRelease.empty()) {
+    const auto described = tray::ParseSignedRelease(signedRelease);
+    if (!described) {
+      return "описание релиза не прошло проверку подписи";
+    }
+    if (described->version != *wanted) {
+      return "описание релиза другой версии";
+    }
+    expected = described->sha256;
+    expectedSize = described->installerSize;
+  } else {
+    const auto checksumText = tray::Download(Widen(tray::ChecksumUrl(*wanted)), userAgent_, kMaxChecksumBytes);
+    if (!checksumText) {
+      return "контрольная сумма не скачалась: " + checksumText.error();
+    }
+    const auto checksum = tray::ParseChecksum(*checksumText, name);
+    if (!checksum) {
+      return "в файле контрольной суммы нет установщика";
+    }
+    expected = *checksum;
   }
   const std::wstring source = Widen(installer);
   const auto bytes = source.empty() ? std::nullopt : ReadFileAll(source, kMaxInstallerBytes);
   if (!bytes) {
     return "служба не прочитала скачанный установщик";
   }
+  if (expectedSize.has_value() && bytes->size() != *expectedSize) {
+    return "установщик не совпал с подписанным размером — не запускаю";
+  }
   bool matches = false;
   try {
-    matches = Sha256Hex(*bytes) == *expected;
+    matches = Sha256Hex(*bytes) == expected;
   } catch (...) {
     LOG_CAUGHT_EXCEPTION_MSG("hashing the installer failed");
   }
   if (!matches) {
-    return "установщик не совпал с контрольной суммой — не запускаю";
+    return expectedSize.has_value() ? std::string("установщик не совпал с подписанной контрольной суммой — не запускаю")
+                                    : std::string("установщик не совпал с контрольной суммой — не запускаю");
   }
   // Run from the program's own folder, not the user's: only administrators
   // may write there, so what was checked is what runs.

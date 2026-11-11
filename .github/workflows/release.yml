@@ -1,7 +1,7 @@
 name: Release
 
-# A release: the installer and its checksum on a GitHub release, which the
-# tray's updater picks up (src/tray/updater.h). Either push a tag
+# A release: the installer, its checksum (for clients older than 0.6.3) and a
+# signed update.json, which the tray's updater picks up (src/tray/updater.h). Either push a tag
 #   git tag v0.2.0 && git push origin v0.2.0
 # or run this workflow by hand with the version: it tags the commit it runs on.
 on:
@@ -98,6 +98,15 @@ jobs:
       - name: Install, update, uninstall
         shell: pwsh
         run: pwsh installer/smoke.ps1 -Installer "out/Sovereign-Setup-$env:VERSION.exe"
+
+      # update.json names this release and where the next one is. The secret is the primary key
+      # (src/tray/update.h, kUpdateKeys); a key the client doesn't carry fails the script, so a
+      # release is never published unsigned.
+      - name: Sign the release description
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: pwsh tools/release/sign-update.ps1 -Version $env:VERSION -Installer "out/Sovereign-Setup-$env:VERSION.exe" -Out out/update.json
 
       - name: Publish the release
         shell: pwsh

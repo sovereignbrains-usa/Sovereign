@@ -20,12 +20,14 @@ class IUpdateRunner {
   IUpdateRunner& operator=(IUpdateRunner&&) = delete;
 
   // Runs the installer of release `version` the tray downloaded to
-  // `installer` (UTF-8), if it is that release's: newer than this one and
-  // matching the checksum the release itself carries on GitHub - the tray's
-  // word is taken for nothing, any user may ask. Afterwards the tray comes
-  // back in `session`. "" once the installer runs (it stops this service
-  // next), or why not.
-  [[nodiscard]] virtual std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) = 0;
+  // `installer` (UTF-8), if it is that release's: newer than this one (or the
+  // same one again, a repair) and matching `signedRelease` when the tray sent
+  // one (update.json, checked again here), otherwise the checksum the release
+  // carries on GitHub. The tray's word is taken for nothing, any user may
+  // ask. Afterwards the tray comes back in `session`. "" once the installer
+  // runs (it stops this service next), or why not.
+  [[nodiscard]] virtual std::string Install(const std::string& version, const std::string& installer,
+                                            std::uint32_t session, const std::string& signedRelease) = 0;
 
   // The kill switch held on for an update (control.h's update_install): a
   // mark that outlives this service - the next one, the installer's, finds

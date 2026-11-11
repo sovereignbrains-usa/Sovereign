@@ -2,13 +2,24 @@
 
 #include <cmath>
 
+// windows.h's min/max macros break std::min/max.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+
 #include <nlohmann/json.hpp>
+#include <wil/resource.h>
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstring>
 #include <format>
+#include <limits>
 
+#pragma comment(lib, "bcrypt.lib")
 #include "json_field.h"
 
 namespace sovereign::tray {
@@ -35,8 +46,61 @@ std::string_view Trim(std::string_view text) {
   return text.substr(first, last - first + 1);
 }
 
-}  // namespace
+// Exactly size bytes of hex, either case; nullopt for anything else.
+std::optional<std::vector<unsigned char>> FromHex(std::string_view hex, std::size_t size) {
+  if (hex.size() != size * 2 || !IsHex(hex)) {
+    return std::nullopt;
+  }
+  std::vector<unsigned char> bytes(size);
+  for (std::size_t i = 0; i < size; ++i) {
+    unsigned value = 0;
+    if (std::from_chars(hex.data() + 2 * i, hex.data() + 2 * i + 2, value, 16).ec != std::errc{}) {
+      return std::nullopt;
+    }
+    bytes[i] = static_cast<unsigned char>(value);
+  }
+  return bytes;
+}
 
+// How many addresses of each kind a description may give: more is a mistake, not a plan.
+constexpr std::size_t kMaxAddresses = 8;
+constexpr std::int64_t kMaxInstallerSize = 512LL * 1024 * 1024;
+
+// The array key of object, its plain https addresses (IsUpdateUrl) and only those, at most kMaxAddresses.
+std::vector<std::string> Addresses(const nlohmann::json& object, const char* key) {
+  std::vector<std::string> out;
+  const auto it = object.find(key);
+  if (it == object.end() || !it->is_array()) {
+    return out;
+  }
+  for (const auto& item : *it) {
+    if (item.is_string() && IsUpdateUrl(item.get_ref<const std::string&>()) && out.size() < kMaxAddresses &&
+        std::ranges::find(out, item.get_ref<const std::string&>()) == out.end()) {
+      out.push_back(item.get<std::string>());
+    }
+  }
+  return out;
+}
+
+// "size" as a byte count. A JSON number past int64, or a float, is not one: nlohmann's
+// get<int64_t>() throws on an unsigned value that doesn't fit, and this text is untrusted
+// (the updater's thread has nowhere to catch it).
+std::optional<std::int64_t> DescriptionSize(const nlohmann::json& object) {
+  const auto it = object.find("size");
+  if (it == object.end() || it->is_number_float() || !it->is_number_integer()) {
+    return std::nullopt;
+  }
+  if (it->is_number_unsigned()) {
+    const std::uint64_t value = it->get<std::uint64_t>();
+    if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+      return std::nullopt;
+    }
+    return static_cast<std::int64_t>(value);
+  }
+  return it->get<std::int64_t>();
+}
+
+}  // namespace
 std::optional<Version> ParseVersion(std::string_view text) {
   if (text.starts_with('v')) {
     text.remove_prefix(1);
@@ -111,48 +175,80 @@ bool QuietForUpdate(std::chrono::milliseconds sinceInput, bool fullScreen, std::
   return !fullScreen && sinceInput >= quietInput && sinceTraffic >= kQuietFor;
 }
 
-bool IsReleaseAssetUrl(std::string_view url) {
-  return url.starts_with(kReleaseDownloads) && url.size() > kReleaseDownloads.size() &&
+bool IsUpdateUrl(std::string_view url) {
+  constexpr std::string_view kHttps = "https://";
+  return url.starts_with(kHttps) && url.size() > kHttps.size() && url.size() <= 2048 && url[kHttps.size()] != '/' &&
          std::none_of(url.begin(), url.end(), [](char c) { return static_cast<unsigned char>(c) <= ' ' || c == 0x7F; });
 }
 
-std::optional<Release> ParseLatestRelease(std::string_view json) {
+std::optional<Release> ParseReleaseDescription(std::string_view json) {
   const auto root = nlohmann::json::parse(json, nullptr, /*allow_exceptions=*/false);
-  if (!root.is_object() || Field<bool>(root, "draft", false) || Field<bool>(root, "prerelease", false)) {
+  if (!root.is_object()) {
     return std::nullopt;
   }
-  const auto version = ParseVersion(Field<std::string>(root, "tag_name", {}));
-  if (!version) {
+  // A plain version, as a tag would be ("v1.2.3" isn't one here: the description says 1.2.3).
+  const std::string versionText = Field<std::string>(root, "version", {});
+  const auto version = versionText.starts_with('v') ? std::nullopt : ParseVersion(versionText);
+  const auto size = DescriptionSize(root);
+  const std::string sha256 = Field<std::string>(root, "sha256", {});
+  if (!version || !size || *size <= 0 || *size > kMaxInstallerSize || sha256.size() != 64 || !IsHex(sha256)) {
     return std::nullopt;
   }
   Release release;
   release.version = *version;
-  release.pageUrl = Field<std::string>(root, "html_url", {});
-  const std::string installer = InstallerName(*version);
-  const std::string checksum = installer + ".sha256";
-  const auto assets = root.find("assets");
-  if (assets == root.end() || !assets->is_array()) {
-    return std::nullopt;
+  release.installerSize = static_cast<std::uint64_t>(*size);
+  release.sha256 = Lower(sha256);
+  release.urls = Addresses(root, "urls");
+  release.sources = Addresses(root, "sources");
+  if (std::string page = Field<std::string>(root, "page", {}); IsUpdateUrl(page)) {
+    release.pageUrl = std::move(page);
   }
-  for (const auto& asset : *assets) {
-    const std::string name = Field<std::string>(asset, "name", {});
-    const std::string url = Field<std::string>(asset, "browser_download_url", {});
-    if (!IsReleaseAssetUrl(url)) {
-      continue;
-    }
-    if (name == installer) {
-      release.installerUrl = url;
-      release.installerSize = static_cast<std::uint64_t>(std::max<std::int64_t>(0, Field<std::int64_t>(asset, "size", 0)));
-    } else if (name == checksum) {
-      release.checksumUrl = url;
-    }
-  }
-  if (release.installerUrl.empty() || release.checksumUrl.empty()) {
+  if (release.urls.empty()) {
     return std::nullopt;
   }
   return release;
 }
 
+std::optional<Release> ParseSignedRelease(std::string_view text, std::span<const std::string_view> keys) {
+  const auto root = nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
+  if (!root.is_object()) {
+    return std::nullopt;
+  }
+  const std::string description = Field<std::string>(root, "signed", {});
+  const std::string signature = Field<std::string>(root, "signature", {});
+  // Parsed first: the signature is checked only on what could be taken anyway.
+  auto release = ParseReleaseDescription(description);
+  if (!release || std::ranges::none_of(keys, [&](std::string_view key) { return VerifyEcdsaP256(description, signature, key); })) {
+    return std::nullopt;
+  }
+  release->signedText = std::string(text);
+  return release;
+}
+
+bool VerifyEcdsaP256(std::string_view message, std::string_view signatureHex, std::string_view keyHex) {
+  auto signature = FromHex(signatureHex, 64);
+  const auto key = FromHex(keyHex, 64);
+  if (!signature || !key || message.size() > 0xFFFFFFFFU) {
+    return false;
+  }
+  std::array<unsigned char, 32> digest{};
+  if (BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, reinterpret_cast<PUCHAR>(const_cast<char*>(message.data())),
+                 static_cast<ULONG>(message.size()), digest.data(), static_cast<ULONG>(digest.size())) < 0) {
+    return false;
+  }
+  // BCRYPT_ECCPUBLIC_BLOB: the header, then X and Y, 32 bytes each.
+  const BCRYPT_ECCKEY_BLOB header{BCRYPT_ECDSA_PUBLIC_P256_MAGIC, 32};
+  std::vector<unsigned char> blob(sizeof header + key->size());
+  std::memcpy(blob.data(), &header, sizeof header);
+  std::memcpy(blob.data() + sizeof header, key->data(), key->size());
+  wil::unique_bcrypt_key handle;
+  if (BCryptImportKeyPair(BCRYPT_ECDSA_P256_ALG_HANDLE, nullptr, BCRYPT_ECCPUBLIC_BLOB, handle.put(), blob.data(),
+                          static_cast<ULONG>(blob.size()), 0) < 0) {
+    return false;
+  }
+  return BCryptVerifySignature(handle.get(), nullptr, digest.data(), static_cast<ULONG>(digest.size()),
+                               signature->data(), static_cast<ULONG>(signature->size()), 0) >= 0;
+}
 std::optional<Version> ParseUpstreamRelease(std::string_view json) {
   const auto root = nlohmann::json::parse(json, nullptr, /*allow_exceptions=*/false);
   if (!root.is_object() || Field<bool>(root, "draft", false) || Field<bool>(root, "prerelease", false)) {

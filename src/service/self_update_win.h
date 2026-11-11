@@ -16,14 +16,16 @@
 
 namespace sovereign::service {
 
-// The real IUpdateRunner: checks the tray's installer against the release's
-// checksum on GitHub, copies it into `directory` (UpdateDirectory: under
+// The real IUpdateRunner: checks the tray's installer against the signed
+// release it sent, or, from a tray older than that, against the release's
+// checksum on GitHub. Copies it into `directory` (UpdateDirectory: under
 // Program Files, where users can't write) and runs it silently as SYSTEM.
 class SelfUpdate final : public IUpdateRunner {
  public:
   // Clears the installers an update before left in `directory`.
   SelfUpdate(tray::Version current, std::wstring directory, std::wstring userAgent);
-  [[nodiscard]] std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) override;
+  [[nodiscard]] std::string Install(const std::string& version, const std::string& installer, std::uint32_t session,
+                                    const std::string& signedRelease) override;
   // A file `held` in `directory` (the installer leaves the folder alone):
   // the time in seconds since 1970.
   std::optional<std::chrono::system_clock::time_point> HeldSince() override;

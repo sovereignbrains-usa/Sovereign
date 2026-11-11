@@ -1,6 +1,6 @@
 // libFuzzer target: everything the tray does with text it didn't write - a
 // subscription body and its headers from the server, the service's pipe
-// responses, config.json on disk, GitHub's release answers. None of it may throw or crash on any input
+// responses, config.json on disk, a signed release description. None of it may throw or crash on any input
 // (the worker thread has nowhere to catch), and the config rewriters must keep
 // turning a JSON object into a JSON object. The config merge also keeps its
 // promises: one side unchanged gives the other side.
@@ -73,7 +73,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
   (void)ParseLogsResponse(text);
   (void)ParseDelaysResponse(text);
   (void)ParseExitIpResponse(text);
-  (void)ParseLatestRelease(text);
+  (void)ParseSignedRelease(text);
+  (void)ParseReleaseDescription(text);
+  (void)IsUpdateUrl(text);
   (void)ParseChecksum(text, "Sovereign-Setup-1.2.3.exe");
   (void)ParseVersion(text);
   (void)IsHttpsUrl(std::wstring(text.begin(), text.end()));

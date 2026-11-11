@@ -7,7 +7,7 @@
 
 > **Experimental, still being finished.** Sovereign is under active development; the releases are not recommended for anyone else to download yet. Expect rough edges and changes without notice.
 
-> **New address.** Since 10.11.2026 the project lives here, with its whole history; the releases up to 0.5.130 stayed at [sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases). A 0.5.x install looks for updates there: install [0.6.0](https://github.com/sovereignbrains-usa/Sovereign/releases/latest) by hand once, and it updates itself from here on.
+> **New address.** Since 10.11.2026 the project lives here, with its whole history; the releases up to 0.5.130 stayed at [sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases). A 0.5.x install looks for updates there and finds the bridge release 0.6.1, which then updates from here, as long as that release stays.
 
 A native Windows client for [sing-box](https://github.com/SagerNet/sing-box), written in C++23 — and built so that its quality can be checked rather than claimed.
 
@@ -19,7 +19,7 @@ Third-party sing-box clients have a reputation for being thin, sloppy wrappers. 
 
 ## Status
 
-The client works and is in daily use, released as an experimental build (0.6.2, 11.11.2026; what changed: [CHANGELOG](CHANGELOG.md)). The hybrid core and the conformance harness are done; now the work is the layers for the three kinds of users. Plan, gates and how each phase was accepted: [docs/roadmap.md](docs/roadmap.md).
+The client works and is in daily use, released as an experimental build (0.6.3, 11.11.2026; what changed: [CHANGELOG](CHANGELOG.md)). The hybrid core and the conformance harness are done; now the work is the layers for the three kinds of users. Plan, gates and how each phase was accepted: [docs/roadmap.md](docs/roadmap.md).
 
 | Phase | What | State |
 |---|---|---|
@@ -54,7 +54,7 @@ The interface is in Russian. Paste a subscription, press the switch, forget abou
 
 **Log** — the core's lines in colour, filters by level, pause, save, a line in full on a click, scrolled with the middle button as in a browser; a line repeating the one before folded into a count; noise the core reports as errors (a stream closed without one) shown as what it is.
 
-**Updates and uninstalling** — the tray checks for a new release and updates in place (the installer checked against the release's `.sha256`), with percent and time left while it downloads; unasked, it installs only after the computer has been quiet for a while you choose (2 minutes by default), and the installer the service runs leaves its log in `Update\setup.log`. Uninstalling leaves nothing behind: the service, the filters, the logs, the cache, the boot config and the downloaded updates always go; the subscriptions and settings (your servers' keys) too, unless you say keep them.
+**Updates and uninstalling** — the tray checks for a new release and updates in place (from 0.6.3 the installer is checked against the signed description, `update.json`; a version older than that still checks the release's `.sha256`), with percent and time left while it downloads; unasked, it installs only after the computer has been quiet for a while you choose (2 minutes by default), and the installer the service runs leaves its log in `Update\setup.log`. Uninstalling leaves nothing behind: the service, the filters, the logs, the cache, the boot config and the downloaded updates always go; the subscriptions and settings (your servers' keys) too, unless you say keep them.
 
 Drawn with Direct2D, keyboard-navigable (Tab, Enter, Esc, Ctrl+1..5 for the main screen, servers, configurations, log and settings). Started by hand the tray opens the window; from the Run key (`--background`) it stays in the notification area. Closing the window only hides it. There is one tray per computer: started in another user's session it says so, and leaves the first one's connection, kill switch and boot config alone.
 
@@ -167,9 +167,9 @@ Presets: `ci` (Debug), `ci-asan`, `ci-analyze`, `ci-fuzz` (then `pwsh tools/fuzz
 
 ## Installing
 
-Download `Sovereign-Setup-<version>.exe` from [Releases](https://github.com/sovereignbrains-usa/Sovereign/releases/latest) and run it (on 0.5.x, do it once by hand: those versions look for updates at the old address). It installs into Program Files, registers the service (starts with Windows, restarts itself after a crash), adds Sovereign to the Start menu and starts it; uninstall from Settings → Apps. The tray checks for a newer release a minute after start and every 12 hours, and updates in place when asked: it downloads the new installer, checks it against the release's `.sha256` and runs it (Windows asks for administrator rights). Your settings in `%LOCALAPPDATA%\Sovereign` survive updates; uninstalling asks whether to keep them.
+Download `Sovereign-Setup-<version>.exe` from [Releases](https://github.com/sovereignbrains-usa/Sovereign/releases/latest) and run it (a 0.5.x install finds the bridge release 0.6.1 at the old address and updates from here, as long as that release stays). It installs into Program Files, registers the service (starts with Windows, restarts itself after a crash), adds Sovereign to the Start menu and starts it; uninstall from Settings → Apps. The tray checks for a newer release a minute after start and every 12 hours, and updates in place when asked. From 0.6.3 it asks GitHub and `updates.packetlab.tech` for a signed description (`update.json`) and trusts the signature, not the address; a release names the places of the next one, so a lost account or domain loses no client. It downloads the installer from those places in order and checks its size and sha256 against what was signed. Older versions still check the release's `.sha256` on GitHub, which a release still carries. Windows asks for administrator rights when the tray starts the installer itself. Your settings in `%LOCALAPPDATA%\Sovereign` survive updates; uninstalling asks whether to keep them.
 
-Releases are built by `.github/workflows/release.yml`: push a tag `vX.Y.Z` (or run the workflow with the version), and it builds the installer (`installer/build.ps1`: Release, the CRT linked in, Inno Setup), installs, updates and uninstalls it on the runner (`installer/smoke.ps1`) and publishes it with its checksum.
+Releases are built by `.github/workflows/release.yml`: push a tag `vX.Y.Z` (or run the workflow with the version), and it builds the installer (`installer/build.ps1`: Release, the CRT linked in, Inno Setup), installs, updates and uninstalls it on the runner (`installer/smoke.ps1`), signs `update.json` and publishes it with the installer and its checksum.
 
 ## Running from a build
 

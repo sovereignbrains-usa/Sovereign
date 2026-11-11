@@ -5,17 +5,33 @@
 #include <compare>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // The updater's pure rules, apart from WinHTTP and the installer launch
 // (updater.h) so they can be unit-tested (tests/unit/update_test.cpp): which
-// release is newer, which of its files is the installer, what its checksum is.
+// release is newer, whether its description is ours (signed), what its installer must be.
 
 namespace sovereign::tray {
 
-// Where releases come from: this repository's GitHub releases.
-inline constexpr std::string_view kReleasesApi = "https://api.github.com/repos/sovereignbrains-usa/Sovereign/releases/latest";
+// Where a release is described: update.json (tools/release/sign-update.ps1), the same file in every
+// place - this repository's GitHub releases and our own mirror (tools/mirror). Whoever serves it, it
+// is taken only signed by one of kUpdateKeys, so a place lost (an account, a domain) loses no client:
+// the others still serve it, and each release names the places of the next one (Release::sources),
+// which the updater remembers.
+inline constexpr std::array<std::string_view, 2> kUpdateSources{
+    "https://github.com/sovereignbrains-usa/Sovereign/releases/latest/download/update.json",
+    "https://updates.packetlab.tech/update.json"};
+// The release keys' public halves: ECDSA P-256, X then Y, hex. The first signs in the release
+// workflow (the secret UPDATE_SIGNING_KEY); the second is kept offline, for when the first is lost or
+// leaked - a release signed by it can carry a client with new keys.
+inline constexpr std::array<std::string_view, 2> kUpdateKeys{
+    "8e2407a56afcc8f33edd87411a0c2d637541163c583a97ae112276ad5ddbda0f38dbcf24a83f24eb944261adccd7c0911a6cb1dfe0934e3147e3b5d3d89fc7a5",
+    "c470fd7636c973f205a8701b9a7a2b7097765f8b0741c9928e7d46f2e25529cde8c917507523bf0515eeb997e1f6c1093fcba35a649e25c631452b6d5c938034"};
+// Where GitHub keeps a release's files: the .sha256 the service checks a tray older than update.json
+// against (ChecksumUrl).
 inline constexpr std::string_view kReleaseDownloads = "https://github.com/sovereignbrains-usa/Sovereign/releases/download/";
 
 struct Version {
@@ -46,8 +62,8 @@ std::string ToString(const Version& version);
 // its checksum, Sovereign-Setup-1.2.3.exe.sha256.
 std::string InstallerName(const Version& version);
 
-// Where the release v1.2.3 keeps that checksum - what the service, asked to
-// install 1.2.3 (update_install), trusts rather than anything the tray says.
+// Where the release v1.2.3 keeps that checksum on GitHub - what the service, asked to install 1.2.3
+// (update_install) by a tray that sends no signed description, trusts rather than the tray's word.
 std::string ChecksumUrl(const Version& version);
 
 // Whether nobody would miss the connection for the half a minute an update
@@ -74,16 +90,29 @@ bool QuietForUpdate(std::chrono::milliseconds sinceInput, bool fullScreen, std::
 
 struct Release {
   Version version;
-  std::string installerUrl;
-  std::string checksumUrl;
-  std::uint64_t installerSize = 0;
-  std::string pageUrl;  // the release's page, for "what's new"
+  std::vector<std::string> urls;     // where the installer is, tried in order
+  std::string sha256;                // the installer's, lowercase hex
+  std::uint64_t installerSize = 0;   // its size in bytes
+  std::string pageUrl;               // the release's page, for "what's new"; may be empty
+  std::vector<std::string> sources;  // where the next update.json is (kUpdateSources)
+  std::string signedText;            // the whole update.json it came in, for the service to check again
 };
 
-// GitHub's /releases/latest answer: the release, if it is a published one
-// with a version tag and carries both files, each downloadable from this
-// repository's releases (IsReleaseAssetUrl). nullopt otherwise.
-std::optional<Release> ParseLatestRelease(std::string_view json);
+// A release's description, the text update.json signs: {"version","size","sha256","page","urls",
+// "sources"}. nullopt unless it has a plain version, a size, a sha256 and at least one https
+// address of the installer; addresses that aren't plain https ones are left out, fields it doesn't
+// know are ignored (a newer release may say more). Takes it on its word: ParseSignedRelease checks it.
+std::optional<Release> ParseReleaseDescription(std::string_view json);
+
+// update.json, {"signed":"<the description>","signature":"<hex: ECDSA P-256 over SHA-256, r then s>"}:
+// the release, if the signature is one of keys' over exactly that text. nullopt otherwise.
+std::optional<Release> ParseSignedRelease(std::string_view text, std::span<const std::string_view> keys = kUpdateKeys);
+
+// Whether signatureHex (r then s, 128 hex) is keyHex's (X then Y, 128 hex) over SHA-256 of message.
+bool VerifyEcdsaP256(std::string_view message, std::string_view signatureHex, std::string_view keyHex);
+
+// An address the updater may fetch: https, no spaces or control characters, not absurdly long.
+bool IsUpdateUrl(std::string_view url);
 
 // sing-box's own latest stable release (/latest skips prereleases): whether
 // the sing-box inside is the newest - the mark by the version line.
@@ -92,8 +121,6 @@ inline constexpr std::string_view kSingBoxReleasesApi = "https://api.github.com/
 // The version of that API's answer; nullopt for a draft, a prerelease or no
 // plain vX.Y.Z tag.
 std::optional<Version> ParseUpstreamRelease(std::string_view json);
-
-bool IsReleaseAssetUrl(std::string_view url);
 
 // A sha256sum-style checksum file: "<64 hex>  <name>" lines, or a bare hash.
 // The lowercase hash for `fileName`; nullopt if there is none.

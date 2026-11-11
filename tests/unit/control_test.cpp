@@ -148,8 +148,9 @@ class FakeBootStore final : public sovereign::service::IBootStore {
 
 class FakeUpdates final : public sovereign::service::IUpdateRunner {
  public:
-  std::string Install(const std::string& version, const std::string& installer, std::uint32_t session) override {
-    asked = {version, installer, session};
+  std::string Install(const std::string& version, const std::string& installer, std::uint32_t session,
+                      const std::string& signedRelease) override {
+    asked = {version, installer, session, signedRelease};
     // What the service had done before the installer ran.
     heldAtInstall = held.has_value();
     return error;
@@ -170,6 +171,7 @@ class FakeUpdates final : public sovereign::service::IUpdateRunner {
     std::string version;
     std::string installer;
     std::uint32_t session = 0;
+    std::string signedRelease;
   };
   std::optional<Asked> asked;
   std::string error;
@@ -935,7 +937,7 @@ void TestUpdateInstall() {
   const json ok = Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"C:\\t\\s.exe","session":3})");
   CHECK(ok.value("cmd", "") == "update_install");
   CHECK(updates.asked && updates.asked->version == "0.5.46" && updates.asked->installer == "C:\\t\\s.exe" &&
-        updates.asked->session == 3);
+        updates.asked->session == 3 && updates.asked->signedRelease.empty());
 
   // The runner's refusal (a checksum that doesn't match...) reaches the tray as it is.
   updates.error = "установщик не совпал с контрольной суммой";
@@ -959,6 +961,28 @@ void TestUpdateInstall() {
   CHECK(IsError(Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x"})"),
                 "session must be a session id"));
   CHECK(!updates.asked);
+
+  // The signed description: missing is the legacy path (empty). A non-string, null or a huge one is
+  // refused and the runner is never asked. A short one is forwarded as it is.
+  CHECK(IsError(Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":null})"),
+                "release must be a signed description"));
+  CHECK(IsError(Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":1})"),
+                "release must be a signed description"));
+  CHECK(IsError(Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":{}})"),
+                "release must be a signed description"));
+  const std::string huge(ControlHandler::kMaxSignedReleaseBytes + 1, 'a');
+  CHECK(IsError(Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":")" +
+                                  huge + R"("})"),
+                "release must be a signed description"));
+  CHECK(!updates.asked);
+  const json forwarded =
+      Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":"abc"})");
+  CHECK(forwarded.value("cmd", "") == "update_install");
+  CHECK(updates.asked && updates.asked->signedRelease == "abc");
+  const json emptyRelease =
+      Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":""})");
+  CHECK(emptyRelease.value("cmd", "") == "update_install");
+  CHECK(updates.asked && updates.asked->signedRelease.empty());
 
   // A service without a runner (tests, older wiring) says so.
   ControlHandler none(nullptr, log, lastConfig);

@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
+#include <string_view>
 #include <utility>
 
 #include "fetch.h"
@@ -20,6 +22,8 @@ constexpr std::chrono::minutes kFirstCheck{1};
 constexpr std::chrono::hours kCheckEvery{12};
 constexpr std::size_t kMaxInstallerBytes = 512ULL * 1024 * 1024;
 constexpr std::size_t kMaxSmallBytes = std::size_t{1024} * 1024;
+// The places of update.json asked at most: the defaults and what the newest release names.
+constexpr std::size_t kMaxSources = 8;
 
 std::wstring Widen(const std::string& utf8) {
   if (utf8.empty()) {
@@ -63,11 +67,29 @@ bool WriteFileAll(const std::wstring& path, const std::string& data) {
   return true;
 }
 
+// A plain file of at most kMaxSmallBytes, whole.
+std::optional<std::string> ReadSmallFile(const std::wstring& path) {
+  const wil::unique_hfile file(
+      CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+  LARGE_INTEGER size{};
+  if (!file || !GetFileSizeEx(file.get(), &size) || size.QuadPart <= 0 ||
+      static_cast<std::uint64_t>(size.QuadPart) > kMaxSmallBytes) {
+    return std::nullopt;
+  }
+  std::string data(static_cast<std::size_t>(size.QuadPart), '\0');
+  DWORD read = 0;
+  if (!ReadFile(file.get(), data.data(), static_cast<DWORD>(data.size()), &read, nullptr) || read != data.size()) {
+    return std::nullopt;
+  }
+  return data;
+}
+
 }  // namespace
 
-Updater::Updater(Version current, std::wstring userAgent, bool automatic, std::function<void()> changed)
+Updater::Updater(Version current, std::wstring userAgent, bool automatic, std::wstring cache, std::function<void()> changed)
     : current_(current),
       userAgent_(std::move(userAgent)),
+      cache_(std::move(cache)),
       changed_(std::move(changed)),
       automatic_(automatic),
       thread_([this](const std::stop_token& stop) { Run(stop); }) {}
@@ -110,6 +132,7 @@ void Updater::LaunchFailed(const std::string& why) {
     s.status = Status::Available;
     s.error = why;
     s.installer.clear();
+    s.signedRelease.clear();
   });
 }
 
@@ -133,6 +156,7 @@ void Updater::Run(const std::stop_token& stop) {
     wake_.wait(lock, stop, [] { return false; });  // asked or not: nothing to do till the end
     return;
   }
+  LoadCache();
   auto next = std::chrono::steady_clock::now() + kFirstCheck;
   while (!stop.stop_requested()) {
     bool check = false;
@@ -164,6 +188,26 @@ void Updater::Run(const std::stop_token& stop) {
   }
 }
 
+void Updater::LoadCache() {
+  if (const auto text = cache_.empty() ? std::nullopt : ReadSmallFile(cache_)) {
+    known_ = ParseSignedRelease(*text);
+  }
+}
+
+std::vector<std::string> Updater::Sources() const {
+  std::vector<std::string> sources;
+  const auto add = [&sources](std::string_view url) {
+    if (sources.size() < kMaxSources && IsUpdateUrl(url) && std::ranges::find(sources, url) == sources.end()) {
+      sources.emplace_back(url);
+    }
+  };
+  std::ranges::for_each(kUpdateSources, add);
+  if (known_) {
+    std::ranges::for_each(known_->sources, add);
+  }
+  return sources;
+}
+
 void Updater::DoCheck() {
   // A version found stays found while it's asked about again: its key in the
   // window doesn't blink, and an ask that fails doesn't lose it.
@@ -178,13 +222,59 @@ void Updater::DoCheck() {
       Set([&](State& s) { s.boxLatest = ToString(*version); });
     }
   }
-  const auto body = Download(Widen(std::string(kReleasesApi)), userAgent_, kMaxSmallBytes);
-  const auto release = body ? ParseLatestRelease(*body) : std::nullopt;
+  // Every place, not the first that answers: one that is behind (or made to be) can't hide a newer
+  // release another one has. Whatever they serve, only what our keys signed counts. A release that
+  // names a place we didn't know is asked in this same pass (up to kMaxSources).
+  std::vector<std::string> sources = Sources();
+  std::optional<Release> release;
+  std::string networkError;
+  bool badSignature = false;
+  for (std::size_t i = 0; i < sources.size(); ++i) {
+    const auto body = Download(Widen(sources[i]), userAgent_, kMaxSmallBytes);
+    if (!body) {
+      if (networkError.empty()) {
+        networkError = body.error();
+      }
+      continue;
+    }
+    auto found = ParseSignedRelease(*body);
+    if (!found) {
+      badSignature = true;
+      continue;
+    }
+    for (const std::string& extra : found->sources) {
+      if (sources.size() >= kMaxSources) {
+        break;
+      }
+      if (IsUpdateUrl(extra) && std::ranges::find(sources, extra) == sources.end()) {
+        sources.push_back(extra);
+      }
+    }
+    if (!release || found->version > release->version) {
+      release = std::move(found);
+    }
+  }
+  // The newest verified one is remembered, the places it names with it: a release can move the
+  // updates somewhere new, and a restart doesn't forget it.
+  if (release && (!known_ || release->version > known_->version ||
+                  (release->version == known_->version && release->signedText != known_->signedText))) {
+    known_ = release;
+    if (!cache_.empty()) {
+      const std::wstring next = cache_ + L".new";
+      if (WriteFileAll(next, release->signedText)) {
+        MoveFileExW(next.c_str(), cache_.c_str(), MOVEFILE_REPLACE_EXISTING);
+      }
+    }
+  } else if (release && known_ && known_->version > release->version) {
+    release = known_;  // the places that answered are behind one that said more before
+  }
   if (!release) {
     Set([&](State& s) {
       if (s.status == Status::Checking) {
         s.status = Status::Failed;
-        s.error = body ? std::string("в последнем релизе нет установщика") : body.error();
+        s.error = badSignature             ? std::string("описание релиза не прошло проверку подписи")
+                  : networkError.empty() ? std::string("негде узнать о новой версии")
+                                         : networkError;
       }
     });
     return;
@@ -232,45 +322,56 @@ void Updater::DoInstall() {
     });
   };
   const std::string name = InstallerName(release->version);
-  const auto checksumText = Download(Widen(release->checksumUrl), userAgent_, kMaxSmallBytes);
-  if (!checksumText) {
-    return fail("контрольная сумма не скачалась: " + checksumText.error());
-  }
-  const auto expected = ParseChecksum(*checksumText, name);
-  if (!expected) {
-    return fail("в файле контрольной суммы нет установщика");
-  }
-  // The page shows it as it comes: told about a step of a percent (or of a second's quarter), not
-  // about every piece of 64 KB.
-  const auto began = std::chrono::steady_clock::now();
-  auto lastTold = began;
-  std::uint64_t lastPercent = 101;
-  const auto installer = Download(Widen(release->installerUrl), userAgent_, kMaxInstallerBytes, [&](std::size_t got) {
-    const auto now = std::chrono::steady_clock::now();
-    const std::uint64_t percent = release->installerSize > 0 ? got * 100 / release->installerSize : 0;
-    if (percent == lastPercent && now - lastTold < std::chrono::milliseconds(500)) {
-      return;
+  // The places in order, the next one if a place fails or gives something else than what was signed.
+  std::optional<std::string> installer;
+  std::string why = "в описании релиза нет установщика";
+  bool tried = false;
+  for (const std::string& url : release->urls) {
+    if (tried) {
+      Set([](State& s) {
+        s.downloaded = 0;
+        s.bytesPerSecond = 0;
+      });
     }
-    lastPercent = percent;
-    lastTold = now;
-    const double seconds = std::chrono::duration<double>(now - began).count();
-    Set([&](State& s) {
-      s.downloaded = got;
-      s.bytesPerSecond = seconds > 0.2 ? static_cast<double>(got) / seconds : 0;
+    tried = true;
+    // The page shows it as it comes: told about a step of a percent (or of a second's quarter), not
+    // about every piece of 64 KB.
+    const auto began = std::chrono::steady_clock::now();
+    auto lastTold = began;
+    std::uint64_t lastPercent = 101;
+    auto got = Download(Widen(url), userAgent_, kMaxInstallerBytes, [&](std::size_t bytes) {
+      const auto now = std::chrono::steady_clock::now();
+      const std::uint64_t percent = release->installerSize > 0 ? bytes * 100 / release->installerSize : 0;
+      if (percent == lastPercent && now - lastTold < std::chrono::milliseconds(500)) {
+        return;
+      }
+      lastPercent = percent;
+      lastTold = now;
+      const double seconds = std::chrono::duration<double>(now - began).count();
+      Set([&](State& s) {
+        s.downloaded = bytes;
+        s.bytesPerSecond = seconds > 0.2 ? static_cast<double>(bytes) / seconds : 0;
+      });
     });
-  });
+    if (!got) {
+      why = "установщик не скачался: " + got.error();
+      continue;
+    }
+    bool matches = got->size() == release->installerSize;
+    try {
+      matches = matches && Sha256Hex(*got) == release->sha256;
+    } catch (...) {
+      LOG_CAUGHT_EXCEPTION_MSG("hashing the installer failed");
+      matches = false;
+    }
+    if (matches) {
+      installer = std::move(*got);
+      break;
+    }
+    why = "установщик не совпал с подписанной контрольной суммой — не запускаю";
+  }
   if (!installer) {
-    return fail("установщик не скачался: " + installer.error());
-  }
-  bool matches = release->installerSize == 0 || installer->size() == release->installerSize;
-  try {
-    matches = matches && Sha256Hex(*installer) == *expected;
-  } catch (...) {
-    LOG_CAUGHT_EXCEPTION_MSG("hashing the installer failed");
-    matches = false;
-  }
-  if (!matches) {
-    return fail("установщик не совпал с контрольной суммой — не запускаю");
+    return fail(why);
   }
   const std::wstring path = TempPath(name);
   if (path.empty() || !WriteFileAll(path, *installer)) {
@@ -279,6 +380,7 @@ void Updater::DoInstall() {
   Set([&](State& s) {
     s.status = Status::Ready;
     s.installer = path;
+    s.signedRelease = release->signedText;
   });
 }
 

@@ -1,0 +1,8 @@
+[Unit]
+Description=Mirror the latest Sovereign release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/sovereign-updates-sync

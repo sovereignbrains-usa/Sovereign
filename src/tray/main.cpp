@@ -6958,7 +6958,7 @@ bool ComputerQuiet() {
   return sovereign::tray::QuietForUpdate(sinceInput, fullScreen, sinceTraffic, std::chrono::minutes(g_updateQuietMinutes));
 }
 
-std::jthread g_updateLaunch;           // asks the service to install (it checks a checksum: a second or two)
+std::jthread g_updateLaunch;  // asks the service to install (it checks the signature, or a checksum)
 std::optional<std::string> g_launchError;  // its answer: "" - the installer runs; nullopt - no service
 
 // Hands the verified installer to the service (update_install), off the UI
@@ -6971,6 +6971,11 @@ void LaunchUpdate(HWND trayWindow, const sovereign::tray::Updater::State& update
   request["version"] = update.latest;
   request["installer"] = Narrow(update.installer);
   request["session"] = session;
+  // Absent on purpose when empty: a service older than update.json ignores an unknown field, and
+  // an empty one would be the legacy path (the release's .sha256 on GitHub).
+  if (!update.signedRelease.empty()) {
+    request["release"] = update.signedRelease;
+  }
   g_updateLaunch = std::jthread([trayWindow, request = request.dump()] {
     std::optional<std::string> error;
     if (const auto response = sovereign::tray::RequestService(request)) {
@@ -7051,7 +7056,7 @@ void OnUpdateChanged(HWND trayWindow) {
                           NIIF_INFO);
     } else {
       g_trayIcon->Balloon(L"Sovereign: доступна версия " + Widen(update.latest),
-                          L"Нажми, чтобы обновить — установщик скачается с GitHub.", NIIF_INFO);
+                          L"Нажми, чтобы обновить — установщик скачается и проверится.", NIIF_INFO);
     }
     g_balloonPage = UiPage::Settings;
   }
@@ -7281,7 +7286,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, 
   g_updateQuietMinutes = sovereign::tray::ClampQuietMinutes(settings.updateQuietMinutes);
   sovereign::tray::Updater updater(
       sovereign::tray::ParseVersion(Narrow(SOVEREIGN_VERSION_W)).value_or(sovereign::tray::Version{}), kUserAgent,
-      g_updateMode != sovereign::tray::UpdateMode::Off, [window] { PostMessageW(window, kUpdateChangedMessage, 0, 0); });
+      g_updateMode != sovereign::tray::UpdateMode::Off, (sovereign::tray::DataDir() / L"update.json").wstring(),
+      [window] { PostMessageW(window, kUpdateChangedMessage, 0, 0); });
   g_updater = &updater;
   g_mainWindow = &mainWindow;
   if (!background) {

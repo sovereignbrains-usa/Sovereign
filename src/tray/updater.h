@@ -13,16 +13,18 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "update.h"
 
 namespace sovereign::tray {
 
-// Keeps Sovereign up to date from this repository's GitHub releases: checks a
+// Keeps Sovereign up to date from the release's signed update.json (update.h
+// kUpdateSources, ParseSignedRelease), wherever it is served from: checks a
 // minute after start and then every 12 hours (unless told to look only when
 // asked - SetAutomatic), or when asked, and on request
-// downloads the new installer, checks it against the release's .sha256 and
-// leaves it ready to run. Running it is the UI thread's job (LaunchInstaller):
+// downloads the new installer from the first of its places that gives it,
+// checks it against the signed size and sha256 and leaves it ready to run. Running it is the UI thread's job (LaunchInstaller):
 // it needs the user's consent through UAC. All network work happens on the
 // updater's own thread, never the tray's worker - a download takes a while.
 class Updater {
@@ -34,6 +36,7 @@ class Updater {
     std::string latest;      // the newest release's version, once known
     std::string error;       // Failed, or Available after a failed download: why
     std::wstring installer;  // Ready: the verified installer on disk
+    std::string signedRelease;  // Ready: the update.json it was checked against, for the service
     std::string boxLatest;   // the newest stable sing-box, once known (kSingBoxReleasesApi)
     // Downloading the installer: bytes got, bytes expected (the release's size; 0 - unknown), and the
     // speed since it began, bytes a second - what the page's percent and "left" come from.
@@ -42,8 +45,9 @@ class Updater {
     double bytesPerSecond = 0;
   };
 
-  // `changed` runs on the updater's thread after every state change.
-  Updater(Version current, std::wstring userAgent, bool automatic, std::function<void()> changed);
+  // `changed` runs on the updater's thread after every state change. `cache`: where the last
+  // verified update.json is kept - the places it names are asked too, after a restart as well.
+  Updater(Version current, std::wstring userAgent, bool automatic, std::wstring cache, std::function<void()> changed);
   ~Updater();
   Updater(const Updater&) = delete;
   Updater& operator=(const Updater&) = delete;
@@ -64,10 +68,13 @@ class Updater {
   void Run(const std::stop_token& stop);
   void DoCheck();
   void DoInstall();
+  void LoadCache();
+  std::vector<std::string> Sources() const;
   void Set(const std::function<void(State&)>& change);
 
   const Version current_;
   const std::wstring userAgent_;
+  const std::wstring cache_;
   const std::function<void()> changed_;
   mutable std::mutex mutex_;
   std::condition_variable_any wake_;
@@ -77,6 +84,7 @@ class Updater {
   bool installRequested_ = false;
   State state_;
   std::optional<Release> release_;  // the newer release, once found
+  std::optional<Release> known_;    // the updater's thread's: the newest verified, its sources asked too
   std::jthread thread_;             // last: starts once everything above exists
 };
 

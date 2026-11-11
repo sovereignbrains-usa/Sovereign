@@ -698,6 +698,20 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     if (!session.is_number_unsigned() || session.get<std::uint64_t>() > UINT32_MAX) {
       return fail("session must be a session id");
     }
+    // Missing, or empty: a tray older than update.json, checked by the release's checksum. Anything
+    // else has to be the signed file, and a huge one is refused before the installer is touched.
+    std::string signedRelease;
+    if (parsed.contains("release")) {
+      const Json& releaseField = parsed["release"];
+      if (!releaseField.is_string()) {
+        return fail("release must be a signed description");
+      }
+      const auto& text = releaseField.get_ref<const std::string&>();
+      if (text.size() > kMaxSignedReleaseBytes) {
+        return fail("release must be a signed description");
+      }
+      signedRelease = text;
+    }
     // The VPN on and the kill switch off: the installer stops this service,
     // and till the new one's box is up everything would go out bare, by the
     // real address. The filters close it meanwhile (the service's own
@@ -720,8 +734,9 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
         }
       }
     }
-    if (const std::string error = updates_->Install(version.get<std::string>(), installer.get<std::string>(),
-                                                    static_cast<std::uint32_t>(session.get<std::uint64_t>()));
+    if (const std::string error =
+            updates_->Install(version.get<std::string>(), installer.get<std::string>(),
+                              static_cast<std::uint32_t>(session.get<std::uint64_t>()), signedRelease);
         !error.empty()) {
       std::string reply = error;
       if (before) {

@@ -73,8 +73,9 @@ class FakeCore final : public ICore {
     return result;
   }
 
-  sovereign::service::SpeedResult LookupSpeed(const std::string& tag) override {
+  sovereign::service::SpeedResult LookupSpeed(const std::string& tag, bool start) override {
     speedAsked = tag;
+    speedStart = start;
     sovereign::service::SpeedResult result = speed;
     result.tag = tag;
     return result;
@@ -120,6 +121,7 @@ class FakeCore final : public ICore {
   sovereign::service::SiteResults sites;
   sovereign::service::SpeedResult speed;
   std::optional<std::string> speedAsked;
+  bool speedStart = false;
   std::optional<std::pair<std::string, bool>> sitesAsked;
   std::string startError;
   std::string stopError;
@@ -326,13 +328,18 @@ void TestExitIp() {
   answer = Send(handler, R"({"cmd":"box_exitip","tag":"nl"})");
   CHECK(answer == json::parse(R"({"cmd":"box_exitip","tag":"nl","error":"i/o timeout"})"));
 
-  // box_speed: a tag, answered with what the core knows.
+  // box_speed: a tag, a run started only with "start", answered with what the core knows.
   CHECK(Send(handler, R"({"cmd":"box_speed"})").value("cmd", "") == "error" && !core.speedAsked);
   CHECK(Send(handler, R"({"cmd":"box_speed","tag":5})").value("cmd", "") == "error" && !core.speedAsked);
+  CHECK(Send(handler, R"({"cmd":"box_speed","tag":"nl","start":1})").value("cmd", "") == "error" &&
+        !core.speedAsked);
   core.speed = {.tag = {}, .pending = true, .kbps = 0, .error = {}};
-  answer = Send(handler, R"({"cmd":"box_speed","tag":"nl"})");
+  answer = Send(handler, R"({"cmd":"box_speed","tag":"nl","start":true})");
   CHECK(core.speedAsked == "nl");
+  CHECK(core.speedStart);
   CHECK(answer == json::parse(R"({"cmd":"box_speed","tag":"nl","pending":true})"));
+  answer = Send(handler, R"({"cmd":"box_speed","tag":"nl"})");
+  CHECK(!core.speedStart);  // a poll
   core.speed = {.tag = {}, .pending = false, .kbps = 91234, .error = {}};
   answer = Send(handler, R"({"cmd":"box_speed","tag":"nl"})");
   CHECK(answer == json::parse(R"({"cmd":"box_speed","tag":"nl","kbps":91234})"));

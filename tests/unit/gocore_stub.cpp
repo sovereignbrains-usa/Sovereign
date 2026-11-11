@@ -127,9 +127,12 @@ __declspec(dllexport) char* __cdecl box_exitip(const char* request) {
   return Allocate(R"({"tag":"nl","ip":"185.12.34.56","country":"NL","isp":"Hetzner Online GmbH"})");
 }
 
-// A fixed answer: a finished run for nl, a running one for fi.
+// A fixed answer: a finished run for nl, a running one for fi - and for a request that starts one.
 __declspec(dllexport) char* __cdecl box_speed(const char* request) {
   const std::string text = request != nullptr ? request : "";
+  if (text.find("\"start\":true") != std::string::npos) {
+    return Allocate(R"({"tag":"nl","pending":true})");
+  }
   if (text.find("\"tag\":\"fi\"") != std::string::npos) {
     return Allocate(R"({"tag":"fi","pending":true})");
   }

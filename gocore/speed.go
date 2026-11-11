@@ -88,12 +88,17 @@ func speedFigure(at []time.Duration, bytes []int64) int64 {
 }
 
 type speedRequest struct {
-	Tag string `json:"tag"`
+	Tag   string `json:"tag"`
+	Start bool   `json:"start"`
 }
 
-// box_speed starts a run through the outbound `tag` (when none runs) and
-// reports it as JSON ({"tag", "kbps", "error", "pending"}). A finished
-// run's figure stays until the box restarts or a new run replaces it.
+// box_speed reports the run through the outbound `tag` as JSON ({"tag",
+// "kbps", "error", "pending"}); with "start" (the click) it starts one first,
+// unless one runs. A poll without it never starts a run: the tray polls a
+// running one until it's done, and its last poll comes after the end - which
+// started the run again, round after round, a hundred megabytes each, the
+// page saying "меряю…" for good (11.11.2026). A finished run's figure stays
+// until the box restarts or a new run replaces it.
 //
 //export box_speed
 func box_speed(requestJSON *C.char) (reply *C.char) {
@@ -115,8 +120,11 @@ func box_speed(requestJSON *C.char) (reply *C.char) {
 
 	speedMu.Lock()
 	defer speedMu.Unlock()
-	if entry, known := speedStates[request.Tag]; known && entry.state.Pending {
+	if entry, known := speedStates[request.Tag]; known && (entry.state.Pending || !request.Start) {
 		return marshalSpeed(entry.state)
+	}
+	if !request.Start {
+		return marshalSpeed(speedState{Tag: request.Tag}) // not measured
 	}
 	if speedBusy {
 		return marshalSpeed(speedState{Tag: request.Tag, Error: "another run is going"})

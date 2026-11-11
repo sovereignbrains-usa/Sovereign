@@ -227,10 +227,11 @@ class ICore {
     return {.tag = tag, .pending = false, .results = {}, .error = "not supported by this engine"};
   }
 
-  // The speed of a download through the outbound `tag`: a run (about 8 s) starts
-  // when none goes, and is polled like LookupExitIp. An engine that can't - or an
-  // older DLL - says so in `error`.
-  virtual SpeedResult LookupSpeed(const std::string& tag) {
+  // The speed of a download through the outbound `tag`: with `start` (the user's
+  // click) a run (about 8 s) starts when none goes; without, only what's known -
+  // a poll never starts one. An engine that can't - or an older DLL - says so in
+  // `error`.
+  virtual SpeedResult LookupSpeed(const std::string& tag, bool /*start*/) {
     return {.tag = tag, .pending = false, .kbps = 0, .error = "not supported by this engine"};
   }
 

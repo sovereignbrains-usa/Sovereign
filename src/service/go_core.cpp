@@ -420,7 +420,7 @@ SiteResults GoCore::LookupSites(const std::string& tag, bool refresh) {
   return result;
 }
 
-SpeedResult GoCore::LookupSpeed(const std::string& tag) {
+SpeedResult GoCore::LookupSpeed(const std::string& tag, bool start) {
   SpeedResult result;
   result.tag = tag;
   if (boxSpeed_ == nullptr) {
@@ -429,6 +429,7 @@ SpeedResult GoCore::LookupSpeed(const std::string& tag) {
   }
   nlohmann::json request;
   request["tag"] = tag;
+  request["start"] = start;
   const auto json =
       nlohmann::json::parse(TakeOwnedString(boxSpeed_(request.dump().c_str())), nullptr, /*allow_exceptions=*/false);
   if (!json.is_object()) {

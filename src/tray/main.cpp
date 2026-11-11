@@ -2584,7 +2584,8 @@ class Worker {
 
   // The speed runs the user asked for ("замерить" on the servers page): `asked` starts one (the
   // core runs one at a time and says so when another goes), running ones are polled until done -
-  // asking again a finished one would start another run. A new box forgets them.
+  // without "start", so the poll after the end reads the figure rather than starting another run
+  // (it did: "меряю…" for good). A new box forgets them.
   void UpdateServerSpeeds(const std::optional<sovereign::tray::Stats>& stats, const std::optional<std::string>& asked) {
     if (!stats || !stats->running) {
       serverSpeeds_.clear();
@@ -2609,7 +2610,9 @@ class Worker {
       }
     }
     for (const std::string& tag : tags) {
-      const auto response = sovereign::tray::RequestService(nlohmann::json{{"cmd", "box_speed"}, {"tag", tag}}.dump());
+      const bool start = asked && tag == *asked;
+      const auto response = sovereign::tray::RequestService(
+          nlohmann::json{{"cmd", "box_speed"}, {"tag", tag}, {"start", start}}.dump());
       const auto parsed = response ? sovereign::tray::ParseSpeedResponse(*response) : std::nullopt;
       if (parsed) {
         serverSpeeds_[tag] = *parsed;

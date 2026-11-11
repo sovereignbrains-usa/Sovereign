@@ -47,7 +47,7 @@ class GoCore final : public ICore {
   std::vector<DelayResult> Delays() override;
   ExitIp LookupExitIp(const std::string& tag, bool refresh) override;
   SiteResults LookupSites(const std::string& tag, bool refresh) override;
-  SpeedResult LookupSpeed(const std::string& tag) override;
+  SpeedResult LookupSpeed(const std::string& tag, bool start) override;
   [[nodiscard]] std::string Select(const std::string& selector, const std::string& outbound) override;
   void SetLogSink(LogSink sink) override;
 

@@ -543,7 +543,11 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     if (!tag.is_string() || tag.get<std::string>().empty() || tag.get<std::string>().size() > kMaxTagBytes) {
       return fail("tag must be a non-empty string");
     }
-    const SpeedResult speed = core_->LookupSpeed(tag.get<std::string>());
+    const Json start = parsed.value("start", Json(false));
+    if (!start.is_boolean()) {
+      return fail("start must be a boolean");
+    }
+    const SpeedResult speed = core_->LookupSpeed(tag.get<std::string>(), start.get<bool>());
     Json response;
     response["cmd"] = "box_speed";
     response["tag"] = speed.tag;

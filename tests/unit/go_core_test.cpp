@@ -182,9 +182,10 @@ void TestBridge(const std::wstring& stubPath) {
           sites.results[1].site == "chatgpt" && sites.results[1].state == "blocked" &&
           sites.results[2].error == "i/o timeout");
     CHECK(core->LookupSites("nl", true).pending);
-    const auto speed = core->LookupSpeed("nl");
+    const auto speed = core->LookupSpeed("nl", false);
     CHECK(speed.tag == "nl" && speed.kbps == 91234 && !speed.pending && speed.error.empty());
-    CHECK(core->LookupSpeed("fi").pending);
+    CHECK(core->LookupSpeed("fi", false).pending);
+    CHECK(core->LookupSpeed("nl", true).pending);  // "start" crossed to the core
     const auto junkSites = core->LookupSites("junk", false);
     CHECK(!junkSites.pending && junkSites.results.size() == 1 && junkSites.results[0].site == "x" &&
           junkSites.results[0].state.empty());

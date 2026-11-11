@@ -2931,7 +2931,7 @@ class Worker {
     for (auto m = blockedLastMinute_ + 1; m <= minute && m <= blockedLastMinute_ + 60; ++m) {
       blockedPerMinute_[static_cast<std::size_t>(m % 60)] = 0;
     }
-    blockedLastMinute_ = std::max(blockedLastMinute_, minute);
+    blockedLastMinute_ = std::max<long long>(blockedLastMinute_, minute);
     blockedPerMinute_[static_cast<std::size_t>(blockedLastMinute_ % 60)] +=
         static_cast<std::uint32_t>(std::min<std::uint64_t>(total - blockedLast_, 0xFFFFFFFFu));
     blockedLast_ = total;

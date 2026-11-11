@@ -4160,11 +4160,15 @@ class Painter {
         const float room = (x1 - 4) - (x0 + 4) - 16 - 30 - kInstrumentIndent - TextWidth(recent.text, body_.get()) - 12;
         std::wstring names;
         for (const std::wstring& name : c.blockedLately) {
-          const std::wstring longer = names.empty() ? name : names + L", " + name;
+          std::wstring longer = names;
+          if (!longer.empty()) {
+            longer += L", ";
+          }
+          longer += name;
           if (!names.empty() && TextWidth(longer, trailing_.get()) > room) {
             break;
           }
-          names = longer;
+          names = std::move(longer);
         }
         recent.detail = names.empty() ? std::wstring(L"пока пусто") : names;
         recent.tip = L"Что закрыто недавно: нажми имя, и оно пойдёт дальше";
@@ -5064,7 +5068,9 @@ class Painter {
     const D2D1_COLOR_F ink = FromColorRef(ui::kSecondaryText);
     k.t->PushAxisAlignedClip(Inflate(lid, -1.25f), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     const float h = lid.bottom - lid.top;
-    for (float x = lid.left; x < lid.right + h; x += 6) {  // CSS's 135°: stripes up to the right, every 6
+    const int stripes = static_cast<int>(std::ceil((lid.right + h - lid.left) / 6));
+    for (int i = 0; i < stripes; ++i) {  // CSS's 135°: stripes up to the right, every 6
+      const float x = lid.left + 6.0f * static_cast<float>(i);
       k.Line({x, lid.top}, {x - h, lid.bottom}, FromColorRef(ui::kSecondaryText, 0.28f));
     }
     k.t->PopAxisAlignedClip();

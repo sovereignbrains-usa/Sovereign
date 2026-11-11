@@ -199,6 +199,12 @@ void TestExposure() {
   CHECK(JudgeExposure(facts).status == Status::Ok);  // ports alone are counted, not judged
   facts.sharingServices = {"LanmanServer"};
   CHECK(JudgeExposure(facts).status == Status::Warn);
+  facts.lanClosed = true;  // our filters keep the network off it while connected
+  CHECK(JudgeExposure(facts).status == Status::Ok && JudgeExposure(facts).summary == "закрыт фильтром Sovereign");
+  facts.profiles[0].firewallOn = false;  // ...but the firewall off is still said: without the VPN it's all open
+  CHECK(JudgeExposure(facts).status == Status::Fail);
+  facts.profiles[0].firewallOn = true;
+  facts.lanClosed = false;
   facts.profiles[2].inboundBlocked = false;
   CHECK(JudgeExposure(facts).status == Status::Fail);  // worse than a service
   facts.profiles[2].inboundBlocked = true;

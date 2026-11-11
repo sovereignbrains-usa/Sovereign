@@ -111,6 +111,7 @@ constexpr UINT kViewChangedMessage = WM_APP + 2;
 constexpr UINT kUpdateChangedMessage = WM_APP + 3;
 // The worker to the window: the protection's quiet check after a connect is due (StartChecks quiet).
 constexpr UINT kAutoCheckMessage = WM_APP + 4;
+constexpr WPARAM kAutoCheckExposure = 1;  // kAutoCheckMessage's wParam: the exposure alone
 // The service's answer to update_install (LaunchUpdate): wParam 1 - it runs.
 constexpr UINT kUpdateLaunchedMessage = WM_APP + 5;
 // While a downloaded update waits for the computer to be quiet: a look a minute.
@@ -1484,6 +1485,7 @@ class Worker {
     if (!running && wasRunning_) {
       checkedExitIp_.clear();
       protectionCheckedAt_.reset();
+      exposureLanClosed_.reset();
       const std::scoped_lock lock(State().mutex);
       State().protectionTrouble.clear();  // a new connection says it again
     }
@@ -1498,6 +1500,14 @@ class Worker {
     if (running && !protectionCheckAt_ && protectionCheckedAt_ && now - *protectionCheckedAt_ >= kProtectionRecheck) {
       protectionCheckAt_ = now;
     }
+    const auto post = [](WPARAM which) {
+      HWND window = nullptr;
+      {
+        const std::scoped_lock lock(State().mutex);
+        window = State().window;
+      }
+      PostMessageW(window, kAutoCheckMessage, which, 0);
+    };
     if (!running) {
       protectionCheckAt_.reset();
     } else if (protectionCheckAt_ && now >= *protectionCheckAt_) {
@@ -1506,12 +1516,13 @@ class Worker {
       if (!exit_.pending && !exit_.ip.empty()) {
         checkedExitIp_ = exit_.ip;
       }
-      HWND window = nullptr;
-      {
-        const std::scoped_lock lock(State().mutex);
-        window = State().window;
-      }
-      PostMessageW(window, kAutoCheckMessage, 0, 0);
+      exposureLanClosed_ = LanClosedNow();
+      post(0);
+    } else if (exposureLanClosed_ && *exposureLanClosed_ != LanClosedNow()) {
+      // The local network closed or opened since: the exposure judged again (11.11.2026: "работает: общий
+      // доступ к файлам" stayed yellow with it closed). The toggle came the loop before, its view is out.
+      exposureLanClosed_ = LanClosedNow();
+      post(kAutoCheckExposure);
     }
   }
 
@@ -3385,6 +3396,7 @@ class Worker {
   std::optional<TrayModel::Clock::time_point> protectionCheckAt_;  // the quiet check is due then
   std::optional<TrayModel::Clock::time_point> protectionCheckedAt_;  // it was last asked for then
   std::string checkedExitIp_;  // the exit's address it looked at (a new one: looked at again)
+  std::optional<bool> exposureLanClosed_;  // the local network closed (LanClosedNow) when the exposure was looked at
   std::string cacheFile_;  // UTF-8; empty: no cache file
   std::map<std::string, ProfileRuntime> runtime_;  // by profile id
   unsigned noticeId_ = 0;
@@ -7076,8 +7088,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     }
     case kAutoCheckMessage: {  // the worker: a connection came up - the protection, quietly
       using sovereign::tray::CheckId;
-      StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure},
-                  {}, true);
+      if (wParam == kAutoCheckExposure) {  // the local network closed or opened: only what it changes
+        StartChecks({CheckId::Exposure}, {}, true);
+      } else {
+        StartChecks({CheckId::Exit, CheckId::RussiaDirect, CheckId::DnsLeak, CheckId::WebRtc, CheckId::Ipv6, CheckId::Exposure},
+                    {}, true);
+      }
       return 0;
     }
     case kViewChangedMessage: {

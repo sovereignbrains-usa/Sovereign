@@ -448,6 +448,16 @@ CheckResult JudgeExposure(const ExposureFacts& facts) {
                      "по умолчанию «Блокировать».";
     return r;
   }
+  if (!services.empty() && facts.lanClosed) {
+    r.status = Status::Ok;
+    r.summary = "закрыт фильтром Sovereign";
+    r.detail = std::format("Работают службы: {}. Пока VPN включён, «Закрыть от локальной сети» не пускает к ним никого "
+                           "из сети{}. Без VPN они снова открыты для неё: если не нужны, отключи их в «Службах».",
+                           services,
+                           facts.lanAllowed == 0 ? std::string()
+                                                 : std::format(", кроме разрешённых адресов ({})", facts.lanAllowed));
+    return r;
+  }
   if (!services.empty()) {
     r.status = Status::Warn;
     r.summary = std::format("работает: {}", services);

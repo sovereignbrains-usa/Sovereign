@@ -145,11 +145,15 @@ struct ExposureFacts {
   std::array<Profile, 3> profiles{};
   std::vector<std::string> sharingServices;  // running: file sharing, remote registry, remote desktop
   std::size_t openPorts = 0;                 // TCP listeners on all addresses (not loopback)
+  // The local network closed by our filters (DiagnoseInput lanClosed, in force while connected) and
+  // the addresses let through them: the services are out of the network's reach then.
+  bool lanClosed = false;
+  std::size_t lanAllowed = 0;
 };
 
 // Fail: a firewall profile is off, or lets unnamed inbound through; Warn: a
-// sharing service is running (anyone on the network can try its door);
-// otherwise Ok. Open ports alone are only counted - programs listen for
+// sharing service is running (anyone on the network can try its door) and
+// the local network isn't closed by our filters; otherwise Ok. Open ports alone are only counted - programs listen for
 // reasons, the firewall is what shuts them.
 CheckResult JudgeExposure(const ExposureFacts& facts);
 

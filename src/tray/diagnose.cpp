@@ -876,7 +876,13 @@ void RunChecks(const std::stop_token& stop, const std::vector<CheckId>& which, c
       case CheckId::DnsLatency: result = Run::DnsLatency(); break;
       case CheckId::Speed: result = run.Speed(); break;
       case CheckId::Route: result = run.Route(); break;
-      case CheckId::Exposure: result = JudgeExposure(CollectExposure()); break;
+      case CheckId::Exposure: {
+        ExposureFacts facts = CollectExposure();
+        facts.lanClosed = input.lanClosed;
+        facts.lanAllowed = input.lanAllowed.size();
+        result = JudgeExposure(facts);
+        break;
+      }
     }
     progress(id, result);
   }

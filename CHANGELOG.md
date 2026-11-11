@@ -4,6 +4,13 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.9 — 12.11.2026
+
+**Any server on the Servers page opens without switching to it.** A chevron at the right of a server's head opens its card to show its protocols and folds it again; the connection stays where it is. A click on the head itself still switches to that server, as before.
+
+- **The site marks are the services' own logos in their own colours** — YouTube's red, Telegram's blue, Instagram's pink, ChatGPT's knot. Faded means the site doesn't answer through this server, faded and struck out in red means it answers but refuses this country.
+- **A protocol that doesn't connect stays on its server's card.** Before, a way whose exit could not be looked up (AnyTLS + ECH failing) stood as a server of its own; now it joins the server the rest of its configuration reaches.
+
 ## 0.6.8 — 12.11.2026
 
 **A server on the Servers page says where it is and whose it is.** Its head shows the flag, the country and the city, and under them the address, the hosting (by the address's reverse name, e.g. hostbrr.com) and the provider whose network it is in, with the latency on the right; the protocols are under it as before. A folded server keeps its ways' summary on a line of its own. The sites checked through a server are drawn as small YouTube, Telegram, ChatGPT and Instagram marks instead of the letters YT, TG, GPT and IG — green opens, red refuses, dim doesn't answer; the head's tip says it in words, with the address, hosting and provider.

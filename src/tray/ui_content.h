@@ -73,6 +73,7 @@ struct UiSite {
   std::wstring label;  // "YT", "TG", "GPT", "IG"
   sovereign::tray::SiteCheck::State state = sovereign::tray::SiteCheck::State::Fail;
   std::wstring name;   // "YouTube"
+  std::string logo;    // its logo's id (icons.h ServiceLogo): "youtube" - the site's id is it
 };
 
 // The label a site id is drawn as; empty for an id this client doesn't know.
@@ -337,6 +338,9 @@ struct UiContent {
   // "AnyTLS-REALITY"), and the host for one still not told from another.
   std::vector<std::wstring> protocolTitles;
   std::vector<std::wstring> protocolNotes;
+  // Which configuration each came from (its id; empty: not told): a way whose exit isn't known goes
+  // on the card of the one server the configuration's other ways reach.
+  std::vector<std::wstring> protocolSources;
   int protocol = -1;                    // index of the one in use
   std::vector<UiDelay> delays;          // one per protocol (may be shorter: untested)
   UiDelay directSpeed;                  // the line without the VPN: only its speed run (Servers' last row)
@@ -361,6 +365,9 @@ struct UiContent {
   // window's own: kept through a test, while every figure is "…"); empty:
   // ServerOrder's.
   std::vector<std::size_t> serverOrder;
+  // The servers' cards opened or folded by their chevrons (the window's own), by the card's key
+  // (MainWindow's Servers); one not here is open while the traffic goes to it.
+  std::vector<std::pair<std::wstring, bool>> serverFolds;
   std::wstring logLevel;                // what the core writes; empty = the config's
   bool killSwitch = false;              // the setting
   bool lanClosed = false;               // the local network closed both ways (settings.h)

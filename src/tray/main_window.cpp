@@ -283,6 +283,7 @@ enum class ItemAction : std::uint8_t {
   PauseLogs,
   SaveLogs,
   ToggleMore,  // the configurations' relay fold, folded or not (the window's own)
+  ToggleServer,  // a server's card opened or folded (text2: its key, index: open now; the window's own)
   Hide,        // our title bar's cross: the window away to the tray
   RouteMenu,   // the routing mode's pill: its menu dropped or put away (the window's own)
   Hint,
@@ -361,6 +362,7 @@ constexpr float kRailQuiet = 12;  // an empty way's rail: a short stroke, not a 
 // review's "иконки смешаны по стилю").
 constexpr float kIconStroke = 1.3f;
 constexpr float kSiteIcon = 16;  // a site's mark on a server's head (DrawSiteIcon)
+constexpr float kServerFold = 32;  // a server's chevron (opens its card) at its head's right, the latency left of it
 
 // A Settings card as an instrument (docs/design/settings-instruments.html, 11.11.2026): its head a lamp,
 // the name and what it does now, its rows in under the name. From the head's left (4 in from the card):
@@ -1534,6 +1536,7 @@ class Painter {
           const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer || o.kind == Kind::MenuItem ||
                                (o.kind == Kind::IconButton &&
                                 (it.kind == Kind::Title || it.kind == Kind::Card || it.kind == Kind::Instrument)) ||
+                               (o.action == ItemAction::ToggleServer && it.kind == Kind::Choice) ||  // a server's chevron
                                (o.kind == Kind::Link && it.kind == Kind::Way) ||
                                ((o.kind == Kind::Muted || o.kind == Kind::Button) && it.kind == Kind::Card);
           overlaps = overlaps || (over && !allowed);
@@ -2857,7 +2860,9 @@ class Painter {
     }
     const std::vector<std::size_t> order = c.serverOrder.empty() ? ServerOrder(c) : c.serverOrder;
     // One physical server is one card: the exit's address tells them apart; without it, network and
-    // country; without those, a server of its own.
+    // country. A way with neither (it doesn't connect, so its exit is never seen) goes with its
+    // configuration's other ways when they all reach one server - AnyTLS + ECH failing stood as a
+    // server of its own (12.11.2026, his: "почему он отдельно"); else it is a server of its own.
     const auto groupKey = [&](std::size_t i) -> std::wstring {
       const UiLocation* loc = i < c.locations.size() ? &c.locations[i] : nullptr;
       if (loc != nullptr && !loc->ip.empty()) {
@@ -2866,15 +2871,23 @@ class Painter {
       if (loc != nullptr && !loc->isp.empty()) {
         return loc->country + L"/" + loc->isp;
       }
-      return L"#" + std::to_wstring(i);
+      return {};
+    };
+    const auto sourceOf = [&](std::size_t i) {
+      return i < c.protocolSources.size() ? c.protocolSources[i] : std::wstring();
     };
     std::vector<std::wstring> keys;  // groups in the order of their first (fastest) member
     std::vector<std::vector<std::size_t>> members;
+    std::vector<std::size_t> unplaced;
     for (const std::size_t i : order) {
       if (i >= c.protocols.size() || static_cast<int>(i) == c.autoOption) {
         continue;
       }
       const std::wstring key = groupKey(i);
+      if (key.empty()) {
+        unplaced.push_back(i);
+        continue;
+      }
       const auto at = std::find(keys.begin(), keys.end(), key);
       if (at == keys.end()) {
         keys.push_back(key);
@@ -2883,16 +2896,47 @@ class Painter {
         members[static_cast<std::size_t>(at - keys.begin())].push_back(i);
       }
     }
+    const std::size_t placedGroups = members.size();
+    for (const std::size_t i : unplaced) {
+      const std::wstring source = sourceOf(i);
+      std::size_t home = placedGroups;  // the one server its configuration's ways reach; none: placedGroups
+      for (std::size_t g = 0; g < placedGroups && !source.empty(); ++g) {
+        const bool its = std::any_of(members[g].begin(), members[g].end(),
+                                     [&](std::size_t m) { return sourceOf(m) == source; });
+        if (its) {
+          home = home == placedGroups ? g : placedGroups + 1;  // a second: not one server
+        }
+        if (home > placedGroups) {
+          break;
+        }
+      }
+      if (home < placedGroups) {
+        members[home].push_back(i);
+      } else {
+        keys.push_back(L"#" + c.protocols[i]);
+        members.push_back({i});
+      }
+    }
     if (members.empty()) {
       return y - kGap;
     }
-    // Open: the server the traffic goes to; none yet - the fastest.
+    // Open: the server the traffic goes to (none yet - the fastest), and the ones opened by their
+    // chevrons to look in without switching (12.11.2026, his: "не могу посмотреть что на сервере не
+    // переключившись на него"); folded by it, the one in use too.
     std::size_t open = 0;
     for (std::size_t g = 0; g < members.size() && now >= 0; ++g) {
       if (std::find(members[g].begin(), members[g].end(), static_cast<std::size_t>(now)) != members[g].end()) {
         open = g;
       }
     }
+    const auto isOpen = [&](std::size_t g) {
+      for (const auto& [key, opened] : c.serverFolds) {
+        if (key == keys[g]) {
+          return opened;
+        }
+      }
+      return g == open;
+    };
     const bool columns = AnyDelayAnswered(c);
     for (std::size_t g = 0; g < members.size(); ++g) {
       const std::vector<std::size_t>& ways = members[g];
@@ -2918,7 +2962,7 @@ class Painter {
       if (!flag.empty()) {
         name = std::format(L"{} {}", flag, name);
       }
-      const bool expanded = g == open;
+      const bool expanded = isOpen(g);
       const std::wstring ip = loc != nullptr && !loc->ip.empty() && !c.hideExitIp && name.find(loc->ip) == std::wstring::npos
                                   ? loc->ip
                                   : std::wstring();
@@ -2986,7 +3030,18 @@ class Painter {
         head.tip += L"\n\nСайты: " + sites;
       }
       const float headBottom = head.rect.bottom;
+      // Its chevron on the head's first line, right of the latency: opens and folds the card, the
+      // server in use stays (over the head: the later item takes the click).
+      const float chevronY = head.detail.empty() ? (head.rect.top + head.rect.bottom) / 2 : head.rect.top + 15.5f;
+      head.fold = expanded ? 1.0f : 0.0f;
       l.items.push_back(std::move(head));
+      Item chevron = Make(Kind::IconButton, {x1 - 12 - kServerFold, chevronY - 14, x1 - 12, chevronY + 14},
+                          expanded ? L"Свернуть" : L"Показать способы", expanded ? kGlyphChevronUp : kGlyphChevronDown);
+      chevron.action = ItemAction::ToggleServer;
+      chevron.text2 = keys[g];
+      chevron.index = expanded ? 1 : 0;
+      chevron.tip = expanded ? L"Свернуть" : L"Показать способы до этого сервера, не переключаясь на него";
+      l.items.push_back(std::move(chevron));
       float top = headBottom + 3;
       if (expanded) {
         l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
@@ -4738,21 +4793,20 @@ class Painter {
         const float mid = it.stacked ? r.top + (kLatencyRow - 6) / 2 : (r.top + r.bottom) / 2;
         const D2D1_RECT_F line = it.detail.empty() ? r : D2D1_RECT_F{r.left, r.top + 4, r.right, mid + 2};
         // Which sites open through the server, their marks right to left before the latency:
-        // green opens, red answers "not from here", dim doesn't answer (the head's tip says it in words).
+        // the logo in its own colours opens, faded and struck out in red answers "not from here", faded
+        // doesn't answer (the head's tip says it in words).
         const bool isServer = it.command == UiCommand::SetProtocol && it.index >= 0 &&
                               static_cast<std::size_t>(it.index) < c.delays.size();
-        const float delayRight = line.right - kColGap;  // the failures' column went with the ways' figures (06.11.2026)
+        // The failures' column went with the ways' figures (06.11.2026); a server's chevron takes the edge.
+        const float delayRight = line.right - kColGap - (it.fold >= 0 ? kServerFold : 0.0f);
         const float delayLeft = delayRight - (c.delaysDetailed ? kDelayColFull : kDelayColNarrow);
         float nameRight = delayLeft;  // "48 ±3 мс" and "нет ответа" fit between here and the failures
         if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.sites.size()) {
           const auto& sites = c.sites[static_cast<std::size_t>(it.index)];
           const float iconY = std::floor((line.top + line.bottom) / 2) + 0.5f;
           for (auto site = sites.rbegin(); site != sites.rend(); ++site) {
-            const D2D1_COLOR_F ink = site->state == SiteCheck::State::Ok        ? FromColorRef(ui::kUpload)
-                                     : site->state == SiteCheck::State::Blocked ? FromColorRef(ui::kDanger)
-                                                                                : secondary;
-            DrawSiteIcon(k, site->label, std::floor(nameRight - kSiteIcon / 2) + 0.5f, iconY, ink);
-            nameRight -= kSiteIcon + 5;
+            DrawSiteIcon(k, *site, std::floor(nameRight - kSiteIcon / 2), iconY, secondary);
+            nameRight -= kSiteIcon + 6;
           }
         }
         k.Text(it.text, body_.get(), {line.left + 42, line.top, nameRight - 8, line.bottom}, primary);
@@ -5456,50 +5510,23 @@ class Painter {
     }
   }
 
-  // A site's mark on a server's head (UiSite::label: "YT", "TG", "GPT", "IG") in lines of `ink`,
-  // about 15 px across round (cx, cy): the services' own shapes, simplified. The words took the room
-  // the country and the latency need (11.11.2026, his: "вместо надписей YouTube ... значки").
-  void DrawSiteIcon(const Canvas& k, std::wstring_view site, float cx, float cy, D2D1_COLOR_F ink) const {
-    const auto polygon = [&](std::initializer_list<D2D1_POINT_2F> points, bool fill) {
-      wil::com_ptr<ID2D1PathGeometry> path;
-      wil::com_ptr<ID2D1GeometrySink> sink;
-      if (points.size() < 3 || FAILED(d2d_->CreatePathGeometry(path.put())) || FAILED(path->Open(sink.put()))) {
-        return;
-      }
-      const auto* p = points.begin();
-      sink->BeginFigure({cx + p->x, cy + p->y}, fill ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW);
-      for (++p; p != points.end(); ++p) {
-        sink->AddLine({cx + p->x, cy + p->y});
-      }
-      sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-      if (SUCCEEDED(sink->Close())) {
-        if (fill) {
-          k.t->FillGeometry(path.get(), k.Color(ink));
-        } else {
-          k.t->DrawGeometry(path.get(), k.Color(ink), kIconStroke, roundCaps_.get());
-        }
-      }
-    };
-    if (site == L"YT") {  // a screen with a play mark in it
-      k.Outline({cx - 7.5f, cy - 5.5f, cx + 7.5f, cy + 5.5f}, 3.2f, ink, kIconStroke);
-      polygon({{-2.0f, -3.0f}, {3.4f, 0.0f}, {-2.0f, 3.0f}}, true);
-    } else if (site == L"TG") {  // the paper plane, its fold
-      polygon({{-7.0f, -0.5f}, {6.5f, -6.0f}, {4.0f, 5.5f}, {-1.5f, 2.0f}}, false);
-      k.Line({cx - 1.5f, cy + 2.0f}, {cx + 3.0f, cy - 2.5f}, ink, kIconStroke);
-    } else if (site == L"IG") {  // the camera: a rounded square, its lens, its light
-      k.Outline({cx - 6.5f, cy - 6.5f, cx + 6.5f, cy + 6.5f}, 4.0f, ink, kIconStroke);
-      k.t->DrawEllipse(D2D1::Ellipse({cx, cy}, 3.0f, 3.0f), k.Color(ink), kIconStroke);
-      k.t->FillEllipse(D2D1::Ellipse({cx + 3.6f, cy - 3.6f}, 0.9f, 0.9f), k.Color(ink));
-    } else if (site == L"GPT") {  // the knot: three loops round the middle, turned by a third of a turn
-      D2D1_MATRIX_3X2_F was{};
-      k.t->GetTransform(&was);
-      for (const float angle : {0.0f, 60.0f, 120.0f}) {
-        k.t->SetTransform(D2D1::Matrix3x2F::Rotation(angle, {cx, cy}) * was);
-        k.t->DrawEllipse(D2D1::Ellipse({cx, cy}, 6.8f, 2.9f), k.Color(ink), 1.1f);
-      }
-      k.t->SetTransform(was);
+  // A site's mark on a server's head, 16 px round (cx, cy): the service's own logo in its own
+  // colours (icons.h ServiceLogo) - green outlines were hard to tell apart (12.11.2026, his: "реальные
+  // цвета а то слабо узнаются"). Opens: as it is. Doesn't answer: faded. Answers "not from here":
+  // faded and struck out in red. No logo: its label in `ink`.
+  void DrawSiteIcon(const Canvas& k, const UiSite& site, float cx, float cy, D2D1_COLOR_F ink) const {
+    const float x = std::round(cx);
+    const float y = std::round(cy);
+    const bool ok = site.state == SiteCheck::State::Ok;
+    const bool blocked = site.state == SiteCheck::State::Blocked;
+    if (ID2D1Bitmap* logo = site.logo.empty() ? nullptr : Logo(k.t, site.logo); logo != nullptr) {
+      k.t->DrawBitmap(logo, {x - 8, y - 8, x + 8, y + 8}, ok ? 1.0f : 0.3f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     } else {
-      k.Text(site, caption_.get(), {cx - 12, cy - 9, cx + 12, cy + 9}, ink);
+      k.Text(site.label, caption_.get(), {x - 12, y - 9, x + 12, y + 9}, ok ? FromColorRef(ui::kPrimaryText) : ink);
+    }
+    if (blocked) {  // the slash, on a dark edge so it reads over any logo
+      k.Line({x - 7, y + 7}, {x + 7, y - 7}, D2D1::ColorF(0, 0, 0, 0.6f), 3.4f);
+      k.Line({x - 7, y + 7}, {x + 7, y - 7}, FromColorRef(ui::kDanger), 1.8f);
     }
   }
 
@@ -5836,6 +5863,7 @@ struct MainWindow::Impl {
   // a latency test - every figure "…" there, the list would fall back to the
   // subscription's order and jump again as the results came in.
   std::vector<std::size_t> serverOrder;
+  std::vector<std::pair<std::wstring, bool>> serverFolds;  // servers' cards opened or folded by hand (UiContent::serverFolds)
   // MainWindow::Ask's question while it's open (UiContent::question), what
   // its yes does, and when it came (Painter::questionShown).
   std::optional<UiQuestion> question;
@@ -6329,6 +6357,7 @@ struct MainWindow::Impl {
     content.routeMenu = routeMenu;
     content.lidUp = lidUp;
     content.serverOrder = serverOrder;
+    content.serverFolds = serverFolds;
     content.question = question;
     layout = painter.Build(content, page, openProfile, size.width, size.height, scroll, state);
     ClampLog();
@@ -6751,6 +6780,17 @@ struct MainWindow::Impl {
         NoteFolds();
         Relayout();
         return;
+      case ItemAction::ToggleServer: {
+        const auto at = std::find_if(serverFolds.begin(), serverFolds.end(),
+                                     [&](const auto& entry) { return entry.first == item.text2; });
+        if (at != serverFolds.end()) {
+          at->second = item.index == 0;
+        } else {
+          serverFolds.emplace_back(item.text2, item.index == 0);
+        }
+        Relayout();
+        return;
+      }
       case ItemAction::RouteMenu: SetRouteMenu(!routeMenu); return;
       case ItemAction::Hide: PostMessageW(hwnd, WM_CLOSE, 0, 0); return;
       case ItemAction::Answer: Answer(item.index); return;

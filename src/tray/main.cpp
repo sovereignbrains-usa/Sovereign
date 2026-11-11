@@ -5540,6 +5540,27 @@ UiContent ContentFrom(const View& v) {
     }
     c.protocolNotes.push_back(Widen(note));
   }
+  // Where each came from: "<tag> · <name>" is the configuration combine renamed it for; a tag as it
+  // is, the first one on that has it (a later one's clash was renamed).
+  const auto sourceOf = [&](const std::string& tag) -> std::string {
+    const View::ProfileView* plain = nullptr;
+    for (const View::ProfileView& profile : v.profiles) {
+      if (!profile.enabled) {
+        continue;
+      }
+      for (const View::ServerView& server : profile.servers) {
+        if (server.tag == tag) {
+          plain = plain != nullptr ? plain : &profile;
+        } else if (sovereign::tray::IsRenamedTag(tag, server.tag, profile.name)) {
+          return profile.id;
+        }
+      }
+    }
+    return plain != nullptr ? plain->id : std::string();
+  };
+  for (const std::string& p : v.protocols) {
+    c.protocolSources.push_back(Widen(sourceOf(p)));
+  }
   c.protocol = v.protocol;
   for (const auto& delay : v.delays) {
     sovereign::tray::UiDelay d;
@@ -5600,7 +5621,10 @@ UiContent ContentFrom(const View& v) {
     std::vector<sovereign::tray::UiSite>& row = c.sites.emplace_back();
     for (const auto& site : checks.sites) {
       if (std::wstring label = sovereign::tray::SiteLabel(site.site); !label.empty()) {
-        row.push_back({.label = std::move(label), .state = site.state, .name = sovereign::tray::SiteName(site.site)});
+        row.push_back({.label = std::move(label),
+                       .state = site.state,
+                       .name = sovereign::tray::SiteName(site.site),
+                       .logo = site.site});
       }
     }
   }

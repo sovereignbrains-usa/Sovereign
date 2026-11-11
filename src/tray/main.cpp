@@ -300,6 +300,10 @@ struct View {
   sovereign::tray::BlockedPrograms blockWho;          // and for which programs, the CNAME ones (box_blocked)
   std::array<std::uint32_t, 60> blockedMinutes{};     // the total's last hour by minutes, oldest first
   std::wstring blockedSince;                          // "9:12": when the total started; empty: unknown
+  std::size_t blockedKnown = 0;                       // of the hour, the last minutes counted
+  std::wstring blockedFrom;                           // since when, "9:12"
+  std::vector<std::string> passed;                    // what "Пропустить" let through lately; empty: none
+  std::wstring passedAt;                              // when, "9:40"
   std::size_t listsReady = 0;             // the routing's lists downloaded
   std::size_t listsNeeded = 0;
   std::int64_t listsUpdated = 0;          // unix seconds of the last one downloaded
@@ -443,6 +447,8 @@ struct RoutingChange {
     RemoteDns,      // value: RoutingSettings::RemoteDns
     LocalDns,       // value: RoutingSettings::LocalDns
     AddRule,        // text: what was typed; value: RouteRule::Action (WARP: turned on); path: a program's exe
+    PassNames,      // as AddRule, the names "Пропустить" let through: remembered for LetBack
+    LetBack,        // what PassNames let through lately closed again: out of the rules
     SetRuleAction,  // index; value: RouteRule::Action (WARP: turned on)
     RemoveRule,     // index
     EditRule,       // index; text: its sites and programs anew (routing.h EditRule)
@@ -1347,6 +1353,26 @@ class Worker {
         dnsFailures_.clear();
         break;
       }
+      case RoutingChange::What::LetBack: {
+        // The names out of the rules that let anything through; a rule left with nothing in it goes.
+        if (!PassedLately()) {
+          break;
+        }
+        for (RouteRule& rule : r.rules) {
+          if (rule.action != RouteRule::Action::Block) {
+            std::erase_if(rule.domains, [&](const std::string& d) {
+              return std::find(passed_.begin(), passed_.end(), d) != passed_.end();
+            });
+          }
+        }
+        std::erase_if(r.rules, [](const RouteRule& rule) {
+          return rule.domains.empty() && rule.keywords.empty() && rule.ips.empty() && rule.processes.empty();
+        });
+        passed_.clear();
+        passedAt_.reset();
+        break;
+      }
+      case RoutingChange::What::PassNames:
       case RoutingChange::What::AddRule: {
         const auto action = static_cast<RouteRule::Action>(std::clamp(change.value, 0, 3));
         // A program picked (its path known): its exe's name as it is, a space in it or not.
@@ -1365,7 +1391,20 @@ class Worker {
           });
         };
         std::erase_if(blocked_, letThrough);
-        std::erase_if(blockWho_.recent, letThrough);  // "Сломалось только что" without them till the next ask
+        std::erase_if(blockWho_.recent, letThrough);  // "Сломалось только что" without them (and LetThrough after)
+        if (change.what == RoutingChange::What::PassNames) {
+          // Passed again within the few minutes "Вернуть" stands: one undo takes back both.
+          if (!PassedLately()) {
+            passed_.clear();
+          }
+          for (const std::string& d : rule->domains) {
+            if (std::find(passed_.begin(), passed_.end(), d) == passed_.end()) {
+              passed_.push_back(d);
+            }
+          }
+          passedAt_ = TrayModel::Clock::now();
+          passedClock_ = ClockNow();
+        }
         break;
       }
       case RoutingChange::What::SetRuleAction:
@@ -2902,8 +2941,38 @@ class Worker {
     if (const auto response = sovereign::tray::RequestService(R"({"cmd":"box_blocked"})")) {
       blockCounts_ = sovereign::tray::ParseBlockedAnswer(*response);
       blockWho_ = sovereign::tray::ParseBlockedPrograms(*response);
+      // The box remembers two minutes of refusals, the ones a rule lets through since too: they
+      // aren't "just now" any more - a second "Пропустить" made a rule of them again (11.11.2026).
+      std::erase_if(blockWho_.recent, [&](const std::string& name) { return LetThrough(name); });
       CountBlockedMinute(now);
     }
+  }
+
+  // A rule of the user's that lets the name go on (not a block): its domain or one above it.
+  bool LetThrough(const std::string& name) const {
+    using sovereign::tray::RouteRule;
+    return std::any_of(settings_.routing.rules.begin(), settings_.routing.rules.end(), [&](const RouteRule& rule) {
+      return rule.action != RouteRule::Action::Block &&
+             std::any_of(rule.domains.begin(), rule.domains.end(), [&](const std::string& d) {
+               return name == d ||
+                      (name.size() > d.size() && name.ends_with(d) && name[name.size() - d.size() - 1] == '.');
+             });
+    });
+  }
+
+  // How long "Вернуть" stands after "Пропустить".
+  static constexpr auto kLetBackFor = std::chrono::minutes(10);
+  bool PassedLately() const {
+    return passedAt_ && !passed_.empty() && TrayModel::Clock::now() - *passedAt_ < kLetBackFor;
+  }
+
+  // The local time as the window says it, "9:05".
+  static std::wstring ClockNow() {
+    SYSTEMTIME local{};
+    GetLocalTime(&local);
+    wchar_t clock[16] = {};
+    swprintf_s(clock, L"%u:%02u", static_cast<unsigned>(local.wHour), static_cast<unsigned>(local.wMinute));
+    return clock;
   }
 
   // The settings' trace of the last hour: the blocks' total split by minutes,
@@ -2920,12 +2989,10 @@ class Worker {
       blockedBase_ = true;
       blockedPerMinute_.fill(0);
       blockedLastMinute_ = minute;
+      blockedFromMinute_ = minute;
       blockedLast_ = total;
-      SYSTEMTIME local{};
-      GetLocalTime(&local);
-      wchar_t since[16] = {};
-      swprintf_s(since, L"%u:%02u", static_cast<unsigned>(local.wHour), static_cast<unsigned>(local.wMinute));
-      blockedSince_ = total == 0 ? since : std::wstring();
+      blockedFrom_ = ClockNow();
+      blockedSince_ = total == 0 ? blockedFrom_ : std::wstring();
       return;
     }
     for (auto m = blockedLastMinute_ + 1; m <= minute && m <= blockedLastMinute_ + 60; ++m) {
@@ -2953,6 +3020,17 @@ class Worker {
       }
     }
     return out;
+  }
+
+  // Of that hour, how many minutes were counted: the last ones, since blockedFrom_.
+  std::size_t BlockedKnown() const {
+    if (!blockedBase_) {
+      return 0;
+    }
+    const auto minute = std::chrono::duration_cast<std::chrono::minutes>(
+                            TrayModel::Clock::now().time_since_epoch())
+                            .count();
+    return static_cast<std::size_t>(std::clamp<long long>(minute - blockedFromMinute_ + 1, 1, 60));
   }
 
   void WatchWarp(const std::optional<sovereign::tray::Stats>& stats) {
@@ -3308,6 +3386,10 @@ class Worker {
       v.blockWho = blockWho_;
       v.blockedMinutes = BlockedMinutes();
       v.blockedSince = blockedSince_;
+      v.blockedKnown = BlockedKnown();
+      v.blockedFrom = blockedFrom_;
+      v.passed = PassedLately() ? passed_ : std::vector<std::string>();
+      v.passedAt = passedClock_;
       v.quicBlocked = quicBlocked_;
       v.rulesFrom = rulesFrom_;
       v.blockedAds = {blocked_.begin(), blocked_.end()};
@@ -3515,6 +3597,11 @@ class Worker {
   long long blockedLastMinute_ = 0;
   std::array<std::uint32_t, 60> blockedPerMinute_{};
   std::wstring blockedSince_;  // when the total started from 0, "9:12"; empty: before the tray
+  long long blockedFromMinute_ = 0;  // the first minute counted
+  std::wstring blockedFrom_;         // and its time, "9:12"
+  std::vector<std::string> passed_;  // what "Пропустить" let through lately, for "Вернуть"
+  std::optional<TrayModel::Clock::time_point> passedAt_;
+  std::wstring passedClock_;  // when, "9:40"
   std::deque<std::string> blocked_;  // WatchBlocked's: what the ads lists blocked, newest first
   bool quicBlocked_ = true;  // View::quicBlocked
   std::vector<std::string> rulesFrom_;  // View::rulesFrom
@@ -5142,6 +5229,12 @@ UiContent ContentFrom(const View& v) {
   c.blockedSince = v.blockedSince;
   c.blockedMinutes = v.blockedMinutes;
   c.blockedJustNow = v.blockWho.recent.size();
+  c.blockedKnown = v.blockedKnown;
+  c.blockedFrom = v.blockedFrom;
+  for (const std::string& name : v.passed) {
+    c.passedNames.push_back(Widen(name));
+  }
+  c.passedAt = v.passedAt;
   for (const std::string& name : v.blockedAds) {
     if (c.blockedLately.size() == 3) {
       break;
@@ -5954,20 +6047,48 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       break;
     }
     case UiCommand::PassJustNow: {
-      // A page just broke and which name it was is anyone's guess: everything
-      // the ads, trackers and cookie lists cut in the last two minutes, let
-      // through at once - one rule where everything else goes (the malware
-      // lists' names aren't in it: gocore/blocked.go).
+      // A page just broke and which name it was is anyone's guess: what the
+      // ads, trackers and cookie lists cut in the last two minutes, in a menu -
+      // one name picked, or all of them at once: one rule where everything
+      // else goes (the malware lists' names aren't in it: gocore/blocked.go).
+      // A click passed them all straight away, by chance too (11.11.2026).
+      const std::vector<std::string>& recent = view.blockWho.recent;
+      if (recent.empty()) {
+        break;
+      }
+      std::vector<std::wstring> items = {L"Закрыто за последние 2 минуты — нажми, чтобы пропускать:", L""};
+      const std::vector<std::size_t> captions = {0};
+      const std::size_t first = items.size();
+      for (const std::string& name : recent) {
+        items.push_back(Widen(name));
+      }
+      const std::size_t all = items.size() + 1;  // after its line
+      if (recent.size() > 1) {
+        items.emplace_back(L"");
+        items.push_back(std::format(L"Пропустить все {}", recent.size()));
+      }
+      const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, captions);
+      if (!picked) {
+        break;
+      }
       std::string names;
-      for (const std::string& name : view.blockWho.recent) {
-        names += (names.empty() ? "" : ", ") + name;
+      if (*picked >= first && *picked - first < recent.size()) {
+        names = recent[*picked - first];
+      } else if (recent.size() > 1 && *picked == all) {
+        for (const std::string& name : recent) {
+          if (!names.empty()) {
+            names += ", ";
+          }
+          names += name;
+        }
       }
       if (!names.empty()) {
-        send(What::AddRule, false, r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy, 0,
-             names);
+        send(What::PassNames, false, r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy,
+             0, std::move(names));
       }
       break;
     }
+    case UiCommand::LetBack: send(What::LetBack); break;
     case UiCommand::BlockedApps: {
       // Who the refusals were for: the programs that asked most, and the names that hid
       // behind a CNAME. A program picked opens what it asked (the engine keeps its last
@@ -6611,6 +6732,7 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
     case UiCommand::BlockedMenu:
     case UiCommand::BlockedApps:
     case UiCommand::PassJustNow:
+    case UiCommand::LetBack:
     case UiCommand::AddWarpSite:
     case UiCommand::AddWarpSiteText:
     case UiCommand::ChooseRemoteDns:

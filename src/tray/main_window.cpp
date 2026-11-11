@@ -4077,32 +4077,47 @@ class Painter {
       const UiRouting& r = c.routing;
       const bool any = r.blockAds || r.trackers || r.cookieWindows || r.malware;
       const bool counting = any && connected;
+      // Only the minutes counted: the first hour, less of them - the trace starts where they do.
+      const std::size_t known = std::clamp<std::size_t>(c.blockedKnown, 1, c.blockedMinutes.size());
+      const std::size_t skipped = c.blockedMinutes.size() - known;
       std::uint64_t hour = 0;
       std::uint32_t busiest = 0;
-      for (const std::uint32_t minute : c.blockedMinutes) {
-        hour += minute;
-        busiest = std::max(busiest, minute);
+      for (std::size_t i = skipped; i < c.blockedMinutes.size(); ++i) {
+        hour += c.blockedMinutes[i];
+        busiest = std::max(busiest, c.blockedMinutes[i]);
       }
-      std::wstring said = !any       ? L"ничего не закрывается: включи нужное ниже"
+      const bool wholeHour = skipped == 0;
+      // Counted from 0 within the hour: the readout's number is the same - the subtitle says how
+      // long, not "7" twice (11.11.2026, review).
+      const bool sameNumber = !wholeHour && !c.blockedSince.empty();
+      const std::wstring minutes = std::to_wstring(known) + L" " + Plural(known, L"минуту", L"минуты", L"минут");
+      std::wstring said = !any         ? L"ничего не закрывается: включи нужное ниже"
                           : !connected ? L"считает, пока подключение включено"
-                                       : Grouped(hour) + L" за последний час";
+                          : wholeHour  ? Grouped(hour) + L" за последний час"
+                          : sameNumber ? L"за " + minutes
+                          : known == 1 ? Grouped(hour) + L" за последнюю минуту"
+                                       : Grouped(hour) + L" за последние " + minutes;
       const std::size_t at = head(y, L"Блокировка", std::move(said), 0, counting ? 3 : 0);
       const float headTop = l.items[at].rect.top;
       float top = foot(at);
       headHint(at, L"Что закрывается по пути, по спискам. Точка в названии — закрывается; нажми, чтобы "
                    L"переключить, наведи — расскажет, что это.\n\nСломалось что-то нужное — «Недавно» ниже: "
-                   L"нажми имя, и оно пойдёт дальше, или «Пропустить последние» — пропустит всё, что закрыто "
-                   L"за последние 2 минуты.");
+                   L"нажми имя, и оно пойдёт дальше, или «Пропустить последние» — покажет, что закрыто за "
+                   L"последние 2 минуты: пропусти одно или всё сразу. Ошибся — «Вернуть» закроет снова.");
       if (counting) {
         Item count = CommandItem(Kind::Readout, {x1 - 20 - kReadoutWidth, headTop + 6, x1 - 20, headTop + 48},
                                  Grouped(c.blockedTotal), nullptr, UiCommand::BlockedMenu);
-        count.detail = c.blockedSince.empty() ? L"закрыто с запуска" : L"закрыто с " + c.blockedSince;
+        count.detail = c.blockedSince.empty() ? L"закрыто с запуска"
+                       : sameNumber           ? L"закрыто"  // since when: under the trace
+                                              : L"закрыто с " + c.blockedSince;
         count.tip = c.blockedSince.empty() ? L"Столько адресов закрыто с запуска Sovereign"
                                            : L"Столько адресов закрыто с запуска Sovereign в " + c.blockedSince;
         l.items.push_back(std::move(count));
         // The hour, a bar a minute: its share of the busiest, in thousandths.
         Item trace = Make(Kind::Trace, {in, top, x1 - 20, top + kTraceHeight});
-        for (const std::uint32_t minute : c.blockedMinutes) {
+        trace.text = wholeHour ? std::wstring() : c.blockedFrom;  // under where it starts
+        for (std::size_t i = skipped; i < c.blockedMinutes.size(); ++i) {
+          const std::uint32_t minute = c.blockedMinutes[i];
           const std::uint64_t share =
               minute == 0 || busiest == 0 ? 0 : std::max<std::uint64_t>(1, std::uint64_t{minute} * 1000 / busiest);
           trace.text2 += static_cast<wchar_t>(share);
@@ -4120,7 +4135,7 @@ class Painter {
           {L"Реклама", r.blockAds, UiCommand::ToggleBlockAds,
            L"Запросы к рекламным серверам по спискам никуда не уходят: страницы грузятся без рекламы. "
            L"Сломалось что-то нужное — «Недавно» ниже: нажми имя, и оно пойдёт дальше, или «Пропустить "
-           L"последние» — пропустит всё, что закрыто за последние 2 минуты."},
+           L"последние» — выбери из закрытого за последние 2 минуты."},
           {L"Трекеры", r.trackers, UiCommand::ToggleTrackers,
            L"Серверы аналитики и слежки (счётчики, пиксели, профилирование): сайт открывается, но не узнаёт, "
            L"куда ты ходил до него. Обычно ничего не ломает."},
@@ -4173,24 +4188,50 @@ class Painter {
         recent.detail = names.empty() ? std::wstring(L"пока пусто") : names;
         recent.tip = L"Что закрыто недавно: нажми имя, и оно пойдёт дальше";
         top += kSettingsRow + put(std::move(recent));
-        // A site broke just now: all cut in the last two minutes let through at once (main.cpp's PassJustNow).
+        // A site broke just now: what was cut in the last two minutes, in a menu - one of them let
+        // through or all (main.cpp's PassJustNow). A click passed them all at once, by chance too.
         line(top);
         Item broke = Make(Kind::ValueRow, row(top), L"Сайт сломался только что?");
         broke.indent = kInstrumentIndent;
         l.items.push_back(std::move(broke));
         const std::size_t n = c.blockedJustNow;
-        const std::wstring pass = n > 0 ? L"Пропустить последние " + std::to_wstring(n) : L"Пропускать нечего";
+        const std::wstring pass = n > 0 ? L"Пропустить последние " + std::to_wstring(n) + L"…" : L"Пропускать нечего";
         const float bw = std::ceil(TextWidth(pass, body_.get())) + 28;
         Item button = CommandItem(Kind::Button, {x1 - 20 - bw, top + 4, x1 - 20, top + kSettingsRow - 4}, pass, nullptr,
                                   UiCommand::PassJustNow);
         button.quiet = true;
         button.enabled = n > 0;
         if (n > 0) {
-          button.tip = L"Пропустит " + std::to_wstring(n) + L" " + Plural(n, L"адрес", L"адреса", L"адресов") + L", " +
-                       Plural(n, L"закрытый", L"закрытых", L"закрытых") + L" за последние 2 минуты";
+          button.tip = L"Покажет " + std::to_wstring(n) + L" " + Plural(n, L"адрес", L"адреса", L"адресов") + L", " +
+                       Plural(n, L"закрытый", L"закрытых", L"закрытых") +
+                       L" за последние 2 минуты: пропусти нужный или все сразу";
         }
         l.items.push_back(std::move(button));
         top += kSettingsRow;
+        if (!c.passedNames.empty()) {
+          // What it let through, a few minutes after: "Вернуть" closes it again (main.cpp's LetBack).
+          const std::size_t p = c.passedNames.size();
+          line(top);
+          Item passed = Make(Kind::ValueRow, row(top),
+                             L"Пропущено в " + c.passedAt + L": " + std::to_wstring(p) + L" " +
+                                 Plural(p, L"адрес", L"адреса", L"адресов"));
+          passed.indent = kInstrumentIndent;
+          std::wstring names;
+          for (const std::wstring& name : c.passedNames) {
+            names += L"\n";
+            names += name;
+          }
+          passed.tip = L"Идут дальше по правилу на доске «Маршруты»:" + names;
+          l.items.push_back(std::move(passed));
+          const std::wstring back = L"Вернуть";
+          const float backWidth = std::ceil(TextWidth(back, body_.get())) + 28;
+          Item undo = CommandItem(Kind::Button, {x1 - 20 - backWidth, top + 4, x1 - 20, top + kSettingsRow - 4}, back,
+                                  nullptr, UiCommand::LetBack);
+          undo.quiet = true;
+          undo.tip = L"Снова закрыть, убрать из правил:" + names;
+          l.items.push_back(std::move(undo));
+          top += kSettingsRow;
+        }
         line(top);
         Item who = CommandItem(Kind::ValueRow, row(top), L"Кто обращается к закрытому", nullptr, UiCommand::BlockedApps);
         who.detail = L"по программам";
@@ -5080,37 +5121,58 @@ class Painter {
 
   // The last hour of blocks (Kind::Trace): a bar a minute, its height the minute's share of the
   // busiest, the older ones paler; a baseline under them; "час назад" and "сейчас" under it.
+  // text2 holds the minutes known, the last ones of the hour: less than 60 - the trace starts
+  // where the counting did, under it its time (text), not an hour of nothing (11.11.2026, review).
   void DrawTrace(const Canvas& k, const Item& it) const {
+    constexpr std::size_t kMinutes = 60;
     const D2D1_RECT_F r = it.rect;
-    const std::size_t n = it.text2.size();
+    const std::size_t n = std::min(it.text2.size(), kMinutes);
+    const std::size_t from = kMinutes - n;  // the first known minute's place in the hour
     const float base = r.top + kTraceBars;
-    if (n > 0) {
-      const float step = (r.right - r.left + 2) / static_cast<float>(n);
-      for (std::size_t i = 0; i < n; ++i) {
-        const float share = static_cast<float>(it.text2[i]) / 1000.0f;
-        if (share <= 0) {
-          continue;
-        }
-        const float alpha = i < n / 2 ? 0.3f : (i < n * 11 / 12 ? 0.55f : 1.0f);
-        const float x = r.left + step * static_cast<float>(i);
-        const float top = base - std::max(1.0f, (kTraceBars - 1) * std::min(share, 1.0f));
-        k.Round({x, top, x + step - 2, base}, 1, FromColorRef(ui::kDanger, 0.85f * alpha));
+    const float step = (r.right - r.left + 2) / static_cast<float>(kMinutes);
+    const float start = n == kMinutes ? r.left : r.left + step * static_cast<float>(from);
+    for (std::size_t i = 0; i < n; ++i) {
+      const float share = static_cast<float>(it.text2[i]) / 1000.0f;
+      if (share <= 0) {
+        continue;
+      }
+      const std::size_t place = from + i;
+      const float alpha = place < kMinutes / 2 ? 0.3f : (place < kMinutes * 11 / 12 ? 0.55f : 1.0f);
+      const float x = r.left + step * static_cast<float>(place);
+      const float top = base - std::max(1.0f, (kTraceBars - 1) * std::min(share, 1.0f));
+      k.Round({x, top, x + step - 2, base}, 1, FromColorRef(ui::kDanger, 0.85f * alpha));
+    }
+    const D2D1_COLOR_F secondary = FromColorRef(ui::kSecondaryText);
+    if (n < kMinutes) {  // the hour not counted yet: a faint dotted stretch, the line from where it began
+      const int dots = static_cast<int>((start - r.left) / 6);
+      for (int i = 0; i < dots; ++i) {
+        const float x = r.left + 6.0f * static_cast<float>(i);
+        k.Line({x, base + 0.5f}, {x + 2, base + 0.5f}, FromColorRef(ui::kSecondaryText, 0.15f));
       }
     }
-    k.Line({r.left, base + 0.5f}, {r.right, base + 0.5f}, FromColorRef(ui::kSecondaryText, 0.3f));
+    k.Line({start, base + 0.5f}, {r.right, base + 0.5f}, FromColorRef(ui::kSecondaryText, 0.3f));
     const D2D1_RECT_F under{r.left, base + 2, r.right, r.bottom};
-    k.Text(L"час назад", caption_.get(), under, FromColorRef(ui::kSecondaryText));
-    k.Text(L"сейчас", trailing_.get(), under, FromColorRef(ui::kSecondaryText));
+    k.Text(L"сейчас", trailing_.get(), under, secondary);
+    if (n == kMinutes || it.text.empty()) {
+      k.Text(L"час назад", caption_.get(), under, secondary);
+      return;
+    }
+    // The start's time under the start, as long as it keeps off "сейчас".
+    const float room = r.right - TextWidth(L"сейчас", trailing_.get()) - 8 - TextWidth(it.text, caption_.get());
+    const float left = std::max(r.left, std::min(start, room));
+    k.Text(it.text, caption_.get(), {left, base + 2, r.right, r.bottom}, secondary);
   }
 
   // The fate's mark on the card's edge (3x12, the rail's tone): a row whose fate is known puts it
   // at its middle - while its switch is on, or always for a way (a DNS). The row sits 4 in from
-  // the card's edge, so the mark stands on the edge itself. The switch stays white.
+  // the card's edge, so the mark stands on the edge itself. The switch stays white. A row in by
+  // an instrument's name (indent) has it just before its text: on the edge it stood under no one
+  // (11.11.2026, review).
   void DrawTick(const Canvas& k, const Item& it, float cy) const {
     if (it.tick < 0 || !(it.tickAlways || it.checked)) {
       return;
     }
-    const float x = it.rect.left - 4;
+    const float x = it.indent > 0 ? it.rect.left + it.indent + 6 : it.rect.left - 4;
     k.Round({x, cy - 6, x + 3, cy + 6}, 1.5f, FromColorRef(BucketColor(it.tick), kRailAlpha));
   }
 
@@ -6558,7 +6620,8 @@ struct MainWindow::Impl {
     args.sub = item.sub;
     args.owner = hwnd;
     const float scale = static_cast<float>(Dpi()) / 96.0f;
-    POINT anchor{static_cast<LONG>(item.rect.left * scale), static_cast<LONG>(item.rect.bottom * scale)};
+    // Under the row's text, in by an instrument's name too: the DNS's menu opened on the card's edge.
+    POINT anchor{static_cast<LONG>((item.rect.left + item.indent) * scale), static_cast<LONG>(item.rect.bottom * scale)};
     ClientToScreen(hwnd, &anchor);
     args.anchor = anchor;
     onCommand(item.command, args);

@@ -284,7 +284,12 @@ struct UiContent {
   std::uint64_t blockedTotal = 0;
   std::wstring blockedSince;
   std::array<std::uint32_t, 60> blockedMinutes{};
+  std::size_t blockedKnown = 0;  // of those minutes, the last ones counted (60: the whole hour)
+  std::wstring blockedFrom;      // when the counting of them began ("9:12")
   std::size_t blockedJustNow = 0;
+  // What "Пропустить" let through last, a few minutes after, and when ("9:40"): "Вернуть" takes it back.
+  std::vector<std::wstring> passedNames;
+  std::wstring passedAt;
   std::vector<std::wstring> blockedLately;
   bool lidUp = false;            // the kill switch's lid lifted for a second click (the window's own)
   std::wstring error;            // why the box doesn't run; empty if it does or is off
@@ -421,7 +426,8 @@ enum class UiCommand : std::uint8_t {
   ToggleCloseDoh,       // a browser's own DoH/DoT refused, on or off
   BlockedMenu,        // anchor: what was blocked lately - a click lets one through
   BlockedApps,        // anchor: which programs asked for what was blocked (information)
-  PassJustNow,        // what the blocks refused in the last two minutes let through: a site broke just now
+  PassJustNow,        // anchor: what the blocks refused in the last two minutes, to let through: a site broke just now
+  LetBack,            // what PassJustNow let through last closed again
   ToggleWarp,         // on: registers a WARP device first if there's none
   AddWarpSite,        // starts typing over WARP's button
   AddWarpSiteText,    // text: sites (or subnets, programs) to send through WARP

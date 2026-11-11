@@ -4,6 +4,13 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.5 — 11.11.2026
+
+**«Пропустить последние N» no longer lets everything through with one click.** It opens a menu of the names closed in the last 2 minutes: pick one to let only it through, or «Пропустить все N». For 10 minutes after, the card shows «Пропущено в 9:40: 3 адреса» with «Вернуть», which closes them again and drops a rule left empty. Names a rule already lets through no longer come back into the list, so a second click doesn't make a second rule of them. Rules made by earlier clicks are on the Routing page.
+
+- **The minute history starts where the counting did.** In the first hour the trace begins at its start time instead of a blank «час назад», and the head no longer repeats the number next to it: «за 12 минут» beside «7 закрыто».
+- **The DNS menus open under their text**, not at the card's edge, and the DNS rows' colour marks sit beside their names.
+
 ## 0.6.4 — 11.11.2026
 
 **Settings are instruments now.** Five cards instead of sections with headings: Kill switch, «Закрыть от локальной сети», Блокировка, Тонкая настройка and Sovereign. Each card's head has a lamp, the name and one line about what it does right now, e.g. «готов: закроет интернет, если VPN оборвётся». A card that needs attention says so with an amber or red edge and a white line in its head. The «?» and ↻ in a head show while you point at it.

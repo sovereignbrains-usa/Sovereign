@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.7 — 11.11.2026
+
+**One update button instead of two.** When a new version is out, the Sovereign card's «Проверить» becomes a white «Обновить» right in its head, next to «вышла 0.6.7, скачана». The wide bar under the card is gone, and the arrow in the window title no longer shows on the Settings page, where the card already says it; on the other pages it stays.
+
 ## 0.6.6 — 11.11.2026
 
 **The Sovereign card has a «Проверить» button you can see.** The ↻ that showed only under the pointer is gone from it. «обновлений нет» now says when it was checked: «обновлений нет, проверено в 18:27» — the client looks for a new version every 12 hours, so a release can be out for hours before it asks.

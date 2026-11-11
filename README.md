@@ -19,7 +19,7 @@ Third-party sing-box clients have a reputation for being thin, sloppy wrappers. 
 
 ## Status
 
-The client works and is in daily use, released as an experimental build (0.6.6, 11.11.2026; what changed: [CHANGELOG](CHANGELOG.md)). The hybrid core and the conformance harness are done; now the work is the layers for the three kinds of users. Plan, gates and how each phase was accepted: [docs/roadmap.md](docs/roadmap.md).
+The client works and is in daily use, released as an experimental build (0.6.7, 11.11.2026; what changed: [CHANGELOG](CHANGELOG.md)). The hybrid core and the conformance harness are done; now the work is the layers for the three kinds of users. Plan, gates and how each phase was accepted: [docs/roadmap.md](docs/roadmap.md).
 
 | Phase | What | State |
 |---|---|---|

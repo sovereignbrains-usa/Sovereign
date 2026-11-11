@@ -375,7 +375,7 @@ constexpr float kTraceHeight = 42;
 constexpr float kReadoutWidth = 110;   // a count read off on an instrument's right: "12 345" over "закрыто с 9:12"
 
 // What an Instrument's right keeps for its control: a switch, a fold's chevron, a count (sub 3: a Readout laid over it).
-constexpr float kHeadButtonWidth = 112;  // a button on an instrument's right: "Проверить", "Проверяю…"
+constexpr float kHeadButtonWidth = 112;  // a button on an instrument's right: "Проверить", "Проверяю…", "Обновить"
 constexpr float InstrumentControl(const Item& it) {
   switch (it.sub) {
     case 1: return 16 + 40 + 12;
@@ -2382,8 +2382,11 @@ class Painter {
     // (DrawChrome). Downloading, a click opens the settings, where the
     // update's state is told in full. Waiting for a quiet moment, a click
     // installs it now.
+    // Not on the settings: the Sovereign card there says it and has its button - two buttons for one
+    // update were one too many (11.11.2026).
     std::optional<Item> update;
-    if (c.update == UiUpdate::Available || c.update == UiUpdate::Downloading || c.update == UiUpdate::Waiting) {
+    if (page != UiPage::Settings &&
+        (c.update == UiUpdate::Available || c.update == UiUpdate::Downloading || c.update == UiUpdate::Waiting)) {
       // On an inner page the arrow alone, left of the report: the room is the page's name's.
       const float wide = 4 + 22 + TextWidth(c.updateVersion, pill_.get()) + 12;
       const float w = !inner && left + wide <= right - 4 ? wide : kKey;
@@ -4276,7 +4279,7 @@ class Painter {
     }
 
     // The app: its version and the sing-box inside, whether there's newer; how it starts and updates,
-    // the data folder. An update waiting, its button under the card.
+    // the data folder. A version out, its button in the head.
     // (A card of rows - the versions, "Проверить сейчас" - from 30.10.2026 till 11.11.2026: the check is
     // the head's ↻ now.)
     {
@@ -4308,17 +4311,31 @@ class Painter {
       const std::size_t at = head(y, L"Sovereign " + c.version, std::move(said), lamp, 4);
       float top = foot(at);
       headHint(at, L"Версия клиента и sing-box внутри него. Новые версии ищутся сами, раз в 12 часов, если в "
-                   L"«Обновлениях» не выбрано «не проверять»; «Проверить» — поискать сейчас.");
+                   L"«Обновлениях» не выбрано «не проверять»; «Проверить» — поискать сейчас, «Обновить» — "
+                   L"поставить вышедшую.");
       // Seen always, a button with its word: the shy ↻ of the other heads, nobody found (11.11.2026).
+      // A version out, the same place is the update's own button, white: the wide bar under the card
+      // and the title's arrow said it twice (11.11.2026).
       {
         const D2D1_RECT_F h = l.items[at].rect;
         const float cy = (h.top + h.bottom) / 2;
-        Item check = CommandItem(Kind::Button, {h.right - 16 - kHeadButtonWidth, cy - 14, h.right - 16, cy + 14},
-                                 checking ? L"Проверяю…" : L"Проверить", nullptr, UiCommand::CheckUpdate);
-        check.quiet = true;
-        check.enabled = !checking && c.update != UiUpdate::Off;
-        check.tip = L"Поискать новую версию сейчас";
-        l.items.push_back(std::move(check));
+        const D2D1_RECT_F box{h.right - 16 - kHeadButtonWidth, cy - 14, h.right - 16, cy + 14};
+        if (c.update == UiUpdate::Available || c.update == UiUpdate::Waiting) {
+          Item install = CommandItem(Kind::AccentButton, box, L"Обновить", kGlyphDownload, UiCommand::InstallUpdate);
+          install.tip = c.update == UiUpdate::Waiting
+                            ? L"Поставить " + c.updateVersion + L" сейчас. VPN пропадёт примерно на полминуты"
+                            : L"Скачать и поставить " + c.updateVersion + L". VPN пропадёт примерно на полминуты";
+          l.items.push_back(std::move(install));
+        } else {
+          const bool downloading = c.update == UiUpdate::Downloading;
+          Item check = CommandItem(Kind::Button, box,
+                                   downloading ? L"Обновляю…" : checking ? L"Проверяю…" : L"Проверить", nullptr,
+                                   UiCommand::CheckUpdate);
+          check.quiet = true;
+          check.enabled = !checking && c.update != UiUpdate::Off;
+          check.tip = L"Поискать новую версию сейчас";
+          l.items.push_back(std::move(check));
+        }
       }
 
       line(top);
@@ -4362,14 +4379,6 @@ class Painter {
     }
     if (c.update == UiUpdate::Failed || (c.update == UiUpdate::Available && !c.updateError.empty())) {
       y = Paragraph(l, Kind::ErrorText, UpdateStatus(c), x0, x1, y) + kSettingsGap;
-    }
-    if (c.update == UiUpdate::Available || c.update == UiUpdate::Waiting) {
-      y += 10;
-      l.items.push_back(CommandItem(Kind::AccentButton, {x0, y, x1, y + kButton},
-                                    c.update == UiUpdate::Waiting ? L"Обновить сейчас до " + c.updateVersion
-                                                                  : L"Обновить до " + c.updateVersion,
-                                    kGlyphDownload, UiCommand::InstallUpdate));
-      y += kButton;
     }
     return y;
   }

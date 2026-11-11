@@ -975,6 +975,8 @@ void TestUpdateInstall() {
                                   huge + R"("})"),
                 "release must be a signed description"));
   CHECK(!updates.asked);
+  // The refusal above left an error on the fake. These two are accepted and forwarded.
+  updates.error.clear();
   const json forwarded =
       Send(handler, R"({"cmd":"update_install","version":"0.5.46","installer":"x","session":1,"release":"abc"})");
   CHECK(forwarded.value("cmd", "") == "update_install");

@@ -4216,19 +4216,19 @@ class Painter {
                              L"Пропущено в " + c.passedAt + L": " + std::to_wstring(p) + L" " +
                                  Plural(p, L"адрес", L"адреса", L"адресов"));
           passed.indent = kInstrumentIndent;
-          std::wstring names;
+          std::wstring list;
           for (const std::wstring& name : c.passedNames) {
-            names += L"\n";
-            names += name;
+            list += L"\n";
+            list += name;
           }
-          passed.tip = L"Идут дальше по правилу на доске «Маршруты»:" + names;
+          passed.tip = L"Идут дальше по правилу на доске «Маршруты»:" + list;
           l.items.push_back(std::move(passed));
           const std::wstring back = L"Вернуть";
           const float backWidth = std::ceil(TextWidth(back, body_.get())) + 28;
           Item undo = CommandItem(Kind::Button, {x1 - 20 - backWidth, top + 4, x1 - 20, top + kSettingsRow - 4}, back,
                                   nullptr, UiCommand::LetBack);
           undo.quiet = true;
-          undo.tip = L"Снова закрыть, убрать из правил:" + names;
+          undo.tip = L"Снова закрыть, убрать из правил:" + list;
           l.items.push_back(std::move(undo));
           top += kSettingsRow;
         }

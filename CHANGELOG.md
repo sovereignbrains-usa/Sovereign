@@ -4,6 +4,11 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.10 — 12.11.2026
+
+- **No more cut-off notes beside protocols on the Servers page.** The second subscription's ways no longer carry its name as a grey note ("REALITY · ewkereboss.xyz", cut to "REALI…"): the server's card already says which server they lead to. A note now appears only when the provider named a way in words of its own.
+- **The games column says "нет" when UDP doesn't get through**, instead of "не отвечает" cut to "не отве…".
+
 ## 0.6.9 — 12.11.2026
 
 **Any server on the Servers page opens without switching to it.** A chevron at the right of a server's head opens its card to show its protocols and folds it again; the connection stays where it is. A click on the head itself still switches to that server, as before.

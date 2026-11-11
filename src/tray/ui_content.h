@@ -795,7 +795,8 @@ inline std::wstring OpenText(const UiDelay& delay) {
 }
 
 // ИГРЫ: the spread of UDP through it, what a game feels - "±3 мс"; "нет UDP" (naive carries none),
-// "не отвечает"; empty: not measured.
+// "нет" (it should, and didn't answer - "не отвечает" didn't fit the column: "не отве…", 12.11.2026);
+// empty: not measured.
 inline std::wstring GamesText(const UiDelay& delay) {
   if (delay.state != UiDelay::State::Ok) {
     return {};
@@ -806,7 +807,7 @@ inline std::wstring GamesText(const UiDelay& delay) {
   if (delay.udpMs > 0) {
     return delay.udpLoss >= 10 ? std::format(L"−{}%", delay.udpLoss) : std::format(L"±{} мс", delay.udpJitter);
   }
-  return delay.udpError.empty() ? std::wstring() : std::wstring(L"не отвечает");
+  return delay.udpError.empty() ? std::wstring() : std::wstring(L"нет");
 }
 
 // The games' figure is one to mind: a stutter (from 15 ms) or a tenth lost.

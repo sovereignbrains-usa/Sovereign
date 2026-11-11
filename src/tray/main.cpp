@@ -5518,18 +5518,44 @@ UiContent ContentFrom(const View& v) {
     const auto it = v.serverTitles.find(tag);
     return it == v.serverTitles.end() ? nullptr : &it->second;
   };
+  // Where each came from: "<tag> · <name>" is the configuration combine renamed it for; a tag as it
+  // is, the first one on that has it (a later one's clash was renamed). And its tag there.
+  const auto originOf = [&](const std::string& tag) -> std::pair<std::string, std::string> {
+    const View::ProfileView* plain = nullptr;
+    for (const View::ProfileView& profile : v.profiles) {
+      if (!profile.enabled) {
+        continue;
+      }
+      for (const View::ServerView& server : profile.servers) {
+        if (server.tag == tag) {
+          plain = plain != nullptr ? plain : &profile;
+        } else if (sovereign::tray::IsRenamedTag(tag, server.tag, profile.name)) {
+          return {profile.id, server.tag};
+        }
+      }
+    }
+    return {plain != nullptr ? plain->id : std::string(), tag};
+  };
+  // The note goes by the tag its configuration gave it: "REALITY · ewkereboss.xyz" is only
+  // combine's rename, and the server's card already says which server (12.11.2026, his screenshot:
+  // "REALI…", "AnyTLS-REALITY · ewkerebos…" under one card, nothing under the other).
   const auto noteOf = [&](const std::string& tag) {
     const sovereign::tray::ServerTitle* title = titleOf(tag);
-    return title == nullptr || sovereign::tray::NameIsTitle(tag, title->title) ? std::string() : tag;
+    const std::string given = originOf(tag).second;
+    return title == nullptr || sovereign::tray::NameIsTitle(given, title->title) ? std::string() : given;
   };
   for (const std::string& p : v.protocols) {
     const sovereign::tray::ServerTitle* title = titleOf(p);
     c.protocolTitles.push_back(title != nullptr ? Widen(title->title) : std::wstring());
     std::string note = noteOf(p);
+    // The host, the port too, for ways of one configuration still not told from another; another
+    // configuration's are on a card of their own.
+    const std::string source = originOf(p).first;
     const auto alike = [&](bool port) {
       return std::count_if(v.protocols.begin(), v.protocols.end(), [&](const std::string& other) {
         const sovereign::tray::ServerTitle* o = titleOf(other);
-        return o != nullptr && o->title == title->title && noteOf(other) == note && (!port || o->host == title->host);
+        return o != nullptr && o->title == title->title && noteOf(other) == note && originOf(other).first == source &&
+               (!port || o->host == title->host);
       });
     };
     if (title != nullptr && !title->host.empty() && alike(false) > 1) {
@@ -5540,26 +5566,8 @@ UiContent ContentFrom(const View& v) {
     }
     c.protocolNotes.push_back(Widen(note));
   }
-  // Where each came from: "<tag> · <name>" is the configuration combine renamed it for; a tag as it
-  // is, the first one on that has it (a later one's clash was renamed).
-  const auto sourceOf = [&](const std::string& tag) -> std::string {
-    const View::ProfileView* plain = nullptr;
-    for (const View::ProfileView& profile : v.profiles) {
-      if (!profile.enabled) {
-        continue;
-      }
-      for (const View::ServerView& server : profile.servers) {
-        if (server.tag == tag) {
-          plain = plain != nullptr ? plain : &profile;
-        } else if (sovereign::tray::IsRenamedTag(tag, server.tag, profile.name)) {
-          return profile.id;
-        }
-      }
-    }
-    return plain != nullptr ? plain->id : std::string();
-  };
   for (const std::string& p : v.protocols) {
-    c.protocolSources.push_back(Widen(sourceOf(p)));
+    c.protocolSources.push_back(Widen(originOf(p).first));
   }
   c.protocol = v.protocol;
   for (const auto& delay : v.delays) {

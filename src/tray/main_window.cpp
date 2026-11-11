@@ -3208,7 +3208,7 @@ class Painter {
     const std::wstring dash = delay.state == UiDelay::State::Failed ? L"—" : L"";
     k.Text(open.empty() ? dash : open, trailing_.get(), cells[0], open.empty() ? dim : (delay.connect >= 1500 ? FromColorRef(ui::kWarning) : primary));
     k.Text(games.empty() ? dash : games, trailing_.get(), cells[1],
-           games.empty() || games == L"нет UDP" ? dim : (GamesWarn(delay) || games == L"не отвечает" ? FromColorRef(ui::kWarning) : primary));
+           games.empty() || games == L"нет UDP" ? dim : (GamesWarn(delay) || games == L"нет" ? FromColorRef(ui::kWarning) : primary));
     if (!CanMeasure(c, delay)) {  // else its key (MeasureKey) says it
       k.Text(speed.empty() ? dash : speed, trailing_.get(), cells[2], delay.measuring || speed.empty() ? dim : primary);
     }

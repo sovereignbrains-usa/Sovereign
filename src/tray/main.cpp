@@ -5588,15 +5588,19 @@ UiContent ContentFrom(const View& v) {
   c.autoIsBest = v.autoIsBest;
   c.selectError = Widen(v.selectError);
   for (const auto& location : v.locations) {
-    c.locations.push_back({.country = Widen(location.country),
+    const std::wstring country = Widen(location.country);
+    c.locations.push_back({.country = country,
                            .isp = Widen(sovereign::tray::ShortIsp(location.isp)),
-                           .ip = Widen(location.ip)});
+                           .ip = Widen(location.ip),
+                           .countryName = country.empty() ? std::wstring() : CountryName(country),
+                           .city = Widen(location.city),
+                           .hoster = Widen(sovereign::tray::HosterOf(location.host, location.ip))});
   }
   for (const auto& checks : v.sites) {
     std::vector<sovereign::tray::UiSite>& row = c.sites.emplace_back();
     for (const auto& site : checks.sites) {
       if (std::wstring label = sovereign::tray::SiteLabel(site.site); !label.empty()) {
-        row.push_back({.label = std::move(label), .state = site.state});
+        row.push_back({.label = std::move(label), .state = site.state, .name = sovereign::tray::SiteName(site.site)});
       }
     }
   }

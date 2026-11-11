@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <initializer_list>
 #include <map>
 #include <numbers>
 #include <optional>
@@ -359,6 +360,7 @@ constexpr float kRailQuiet = 12;  // an empty way's rail: a short stroke, not a 
 // the "?"'s ring, a switch's groove: a family of one weight (30.10.2026, a
 // review's "иконки смешаны по стилю").
 constexpr float kIconStroke = 1.3f;
+constexpr float kSiteIcon = 16;  // a site's mark on a server's head (DrawSiteIcon)
 
 // A Settings card as an instrument (docs/design/settings-instruments.html, 11.11.2026): its head a lamp,
 // the name and what it does now, its rows in under the name. From the head's left (4 in from the card):
@@ -2778,6 +2780,26 @@ class Painter {
     return y + h;
   }
 
+  // Whether a hoster's domain names the network's owner: "hetzner.com" and "Hetzner Online" -
+  // its first label in the owner's letters and digits (or theirs in it), case aside.
+  static bool SameCompany(std::wstring_view hoster, std::wstring_view isp) {
+    const auto squeeze = [](std::wstring_view s) {
+      std::wstring out;
+      for (const wchar_t ch : s) {
+        if ((ch >= L'a' && ch <= L'z') || (ch >= L'0' && ch <= L'9')) {
+          out.push_back(ch);
+        } else if (ch >= L'A' && ch <= L'Z') {
+          out.push_back(static_cast<wchar_t>(ch - L'A' + L'a'));
+        }
+      }
+      return out;
+    };
+    const std::wstring name = squeeze(hoster.substr(0, hoster.find(L'.')));
+    const std::wstring owner = squeeze(isp);
+    return name.size() >= 3 && !owner.empty() &&
+           (owner.find(name) != std::wstring::npos || (owner.size() >= 3 && name.find(owner) != std::wstring::npos));
+  }
+
   // What option `i` is (UiContent::protocolTitles), or its name if that's unknown.
   static std::wstring OptionTitle(const UiContent& c, std::size_t i) {
     if (i < c.protocolTitles.size() && !c.protocolTitles[i].empty()) {
@@ -2880,11 +2902,19 @@ class Painter {
                                     ? FlagEmojiFor(std::string{static_cast<char>(loc->country[0]),
                                                                static_cast<char>(loc->country[1])})
                                     : std::wstring();
-      // Its name: the network it's in; a lone way not placed yet goes by its own.
-      std::wstring name = loc != nullptr && !loc->isp.empty() ? loc->isp
-                          : ways.size() == 1                 ? WithoutFlagEmoji(OptionTitle(c, first))
-                          : loc != nullptr && !loc->ip.empty() ? loc->ip
-                                                               : WithoutFlagEmoji(OptionTitle(c, first));
+      // Its name: where it is - the flag, the country, the city (11.11.2026, his: "флаг, название
+      // страны, ip, хостинг, провайдера, задержку до него, а ниже уже протоколы"); under it its
+      // address, who hosts it and whose network it's in. Not placed yet: a lone way's own name.
+      const bool placed = loc != nullptr && !loc->country.empty();
+      std::wstring name;
+      if (placed) {
+        name = loc->countryName.empty() ? loc->country : loc->countryName;
+        if (!loc->city.empty()) {
+          name += L", " + loc->city;
+        }
+      } else {
+        name = ways.size() > 1 && loc != nullptr && !loc->ip.empty() ? loc->ip : WithoutFlagEmoji(OptionTitle(c, first));
+      }
       if (!flag.empty()) {
         name = std::format(L"{} {}", flag, name);
       }
@@ -2892,18 +2922,72 @@ class Painter {
       const std::wstring ip = loc != nullptr && !loc->ip.empty() && !c.hideExitIp && name.find(loc->ip) == std::wstring::npos
                                   ? loc->ip
                                   : std::wstring();
+      // The hoster said once: "hetzner.com" over "Hetzner Online" is the same company twice.
+      const bool hosterShown = loc != nullptr && !loc->hoster.empty() && !SameCompany(loc->hoster, loc->isp);
+      std::vector<std::wstring> facts;
+      if (!ip.empty()) {
+        facts.push_back(ip);
+      }
+      if (hosterShown) {
+        facts.push_back(loc->hoster);
+      }
+      if (loc != nullptr && !loc->isp.empty()) {
+        facts.push_back(loc->isp);
+      }
+      std::wstring detail;
+      for (const std::wstring& fact : facts) {
+        detail += (detail.empty() ? L"" : L" · ") + fact;
+      }
+      if (!expanded) {  // folded: how its ways do, on a line of its own
+        if (const std::wstring summary = ServerSummary(c, ways); !summary.empty()) {
+          detail += (detail.empty() ? L"" : L"\n") + summary;
+        }
+      }
       const std::size_t card = l.items.size();
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kLatencyRow}));
       Item head = CommandItem(Kind::Choice, {x0 + 4, y + 3, x1 - 4, y + kLatencyRow - 3}, name, nullptr,
                               UiCommand::SetProtocol, static_cast<int>(first));
       head.checked = now >= 0 && std::find(ways.begin(), ways.end(), static_cast<std::size_t>(now)) != ways.end();
-      head.detail = expanded ? ip : ServerSummary(c, ways);
-      if (!expanded && !ip.empty()) {
-        head.detail = head.detail.empty() ? ip : ip + L" · " + head.detail;
+      head.detail = std::move(detail);
+      // More than a line under the name (the summary, or facts that wrap): the head grows, the name stays.
+      const float detailWidth = (x1 - 4) - (x0 + 4) - 42 - 12;
+      if (const float lines = TextHeight(head.detail, captionWrap_.get(), detailWidth);
+          !head.detail.empty() && lines > TextHeight(L"0", captionWrap_.get(), detailWidth) + 1) {
+        head.stacked = true;
+        head.rect.bottom = std::max(head.rect.bottom, head.rect.top + (kLatencyRow - 6) / 2 + 2 + lines + 6);
       }
       head.tip = L"Взять этот сервер: самый быстрый способ до него";
+      if (placed) {
+        head.tip += L"\n\nГде: " + (loc->countryName.empty() ? loc->country : loc->countryName) +
+                    (loc->city.empty() ? L"" : L", " + loc->city);
+      }
+      if (!ip.empty()) {
+        head.tip += (placed ? L"\n" : L"\n\n") + (L"IP: " + ip);
+      }
+      if (loc != nullptr && !loc->hoster.empty()) {
+        head.tip += L"\nХостинг: " + loc->hoster + L" (по обратному имени адреса)";
+      }
+      if (loc != nullptr && !loc->isp.empty()) {
+        head.tip += L"\nПровайдер, чья сеть: " + loc->isp;
+      }
+      if (first < c.sites.size() && !c.sites[first].empty()) {
+        std::wstring sites;
+        for (const UiSite& site : c.sites[first]) {
+          const wchar_t* state = site.state == SiteCheck::State::Ok        ? L"открывается"
+                                 : site.state == SiteCheck::State::Blocked ? L"не пускает отсюда"
+                                                                           : L"не отвечает";
+          if (!sites.empty()) {
+            sites += L", ";
+          }
+          sites += site.name.empty() ? site.label : site.name;
+          sites += L" — ";
+          sites += state;
+        }
+        head.tip += L"\n\nСайты: " + sites;
+      }
+      const float headBottom = head.rect.bottom;
       l.items.push_back(std::move(head));
-      float top = y + kLatencyRow;
+      float top = headBottom + 3;
       if (expanded) {
         l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
         top += 4;
@@ -4653,8 +4737,8 @@ class Painter {
         // A detail that wrapped (stacked) makes the row taller: the first line stays where it is.
         const float mid = it.stacked ? r.top + (kLatencyRow - 6) / 2 : (r.top + r.bottom) / 2;
         const D2D1_RECT_F line = it.detail.empty() ? r : D2D1_RECT_F{r.left, r.top + 4, r.right, mid + 2};
-        // Which sites open through the server, right to left before the latency:
-        // green opens, red answers "not from here", dim doesn't answer.
+        // Which sites open through the server, their marks right to left before the latency:
+        // green opens, red answers "not from here", dim doesn't answer (the head's tip says it in words).
         const bool isServer = it.command == UiCommand::SetProtocol && it.index >= 0 &&
                               static_cast<std::size_t>(it.index) < c.delays.size();
         const float delayRight = line.right - kColGap;  // the failures' column went with the ways' figures (06.11.2026)
@@ -4662,13 +4746,13 @@ class Painter {
         float nameRight = delayLeft;  // "48 ±3 мс" and "нет ответа" fit between here and the failures
         if (it.command == UiCommand::SetProtocol && it.index >= 0 && static_cast<std::size_t>(it.index) < c.sites.size()) {
           const auto& sites = c.sites[static_cast<std::size_t>(it.index)];
+          const float iconY = std::floor((line.top + line.bottom) / 2) + 0.5f;
           for (auto site = sites.rbegin(); site != sites.rend(); ++site) {
-            const float width = TextWidth(site->label, caption_.get()) + 6;
             const D2D1_COLOR_F ink = site->state == SiteCheck::State::Ok        ? FromColorRef(ui::kUpload)
                                      : site->state == SiteCheck::State::Blocked ? FromColorRef(ui::kDanger)
                                                                                 : secondary;
-            k.Text(site->label, caption_.get(), {nameRight - width, line.top, nameRight, line.bottom}, ink);
-            nameRight -= width + 6;
+            DrawSiteIcon(k, site->label, std::floor(nameRight - kSiteIcon / 2) + 0.5f, iconY, ink);
+            nameRight -= kSiteIcon + 5;
           }
         }
         k.Text(it.text, body_.get(), {line.left + 42, line.top, nameRight - 8, line.bottom}, primary);
@@ -5369,6 +5453,53 @@ class Painter {
     sink->EndFigure(D2D1_FIGURE_END_OPEN);
     if (SUCCEEDED(sink->Close())) {
       k.t->DrawGeometry(path.get(), k.Color(ink), width, roundCaps_.get());
+    }
+  }
+
+  // A site's mark on a server's head (UiSite::label: "YT", "TG", "GPT", "IG") in lines of `ink`,
+  // about 15 px across round (cx, cy): the services' own shapes, simplified. The words took the room
+  // the country and the latency need (11.11.2026, his: "вместо надписей YouTube ... значки").
+  void DrawSiteIcon(const Canvas& k, std::wstring_view site, float cx, float cy, D2D1_COLOR_F ink) const {
+    const auto polygon = [&](std::initializer_list<D2D1_POINT_2F> points, bool fill) {
+      wil::com_ptr<ID2D1PathGeometry> path;
+      wil::com_ptr<ID2D1GeometrySink> sink;
+      if (points.size() < 3 || FAILED(d2d_->CreatePathGeometry(path.put())) || FAILED(path->Open(sink.put()))) {
+        return;
+      }
+      const auto* p = points.begin();
+      sink->BeginFigure({cx + p->x, cy + p->y}, fill ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW);
+      for (++p; p != points.end(); ++p) {
+        sink->AddLine({cx + p->x, cy + p->y});
+      }
+      sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+      if (SUCCEEDED(sink->Close())) {
+        if (fill) {
+          k.t->FillGeometry(path.get(), k.Color(ink));
+        } else {
+          k.t->DrawGeometry(path.get(), k.Color(ink), kIconStroke, roundCaps_.get());
+        }
+      }
+    };
+    if (site == L"YT") {  // a screen with a play mark in it
+      k.Outline({cx - 7.5f, cy - 5.5f, cx + 7.5f, cy + 5.5f}, 3.2f, ink, kIconStroke);
+      polygon({{-2.0f, -3.0f}, {3.4f, 0.0f}, {-2.0f, 3.0f}}, true);
+    } else if (site == L"TG") {  // the paper plane, its fold
+      polygon({{-7.0f, -0.5f}, {6.5f, -6.0f}, {4.0f, 5.5f}, {-1.5f, 2.0f}}, false);
+      k.Line({cx - 1.5f, cy + 2.0f}, {cx + 3.0f, cy - 2.5f}, ink, kIconStroke);
+    } else if (site == L"IG") {  // the camera: a rounded square, its lens, its light
+      k.Outline({cx - 6.5f, cy - 6.5f, cx + 6.5f, cy + 6.5f}, 4.0f, ink, kIconStroke);
+      k.t->DrawEllipse(D2D1::Ellipse({cx, cy}, 3.0f, 3.0f), k.Color(ink), kIconStroke);
+      k.t->FillEllipse(D2D1::Ellipse({cx + 3.6f, cy - 3.6f}, 0.9f, 0.9f), k.Color(ink));
+    } else if (site == L"GPT") {  // the knot: three loops round the middle, turned by a third of a turn
+      D2D1_MATRIX_3X2_F was{};
+      k.t->GetTransform(&was);
+      for (const float angle : {0.0f, 60.0f, 120.0f}) {
+        k.t->SetTransform(D2D1::Matrix3x2F::Rotation(angle, {cx, cy}) * was);
+        k.t->DrawEllipse(D2D1::Ellipse({cx, cy}, 6.8f, 2.9f), k.Color(ink), 1.1f);
+      }
+      k.t->SetTransform(was);
+    } else {
+      k.Text(site, caption_.get(), {cx - 12, cy - 9, cx + 12, cy + 9}, ink);
     }
   }
 

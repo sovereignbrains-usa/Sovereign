@@ -62,6 +62,35 @@ void TestIsp() {
   CHECK(ShortIsp("") == "");
 }
 
+void TestCityAndHost() {
+  const auto full = ParseExitIpResponse(
+      R"({"cmd":"box_exitip","tag":"de","ip":"5.83.147.210","country":"DE","city":"Frankfurt am Main",)"
+      R"("host":"210.147.83.5.hostbrr.com"})");
+  CHECK(full && full->city == "Frankfurt am Main" && full->host == "210.147.83.5.hostbrr.com");
+  const auto odd = ParseExitIpResponse(R"({"cmd":"box_exitip","city":"a\r\nb","host":"Evil Host.com"})");
+  CHECK(odd && odd->city.empty() && odd->host.empty());
+  const auto dots = ParseExitIpResponse(R"({"cmd":"box_exitip","host":"a..com"})");
+  CHECK(dots && dots->host.empty());
+  const auto oneLabel = ParseExitIpResponse(R"({"cmd":"box_exitip","host":"localhost"})");
+  CHECK(oneLabel && oneLabel->host.empty());
+
+  using sovereign::tray::HosterOf;
+  CHECK(HosterOf("210.147.83.5.hostbrr.com", "5.83.147.210") == "hostbrr.com");
+  CHECK(HosterOf("17.171.175.5.hostbrr.com", "5.175.171.17") == "hostbrr.com");
+  CHECK(HosterOf("static.56.34.12.185.clients.your-server.de", "185.12.34.56") == "your-server.de");
+  CHECK(HosterOf("ip-005-083-147-210.vps.example.co.uk", "5.83.147.210") == "example.co.uk");
+  CHECK(HosterOf("vm4-3-2-1.example.com.br", "1.2.3.4") == "example.com.br");
+  CHECK(HosterOf("vpn.example.com", "5.83.147.210").empty());          // its owner's name
+  CHECK(HosterOf("210.147.83.6.hostbrr.com", "5.83.147.210").empty());  // another address's
+  CHECK(HosterOf("hostbrr.com", "5.83.147.210").empty());
+  CHECK(HosterOf("4.3.2.1.123.com", "1.2.3.4").empty());  // a number for a name
+  CHECK(HosterOf("210.147.83.5.hostbrr.com", "2a01:4f8::1").empty());
+  CHECK(HosterOf("210.147.83.5.hostbrr.com", "").empty());
+  CHECK(HosterOf("", "5.83.147.210").empty());
+  CHECK(HosterOf("1.1.1.1.example.com", "1.1.1.1") == "example.com");
+  CHECK(HosterOf("1.1.1.example.com", "1.1.1.1").empty());  // one "1" short
+}
+
 void TestRejectsOtherAnswers() {
   CHECK(!ParseExitIpResponse(R"({"cmd":"error","message":"gocore not loaded"})"));
   CHECK(!ParseExitIpResponse("not json"));
@@ -75,6 +104,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestParses();
     TestDropsWhatDoesNotFit();
     TestIsp();
+    TestCityAndHost();
     TestRejectsOtherAnswers();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

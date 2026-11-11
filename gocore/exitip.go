@@ -65,6 +65,8 @@ type exitIPState struct {
 	IP      string `json:"ip,omitempty"`
 	Country string `json:"country,omitempty"` // ISO 3166-1 alpha-2
 	ISP     string `json:"isp,omitempty"`     // the AS's organization: "Hetzner Online GmbH"
+	City    string `json:"city,omitempty"`    // "Frankfurt am Main"
+	Host    string `json:"host,omitempty"`    // the address's reverse name: "210.147.83.5.hostbrr.com", the hoster's
 	Error   string `json:"error,omitempty"`
 	Pending bool   `json:"pending,omitempty"`
 }
@@ -95,7 +97,7 @@ type exitIPRequest struct {
 }
 
 // box_exitip reports the exit through the outbound `tag` as JSON
-// ({"tag", "ip", "country", "isp", "error", "pending"}), and starts a lookup
+// ({"tag", "ip", "country", "isp", "city", "host", "error", "pending"}), and starts a lookup
 // when there's none for that tag yet or `refresh` asks for a new one (not
 // while one runs). requestJSON: {"tag": "...", "refresh": false} (validated
 // by the service). Freed with box_free.
@@ -183,7 +185,7 @@ func lookupExitIP(ctx context.Context, outbound adapter.Outbound) exitIPState {
 	}
 	// The first answer with an address gives the exit; one without the
 	// network's owner (ipinfo has none for some IPv6) takes it from the next
-	// source that names it for the same address.
+	// source that names it for the same address, and the city with it.
 	var found exitIPState
 	var failure string
 	for _, source := range exitIPSources {
@@ -195,8 +197,16 @@ func lookupExitIP(ctx context.Context, outbound adapter.Outbound) exitIPState {
 				err = fmt.Errorf("no ip in the answer")
 			case found.IP == "":
 				found = state
-			case state.IP == found.IP && found.ISP == "":
-				found.ISP = state.ISP
+			case state.IP == found.IP:
+				if found.ISP == "" {
+					found.ISP = state.ISP
+				}
+				if found.City == "" {
+					found.City = state.City
+				}
+				if found.Host == "" {
+					found.Host = state.Host
+				}
 			}
 			if found.IP != "" && found.ISP != "" {
 				return found
@@ -278,13 +288,38 @@ func exitISP(value string) string {
 	return value
 }
 
-// parseIPSB reads api.ip.sb/geoip: ip, country_code, asn_organization (or isp).
+// exitHost: a host name of letters, digits, '-' and '.', in lower case, at
+// least two labels; anything else (an address, a name with spaces) is "".
+func exitHost(value string) string {
+	value = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+	if len(value) > 253 || net.ParseIP(value) != nil {
+		return ""
+	}
+	labels := strings.Split(value, ".")
+	if len(labels) < 2 {
+		return ""
+	}
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return ""
+		}
+		for _, c := range label {
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
+				return ""
+			}
+		}
+	}
+	return value
+}
+
+// parseIPSB reads api.ip.sb/geoip: ip, country_code, asn_organization (or isp), city.
 func parseIPSB(body []byte) exitIPState {
 	var answer struct {
 		IP           string `json:"ip"`
 		CountryCode  string `json:"country_code"`
 		Organization string `json:"asn_organization"`
 		ISP          string `json:"isp"`
+		City         string `json:"city"`
 	}
 	if json.Unmarshal(body, &answer) != nil {
 		return exitIPState{}
@@ -293,23 +328,28 @@ func parseIPSB(body []byte) exitIPState {
 	if strings.TrimSpace(isp) == "" {
 		isp = answer.ISP
 	}
-	return exitIPState{IP: exitAddress(answer.IP), Country: exitCountry(answer.CountryCode), ISP: exitISP(isp)}
+	return exitIPState{IP: exitAddress(answer.IP), Country: exitCountry(answer.CountryCode), ISP: exitISP(isp),
+		City: exitISP(answer.City)}
 }
 
 var asPrefix = regexp.MustCompile(`^AS\d+\s+`)
 
-// parseIPInfo reads ipinfo.io/json: ip, country, org ("AS24940 Hetzner Online GmbH").
+// parseIPInfo reads ipinfo.io/json: ip, country, org ("AS24940 Hetzner Online
+// GmbH"), city and hostname (the address's reverse name).
 func parseIPInfo(body []byte) exitIPState {
 	var answer struct {
-		IP      string `json:"ip"`
-		Country string `json:"country"`
-		Org     string `json:"org"`
+		IP       string `json:"ip"`
+		Country  string `json:"country"`
+		Org      string `json:"org"`
+		City     string `json:"city"`
+		Hostname string `json:"hostname"`
 	}
 	if json.Unmarshal(body, &answer) != nil {
 		return exitIPState{}
 	}
 	return exitIPState{IP: exitAddress(answer.IP), Country: exitCountry(answer.Country),
-		ISP: exitISP(asPrefix.ReplaceAllString(strings.TrimSpace(answer.Org), ""))}
+		ISP: exitISP(asPrefix.ReplaceAllString(strings.TrimSpace(answer.Org), "")), City: exitISP(answer.City),
+		Host: exitHost(answer.Hostname)}
 }
 
 // parseTrace reads Cloudflare's "key=value" lines: ip= and loc=.

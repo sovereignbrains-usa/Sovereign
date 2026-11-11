@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.8 — 12.11.2026
+
+**A server on the Servers page says where it is and whose it is.** Its head shows the flag, the country and the city, and under them the address, the hosting (by the address's reverse name, e.g. hostbrr.com) and the provider whose network it is in, with the latency on the right; the protocols are under it as before. A folded server keeps its ways' summary on a line of its own. The sites checked through a server are drawn as small YouTube, Telegram, ChatGPT and Instagram marks instead of the letters YT, TG, GPT and IG — green opens, red refuses, dim doesn't answer; the head's tip says it in words, with the address, hosting and provider.
+
 ## 0.6.7 — 11.11.2026
 
 **One update button instead of two.** When a new version is out, the Sovereign card's «Проверить» becomes a white «Обновить» right in its head, next to «вышла 0.6.7, скачана». The wide bar under the card is gone, and the arrow in the window title no longer shows on the Settings page, where the card already says it; on the other pages it stays.

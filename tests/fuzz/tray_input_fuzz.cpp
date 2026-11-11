@@ -72,7 +72,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
   (void)FindProtocolChoices(text);
   (void)ParseLogsResponse(text);
   (void)ParseDelaysResponse(text);
-  (void)ParseExitIpResponse(text);
+  if (const auto exit = ParseExitIpResponse(text)) {
+    (void)HosterOf(exit->host, exit->ip);
+  }
+  (void)HosterOf(text, "5.83.147.210");
   (void)ParseSignedRelease(text);
   (void)ParseReleaseDescription(text);
   (void)IsUpdateUrl(text);

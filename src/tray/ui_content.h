@@ -59,16 +59,20 @@ enum class UiUpdate : std::uint8_t { Idle, Checking, UpToDate, Available, Downlo
 // Where a server is: its exit's country and the network it's in, as looked
 // up through it - not what its name says.
 struct UiLocation {
-  std::wstring country;  // "EE", or empty
-  std::wstring isp;      // "Brainoza" (exit_ip.h ShortIsp), or empty
-  std::wstring ip;       // the exit's address, for copying
+  std::wstring country;      // "EE", or empty
+  std::wstring isp;          // the network's owner: "Brainoza" (exit_ip.h ShortIsp), or empty
+  std::wstring ip;           // the exit's address, for copying
+  std::wstring countryName;  // "Эстония", the system's name for `country`; empty: not known
+  std::wstring city;         // "Tallinn", as the lookup says; may be empty
+  std::wstring hoster;       // who hosts it: "hostbrr.com" (exit_ip.h HosterOf); may be empty
 };
 
 // Whether a site opens through a server (delays.h SiteCheck): the label is
-// the short one drawn on the server's row.
+// the mark drawn on the server's head, the name what its tip says.
 struct UiSite {
   std::wstring label;  // "YT", "TG", "GPT", "IG"
   sovereign::tray::SiteCheck::State state = sovereign::tray::SiteCheck::State::Fail;
+  std::wstring name;   // "YouTube"
 };
 
 // The label a site id is drawn as; empty for an id this client doesn't know.
@@ -77,6 +81,15 @@ inline std::wstring SiteLabel(const std::string& site) {
   if (site == "telegram") return L"TG";
   if (site == "chatgpt") return L"GPT";
   if (site == "instagram") return L"IG";
+  return {};
+}
+
+// The service's own name, for a tip.
+inline std::wstring SiteName(const std::string& site) {
+  if (site == "youtube") return L"YouTube";
+  if (site == "telegram") return L"Telegram";
+  if (site == "chatgpt") return L"ChatGPT";
+  if (site == "instagram") return L"Instagram";
   return {};
 }
 

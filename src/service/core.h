@@ -124,6 +124,8 @@ struct ExitIp {
   std::string ip;        // empty until known
   std::string country;   // ISO 3166-1 alpha-2, as the lookup says; may stay empty
   std::string isp;       // the address's AS organization ("Hetzner Online GmbH"); may stay empty
+  std::string city;      // "Frankfurt am Main"; may stay empty
+  std::string host;      // the address's reverse name ("210.147.83.5.hostbrr.com"): the hoster's; may stay empty
   std::string error;     // why the last lookup failed
 };
 

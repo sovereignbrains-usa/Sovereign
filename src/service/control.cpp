@@ -532,6 +532,12 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     if (!exit.isp.empty()) {
       response["isp"] = exit.isp;
     }
+    if (!exit.city.empty()) {
+      response["city"] = exit.city;
+    }
+    if (!exit.host.empty()) {
+      response["host"] = exit.host;
+    }
     if (!exit.error.empty()) {
       response["error"] = exit.error;
     }

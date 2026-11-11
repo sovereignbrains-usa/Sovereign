@@ -35,7 +35,18 @@ func TestExitIPParsers(t *testing.T) {
 			exitIPState{IP: "2a01:4f8::1", Country: "DE", ISP: "Hetzner Online GmbH"}},
 		{"ipinfo", parseIPInfo,
 			`{"ip":"5.181.201.59","city":"Tallinn","country":"EE","org":"AS214790 Brainoza OU"}`,
-			exitIPState{IP: "5.181.201.59", Country: "EE", ISP: "Brainoza OU"}},
+			exitIPState{IP: "5.181.201.59", Country: "EE", ISP: "Brainoza OU", City: "Tallinn"}},
+		{"ipinfo with a reverse name", parseIPInfo,
+			`{"ip":"5.83.147.210","hostname":"210.147.83.5.HostBrr.com.","city":"Frankfurt am Main","region":"Hesse",` +
+				`"country":"DE","org":"AS214902 Philip Fjaera trading as PFWeb Solutions"}`,
+			exitIPState{IP: "5.83.147.210", Country: "DE", ISP: "Philip Fjaera trading as PFWeb Solutions",
+				City: "Frankfurt am Main", Host: "210.147.83.5.hostbrr.com"}},
+		{"ipinfo with a hostname that isn't one", parseIPInfo,
+			`{"ip":"1.2.3.4","hostname":"evil host\r\n.com","country":"NL"}`,
+			exitIPState{IP: "1.2.3.4", Country: "NL"}},
+		{"ip.sb with a city", parseIPSB,
+			`{"ip":"5.175.171.17","country_code":"DE","isp":"Supercell Network","city":"Bad Soden"}`,
+			exitIPState{IP: "5.175.171.17", Country: "DE", ISP: "Supercell Network", City: "Bad Soden"}},
 		{"cloudflare", parseTrace, "fl=1\nip=185.12.34.56\nloc=NL\nwarp=off\n",
 			exitIPState{IP: "185.12.34.56", Country: "NL"}},
 		{"cloudflare over Tor", parseTrace, "ip=185.12.34.56\nloc=T1\n", exitIPState{IP: "185.12.34.56"}},
@@ -54,6 +65,25 @@ func TestExitIPParsers(t *testing.T) {
 	}
 	if got := exitISP("Аэза Интернэшнл"); got != "Аэза Интернэшнл" {
 		t.Errorf("non-Latin ISP: got %q", got)
+	}
+}
+
+func TestExitHost(t *testing.T) {
+	for value, want := range map[string]string{
+		"static.1.2.3.4.clients.your-server.de": "static.1.2.3.4.clients.your-server.de",
+		" VPS-1.Example.COM. ":                   "vps-1.example.com",
+		"localhost":                              "",
+		"1.2.3.4":                                "",
+		"2a01:4f8::1":                            "",
+		"-bad.example.com":                       "",
+		"a..b":                                   "",
+		"under_score.example.com":                "",
+		"пример.рф":                              "",
+		strings.Repeat("a", 64) + ".com":         "",
+	} {
+		if got := exitHost(value); got != want {
+			t.Errorf("exitHost(%q) = %q, want %q", value, got, want)
+		}
 	}
 }
 

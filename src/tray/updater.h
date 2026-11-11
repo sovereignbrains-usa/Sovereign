@@ -38,6 +38,7 @@ class Updater {
     std::wstring installer;  // Ready: the verified installer on disk
     std::string signedRelease;  // Ready: the update.json it was checked against, for the service
     std::string boxLatest;   // the newest stable sing-box, once known (kSingBoxReleasesApi)
+    std::wstring checkedAt;  // when a release was last found out about, local "18:27"; empty: not yet
     // Downloading the installer: bytes got, bytes expected (the release's size; 0 - unknown), and the
     // speed since it began, bytes a second - what the page's percent and "left" come from.
     std::uint64_t downloaded = 0;

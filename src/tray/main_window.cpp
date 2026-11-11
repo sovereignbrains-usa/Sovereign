@@ -375,11 +375,13 @@ constexpr float kTraceHeight = 42;
 constexpr float kReadoutWidth = 110;   // a count read off on an instrument's right: "12 345" over "закрыто с 9:12"
 
 // What an Instrument's right keeps for its control: a switch, a fold's chevron, a count (sub 3: a Readout laid over it).
+constexpr float kHeadButtonWidth = 112;  // a button on an instrument's right: "Проверить", "Проверяю…"
 constexpr float InstrumentControl(const Item& it) {
   switch (it.sub) {
     case 1: return 16 + 40 + 12;
     case 2: return 16 + 14 + 8;
     case 3: return 16 + kReadoutWidth + 10;
+    case 4: return 16 + kHeadButtonWidth + 10;
     default: return 16;
   }
 }
@@ -4294,19 +4296,30 @@ class Painter {
         case UiUpdate::Failed: state = L"проверить не вышло"; break;
         case UiUpdate::Off: state = L"обновления не в этой сборке"; break;
         case UiUpdate::UpToDate:
-          state = boxLatest ? L"обновлений нет" : L"вышел sing-box " + c.boxLatest;
+          // When: "обновлений нет" alone read as now, said hours before a release (11.11.2026).
+          state = !boxLatest                   ? L"вышел sing-box " + c.boxLatest
+                  : c.updateCheckedAt.empty() ? std::wstring(L"обновлений нет")
+                                              : L"обновлений нет, проверено в " + c.updateCheckedAt;
           break;
         case UiUpdate::Idle: break;
       }
       std::wstring said = L"sing-box " + c.boxVersion + (state.empty() ? std::wstring() : L" · " + state);
       const int lamp = c.update == UiUpdate::UpToDate && boxLatest ? 1 : 0;
-      const std::size_t at = head(y, L"Sovereign " + c.version, std::move(said), lamp, 0);
+      const std::size_t at = head(y, L"Sovereign " + c.version, std::move(said), lamp, 4);
       float top = foot(at);
-      const float after = headHint(at, L"Версия клиента и sing-box внутри него. Новые версии ищутся сами, раз "
-                                       L"в 12 часов, если в «Обновлениях» не выбрано «не проверять»; ↻ — "
-                                       L"поискать сейчас.");
-      headRefresh(at, after, L"Проверить обновления", UiCommand::CheckUpdate, 0, !checking && c.update != UiUpdate::Off,
-                  L"Поискать новую версию сейчас");
+      headHint(at, L"Версия клиента и sing-box внутри него. Новые версии ищутся сами, раз в 12 часов, если в "
+                   L"«Обновлениях» не выбрано «не проверять»; «Проверить» — поискать сейчас.");
+      // Seen always, a button with its word: the shy ↻ of the other heads, nobody found (11.11.2026).
+      {
+        const D2D1_RECT_F h = l.items[at].rect;
+        const float cy = (h.top + h.bottom) / 2;
+        Item check = CommandItem(Kind::Button, {h.right - 16 - kHeadButtonWidth, cy - 14, h.right - 16, cy + 14},
+                                 checking ? L"Проверяю…" : L"Проверить", nullptr, UiCommand::CheckUpdate);
+        check.quiet = true;
+        check.enabled = !checking && c.update != UiUpdate::Off;
+        check.tip = L"Поискать новую версию сейчас";
+        l.items.push_back(std::move(check));
+      }
 
       line(top);
       Item startup = CommandItem(Kind::ValueRow, row(top), L"Автозапуск", nullptr, UiCommand::ChooseStartup);

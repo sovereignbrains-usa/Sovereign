@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -292,6 +293,12 @@ void Updater::DoCheck() {
       s.error.clear();
     }
     s.latest = latest;
+    // "обновлений нет" alone read as now, while it was said hours ago (11.11.2026).
+    SYSTEMTIME local{};
+    GetLocalTime(&local);
+    wchar_t clock[16] = {};
+    swprintf_s(clock, L"%u:%02u", static_cast<unsigned>(local.wHour), static_cast<unsigned>(local.wMinute));
+    s.checkedAt = clock;
   });
 }
 

@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.6 — 11.11.2026
+
+**The Sovereign card has a «Проверить» button you can see.** The ↻ that showed only under the pointer is gone from it. «обновлений нет» now says when it was checked: «обновлений нет, проверено в 18:27» — the client looks for a new version every 12 hours, so a release can be out for hours before it asks.
+
 ## 0.6.5 — 11.11.2026
 
 **«Пропустить последние N» no longer lets everything through with one click.** It opens a menu of the names closed in the last 2 minutes: pick one to let only it through, or «Пропустить все N». For 10 minutes after, the card shows «Пропущено в 9:40: 3 адреса» with «Вернуть», which closes them again and drops a rule left empty. Names a rule already lets through no longer come back into the list, so a second click doesn't make a second rule of them. Rules made by earlier clicks are on the Routing page.

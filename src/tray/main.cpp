@@ -5648,6 +5648,7 @@ UiContent ContentFrom(const View& v) {
     }
     c.updateVersion = Widen(update.latest);
     c.updateError = Widen(update.error);
+    c.updateCheckedAt = update.checkedAt;
     c.updateInstalling = update.status == Status::Ready && c.update == sovereign::tray::UiUpdate::Downloading;
     if (update.status == Status::Downloading) {
       c.updateProgress = sovereign::tray::DownloadPercent(update.downloaded, update.total);

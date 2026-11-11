@@ -11,8 +11,10 @@ mkdir -p "$ROOT/.incoming"
 tmp="$ROOT/.incoming/update.json"
 inst="$ROOT/.incoming/installer"
 cleanup() {
-  [ -n "${tmp:-}" ] && rm -f "$tmp"
-  [ -n "${inst:-}" ] && rm -f "$inst"
+  # Under set -e dash exits with the trap's last status: a false test here would
+  # turn a published release into a failed run.
+  if [ -n "${tmp:-}" ]; then rm -f "$tmp"; fi
+  if [ -n "${inst:-}" ]; then rm -f "$inst"; fi
 }
 trap cleanup EXIT
 

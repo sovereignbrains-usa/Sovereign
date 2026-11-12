@@ -4071,9 +4071,11 @@ class Painter {
       l.items.push_back(Make(Kind::Caption, {x0 + 14, top + 12, x1 - 14, top + 12 + lineHeight}, s.detail));
       const float keys = top + 12 + lineHeight + 10;
       float left = x0 + 14;
+      // A glyph: a key of it alone (its words in the tip); words: as wide as they are, none past the card.
       const auto action = [&](std::wstring text, const wchar_t* glyph, ItemAction what, std::wstring tip) {
-        const float w = TextWidth(text, button_.get()) + (glyph != nullptr ? 26.0f : 0.0f) + 28;
-        Item key = Make(Kind::Button, {left, keys, left + w, keys + kActions}, std::move(text), glyph);
+        const float w = glyph != nullptr ? 36.0f : std::min(TextWidth(text, button_.get()) + 28, x1 - 14 - left);
+        Item key = Make(glyph != nullptr ? Kind::IconButton : Kind::Button, {left, keys, left + w, keys + kActions},
+                        std::move(text), glyph);
         key.action = what;
         key.tip = std::move(tip);
         l.items.push_back(std::move(key));

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Sovereign — подписки: понятнее</title>
+<style>
+/* Страницы «Конфигурации» и карточка одной (12.11.2026, его: «эту теперь и эту заодно»).
+   Цвета и меры - из ui_style.h, как logs-concept.html. Имена и цифры - для примера. */
+@font-face { font-family: "Geist"; src: url("../../assets/fonts/Geist.ttf") format("truetype"); font-weight: 100 900; }
+:root {
+  color-scheme: dark;
+  --window: rgb(14 14 15); --card: rgb(24 24 26); --raised: rgb(44 44 49);
+  --ink-1: rgb(242 244 248); --ink-2: rgb(156 158 164);
+  --vpn: 76 146 255; --block: 240 96 96; --ok: 64 196 140; --warn: 240 196 64;
+  --hair: rgb(255 255 255 / .08); --desk: rgb(29 32 38);
+  --font: "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --icons: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #070708; color: var(--ink-1); font: 14px/1.4 var(--font); }
+main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+h2 { font-size: 16px; font-weight: 600; margin: 36px 0 12px; }
+.lede { color: var(--ink-2); max-width: 900px; margin: 0 0 8px; }
+.row { background: var(--desk); border-radius: 8px; padding: 28px; display: grid; grid-template-columns: repeat(2, 440px); gap: 40px; justify-content: center; align-items: start; }
+.cap { color: var(--ink-2); font-size: 13px; margin: 0 0 10px; min-height: 54px; }
+.cap b { color: var(--ink-1); font-weight: 600; }
+.gl { font-family: var(--icons); font-style: normal; }
+.dim { color: var(--ink-2); } .ok { color: rgb(var(--ok)); } .bad { color: rgb(var(--block)); } .warnc { color: rgb(var(--warn)); }
+
+.win { width: 440px; background: var(--window); border: 1px solid rgb(var(--vpn)); border-radius: 8px; overflow: hidden; }
+.bar { height: 40px; display: flex; align-items: center; }
+.bar .k { width: 36px; height: 36px; display: grid; place-items: center; font-family: var(--icons); font-size: 13px; color: var(--ink-2); }
+.bar .title { font-weight: 600; font-size: 17.75px; margin-left: 2px; white-space: nowrap; }
+.bar .sp { flex: 1; }
+.body { padding: 4px 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.card { background: var(--card); border-radius: 8px; outline: 1px solid var(--hair); outline-offset: -1px; }
+.line + .line { border-top: 1px solid var(--hair); }
+.sw { width: 40px; height: 20px; border-radius: 10px; background: rgb(255 255 255 / .55); position: relative; flex: none; }
+.sw::after { content: ""; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #111; top: 4px; right: 5px; }
+.sw.off { background: none; outline: 1.5px solid rgb(255 255 255 / .45); outline-offset: -1.5px; }
+.sw.off::after { background: rgb(255 255 255 / .55); right: auto; left: 5px; }
+.btn { height: 34px; border-radius: 6px; outline: 1px solid rgb(255 255 255 / .13); outline-offset: -1px; background: rgb(255 255 255 / .045);
+       display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13.5px; flex: 1; white-space: nowrap; }
+.btn .gl { font-size: 13px; }
+.btn.main { background: rgb(var(--vpn) / .9); outline: none; color: #fff; }
+.btn.danger { color: rgb(var(--block)); outline-color: rgb(var(--block) / .35); background: rgb(var(--block) / .06); }
+.btns { display: flex; gap: 8px; }
+
+/* было */
+.old .pr { display: flex; align-items: center; gap: 10px; padding: 10px 16px 10px 20px; }
+.old .pr .n { font-weight: 600; } .old .pr .d { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.old .pr > div { flex: 1; min-width: 0; }
+.old .f { display: grid; grid-template-columns: 110px 1fr; padding: 11px 20px; font-size: 14px; }
+.old .f span:first-child { color: var(--ink-2); }
+.old .s { display: flex; align-items: center; padding: 9px 16px 9px 20px; }
+.old .s > div { flex: 1; } .old .s small { display: block; color: var(--ink-2); font-size: 12.5px; }
+.old .hd { font-weight: 600; font-size: 15px; margin-top: 6px; }
+
+/* стало */
+.lead { font-size: 13px; color: var(--ink-2); margin: -2px 2px 2px; }
+.sub { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 16px 12px 18px; align-items: center; }
+.sub .n { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.sub .n .tag { font-weight: 500; font-size: 11.5px; color: var(--ink-2); background: rgb(255 255 255 / .07); border-radius: 4px; padding: 1px 6px; }
+.sub .st { grid-column: 1; font-size: 13px; }
+.sub .meta { grid-column: 1; font-size: 12.5px; color: var(--ink-2); }
+.sub .sw { grid-row: 1 / 4; grid-column: 2; }
+.sub.off .n, .sub.off .st { color: var(--ink-2); }
+.add { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.add .btn { flex-direction: column; height: 58px; gap: 3px; font-size: 12.5px; }
+.add .btn .gl { font-size: 16px; }
+.opt { display: flex; align-items: center; gap: 12px; padding: 11px 16px 11px 18px; }
+.opt > div { flex: 1; min-width: 0; }
+.opt .t { font-size: 14px; }
+.opt .e { font-size: 12.5px; color: var(--ink-2); }
+.opt .v { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.opt .v .gl { font-size: 10px; margin-left: 6px; }
+.head { padding: 14px 18px; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; align-items: center; }
+.head .big { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.head .dot { width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--ok)); }
+.head p { margin: 0; font-size: 12.5px; color: var(--ink-2); grid-column: 1; }
+.head .sw { grid-row: 1 / 4; grid-column: 2; }
+.sec { font-size: 12.5px; color: var(--ink-2); margin: 6px 2px -2px; display: flex; justify-content: space-between; }
+.srv { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 1px 10px; padding: 9px 16px 9px 16px; align-items: center; }
+.srv .flag { width: 20px; height: 14px; border-radius: 2px; grid-row: 1 / 3; }
+.srv .c { font-size: 14px; } .srv .c b { font-weight: 600; }
+.srv .w { font-size: 12.5px; color: var(--ink-2); grid-column: 2; }
+.srv .ms { font-size: 13px; color: rgb(var(--ok)); grid-row: 1 / 3; grid-column: 3; font-variant-numeric: tabular-nums; }
+.srv .sw { grid-row: 1 / 3; grid-column: 4; }
+.srv.off .c, .srv.off .ms { color: var(--ink-2); } .srv.off .flag { opacity: .4; }
+.nl { background: linear-gradient(#ae1c28 33%, #fff 33% 66%, #21468b 66%); }
+.fi { background: linear-gradient(90deg, transparent 30%, #1b3d7a 30% 45%, transparent 45%), linear-gradient(#fff 40%, #1b3d7a 40% 60%, #fff 60%); }
+.de { background: linear-gradient(#111 33%, #dd0000 33% 66%, #ffce00 66%); }
+.ee { background: linear-gradient(#0072ce 33%, #111 33% 66%, #fff 66%); }
+.links { display: flex; gap: 18px; justify-content: center; font-size: 13px; margin-top: 2px; }
+.links a { color: rgb(var(--vpn)); text-decoration: none; } .links a.bad { color: rgb(var(--block)); }
+.menu { position: relative; }
+.pop { position: absolute; right: 8px; top: 34px; width: 230px; background: var(--raised); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / .5); font-size: 13.5px; z-index: 2; }
+.pop div { padding: 7px 10px; border-radius: 5px; display: flex; gap: 10px; align-items: center; }
+.pop div .gl { font-size: 13px; color: var(--ink-2); width: 16px; }
+.pop hr { border: 0; border-top: 1px solid var(--hair); margin: 4px 6px; }
+.pop .bad .gl { color: rgb(var(--block)); }
+
+.notes { margin: 14px 0 0; padding-left: 20px; color: var(--ink-2); font-size: 13px; max-width: 920px; }
+.notes li { margin: 4px 0; } .notes b { color: var(--ink-1); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>Подписки: понятнее</h1>
+<p class="lede">Два экрана: список и одна подписка. Слева как сейчас, справа как предлагаю. Названия, страны и задержки — для примера.</p>
+
+<h2>1. Список</h2>
+<div class="row">
+
+<div>
+<p class="cap"><b>Сейчас.</b> «Конфигурация» — непонятное слово. Голая дата без подписи. Добавить можно только значками в заголовке. Что такое «Скачивать без подключения: Sovereign», не понять.</p>
+<div class="win old">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Конфигурации</span><span class="sp"></span><span class="k">&#xE8C8;</span><span class="k">&#xED14;</span><span class="k">&#xE8E5;</span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="card">
+      <div class="pr line"><div><div class="n">packetlab.tech</div><div class="d">подписка · серверов: 5 · 11.11 23:41</div></div><span class="gl dim">&#xE76C;</span><span class="sw"></span></div>
+      <div class="pr line"><div><div class="n">Мой VPS</div><div class="d">подписка · серверов: 4 (выкл. 1) · 11.11 23:48</div></div><span class="gl dim">&#xE76C;</span><span class="sw"></span></div>
+    </div>
+    <div class="btn"><i class="gl">&#xE968;</i>Свой сервер — поставить на него VPN</div>
+    <div class="card"><div class="opt"><div class="t">Скачивать без подключения</div><span class="v">Sovereign<i class="gl">&#xE70D;</i></span></div></div>
+  </div>
+</div>
+</div>
+
+<div>
+<p class="cap"><b>Стало.</b> Название «Подписки». У каждой видно: работает ли, сколько серверов, когда обновилась, до какого числа оплачена. Добавить — три подписанные кнопки. Последний пункт объяснён одной строкой.</p>
+<div class="win">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Подписки</span><span class="sp"></span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <p class="lead">Отсюда берутся серверы. Выключишь подписку — её серверы пропадут из списка.</p>
+    <div class="card">
+      <div class="sub line"><div class="n">packetlab.tech</div><div class="st"><span class="ok">●</span> 5 серверов · обновлена сегодня в 23:41</div><div class="meta">оплачено до 01.12 · трафик 3,2 из 100 ГБ</div><span class="sw"></span></div>
+      <div class="sub line"><div class="n">Мой VPS <span class="tag">свой сервер</span></div><div class="st"><span class="ok">●</span> 4 сервера работают, 1 выключен</div><div class="meta">обновлена сегодня в 23:48</div><span class="sw"></span></div>
+      <div class="sub line off"><div class="n">old-provider.net</div><div class="st"><span class="bad">●</span> <span class="bad">не обновляется: сервер не ответил</span></div><div class="meta">выключена · последний раз 02.11</div><span class="sw off"></span></div>
+    </div>
+    <div class="sec"><span>Добавить подписку</span></div>
+    <div class="add">
+      <div class="btn"><i class="gl">&#xE8C8;</i>Ссылка из буфера</div>
+      <div class="btn"><i class="gl">&#xED14;</i>QR-код</div>
+      <div class="btn"><i class="gl">&#xE8E5;</i>Из файла</div>
+    </div>
+    <div class="card">
+      <div class="opt line"><i class="gl dim" style="font-size:16px">&#xE968;</i><div><div class="t">Есть свой VPS?</div><div class="e">Поставлю на него VPN сам, нужен только адрес</div></div><span class="v"><i class="gl">&#xE76C;</i></span></div>
+      <div class="opt line"><i class="gl dim" style="font-size:16px">&#xE72E;</i><div><div class="t">Обновлять, когда VPN выключен</div><div class="e">через сервер Sovereign — так провайдер подписки не видит твой IP</div></div><span class="v">вкл<i class="gl">&#xE76C;</i></span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<ul class="notes">
+  <li><b>Точка у подписки:</b> зелёная — всё хорошо, жёлтая — скоро закончится оплата или трафик, красная — не обновляется.</li>
+  <li><b>Дата словами:</b> «сегодня в 23:41», «вчера», «3 дня назад».</li>
+  <li>Значки в заголовке убраны: добавление стало подписанными кнопками под списком.</li>
+</ul>
+
+<h2>2. Одна подписка</h2>
+<div class="row">
+
+<div>
+<p class="cap"><b>Сейчас.</b> Сверху девять одинаковых кнопок и строк, серверы только в самом низу и без стран. «Конфиг: как в подписке» и «Сервер: …» ничего не говорят. Автообновление и «Период…» — одно и то же в двух местах.</p>
+<div class="win old">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Мой VPS</span><span class="sp"></span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="card">
+      <div class="s line"><div>Включена<small>её серверы — в общем списке</small></div><span class="sw"></span></div>
+      <div class="s line"><div>Автообновление<small>каждые 12 ч (как советует сервер)</small></div><span class="sw"></span></div>
+    </div>
+    <div class="card">
+      <div class="f line"><span>Обновлена</span><span>11.11 23:48</span></div>
+      <div class="f line"><span>Сервер</span><span>my-vps.xyz</span></div>
+      <div class="f line"><span>Конфиг</span><span>как в подписке</span></div>
+    </div>
+    <div class="btns"><div class="btn"><i class="gl">&#xE72C;</i>Обновить</div><div class="btn"><i class="gl">&#xE8C8;</i>Копировать ссылку</div></div>
+    <div class="btn"><i class="gl">&#xE896;</i>Отчёт для поддержки</div>
+    <div class="btns"><div class="btn"><i class="gl">&#xE8AC;</i>Переименовать</div><div class="btn"><i class="gl">&#xE823;</i>Период…</div></div>
+    <div class="card"><div class="opt"><div class="t">Подключаться через</div><span class="v">напрямую<i class="gl">&#xE76C;</i></span></div></div>
+    <div class="old hd">Серверы: 5, выключено 1</div>
+    <div class="card">
+      <div class="s line"><div>AnyTLS-REALITY<small>AnyTLS · REALITY</small></div><span class="sw"></span></div>
+      <div class="s line"><div>AnyTLS-ECH<small>AnyTLS</small></div><span class="sw off"></span></div>
+      <div class="s line"><div>Naive<small>Naive</small></div><span class="sw"></span></div>
+      <div class="s line"><div>REALITY<small>VLESS · REALITY</small></div><span class="sw"></span></div>
+      <div class="s line"><div>ShadowTLS<small>ShadowTLS</small></div><span class="sw"></span></div>
+    </div>
+    <div class="btn danger"><i class="gl">&#xE74D;</i>Удалить конфигурацию</div>
+  </div>
+</div>
+</div>
+
+<div>
+<p class="cap"><b>Стало.</b> Сверху одна строка: работает ли и когда обновилась. Дальше сразу серверы: страна, адрес, задержка, переключатель. Редкие действия — в меню «⋯» (оно показано открытым).</p>
+<div class="win">
+  <div class="bar menu"><span class="k">&#xE72B;</span><span class="title">Мой VPS</span><span class="sp"></span><span class="k" style="color:var(--ink-1);background:rgb(255 255 255 / .08);border-radius:6px">&#xE712;</span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span>
+    <div class="pop">
+      <div><i class="gl">&#xE8C8;</i>Скопировать ссылку подписки</div>
+      <div><i class="gl">&#xE8AC;</i>Переименовать</div>
+      <div><i class="gl">&#xE896;</i>Отчёт для поддержки</div>
+      <hr>
+      <div class="bad"><i class="gl">&#xE74D;</i>Удалить подписку</div>
+    </div>
+  </div>
+  <div class="body">
+    <div class="card head">
+      <div class="big"><span class="dot"></span>Работает</div>
+      <p>4 из 5 серверов включены · обновлена сегодня в 23:48</p>
+      <span class="sw"></span>
+    </div>
+    <div class="btn main"><i class="gl">&#xE72C;</i>Обновить сейчас</div>
+    <div class="sec"><span>Серверы</span><span>выключенный не попадёт в «Авто»</span></div>
+    <div class="card">
+      <div class="srv line"><span class="flag nl"></span><span class="c"><b>Нидерланды</b> · AnyTLS + REALITY</span><span class="w">5.83.147.210 · Hetzner</span><span class="ms">38 мс</span><span class="sw"></span></div>
+      <div class="srv line off"><span class="flag nl"></span><span class="c"><b>Нидерланды</b> · AnyTLS + ECH</span><span class="w">выключен тобой</span><span class="ms">—</span><span class="sw off"></span></div>
+      <div class="srv line"><span class="flag fi"></span><span class="c"><b>Финляндия</b> · Naive</span><span class="w">5.175.171.17 · Hetzner</span><span class="ms">52 мс</span><span class="sw"></span></div>
+      <div class="srv line"><span class="flag fi"></span><span class="c"><b>Финляндия</b> · REALITY</span><span class="w">5.175.171.17 · Hetzner</span><span class="ms">49 мс</span><span class="sw"></span></div>
+      <div class="srv line"><span class="flag de"></span><span class="c"><b>Германия</b> · ShadowTLS</span><span class="w">не проверен</span><span class="ms dim">?</span><span class="sw"></span></div>
+    </div>
+    <div class="sec"><span>Настройки</span></div>
+    <div class="card">
+      <div class="opt line"><div><div class="t">Обновлять сама</div><div class="e">новые серверы и замены приходят без тебя</div></div><span class="v">каждые 12 ч<i class="gl">&#xE76C;</i></span></div>
+      <div class="opt line"><div><div class="t">Как подключаться к серверам</div><div class="e">напрямую — серверы видят твой IP</div></div><span class="v">напрямую<i class="gl">&#xE76C;</i></span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<ul class="notes">
+  <li><b>Серверы — главное на странице:</b> флаг, страна и протокол, ниже IP и хостинг, справа задержка. Так же, как на странице «Серверы».</li>
+  <li>«Включена» и «Автообновление» из шапки стали так: включена — переключатель у статуса, автообновление вместе с периодом — одна строка «Обновлять сама».</li>
+  <li><b>«Конфиг: как в подписке»</b> больше не висит всегда. Если ты правил конфиг руками, появится жёлтая плашка: «Ты менял конфиг — подписка его не перезапишет · Вернуть как было».</li>
+  <li><b>Ошибка обновления:</b> красная точка, вместо «Работает» — «Не обновилась: сервер не ответил», а под ней кнопка «Повторить».</li>
+</ul>
+</main>
+</body>
+</html>

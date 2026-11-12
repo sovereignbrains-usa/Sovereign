@@ -382,6 +382,7 @@ struct UiContent {
   bool connectAtStartup = true;         // and connects (if it was on), else starts turned off
   bool routingMore = false;             // the settings' fine settings (QUIC, IPv4, DNS) unfolded
   bool settingsMore = false;            // the configurations' relay fold open (the window's own)
+  int profileTab = 0;                   // the configurations' tab: 0 subscriptions, 1 own servers (the window's own)
   bool routeMenu = false;               // the routing mode's menu dropped (the window's own)
   // How open each fold is while it moves (0 folded .. 1 open; the window's own, law.md --d-fold); -1: at rest,
   // as the flag above says.
@@ -888,6 +889,19 @@ inline const wchar_t* DaysWord(std::int64_t n) {
     return L"дня";
   }
   return L"дней";
+}
+
+// "сервер", "сервера" or "серверов" after the number `n`.
+inline const wchar_t* ServersWord(std::int64_t n) {
+  const std::int64_t last = n % 10;
+  const std::int64_t lastTwo = n % 100;
+  if (last == 1 && lastTwo != 11) {
+    return L"сервер";
+  }
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) {
+    return L"сервера";
+  }
+  return L"серверов";
 }
 
 // "осталось 6 дней", "остался 1 день" - till a payment.

@@ -4,12 +4,22 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.12 — 12.11.2026
+
+**Subscriptions and your own servers are on two tabs of one page.** The page is now called "Подписки и серверы"; at its top a switch "Подписки · N | Мои серверы · M" shows either the subscriptions and configs, or the servers of your own (a VPS set up by Sovereign or marked as yours). Opening a configuration and coming back lands on its tab.
+- **Ways to add are buttons with words, in their tab**, instead of the small icons in the title: "Из буфера", "QR-код" and "Из файла" under the subscriptions; "Добавить свой VPS" under your servers, with a line on what it needs (a clean Debian VPS and root login by an ssh key).
+- **A configuration's page has a "Мой сервер" switch**: it moves the configuration to "Мои серверы" and back. It works for a subscription from your own server too — then Sovereign only checks the server over ssh and doesn't install over it, since its config comes from the link.
+- **List lines say it plainly**: "2 сервера, 1 выкл. · обновлена сегодня в 19:20", "свой конфиг · 3 сервера", "выключена", "новая версия ждёт", "не обновилась".
+- **The configuration's fields are "Откуда" and "Конфиг"** ("с твоими правками" or "без правок, как в подписке"), and the delete button says what it does: "Удалить подписку", "Удалить конфиг", or "Убрать из списка" for your own server, whose VPN stays on it.
+- **The relay row is "Обновлять без VPN"**, short enough for its "?" not to overlap the words.
+
 ## 0.6.11 — 12.11.2026
 
 **The Log page reads as events in plain words, not raw core lines.** Each row says what happened ("AnyTLS · Финляндия: не ответил вовремя", "youtube.com — через AnyTLS · Нидерланды", "mc.yandex.ru — заблокирован: реклама или слежка", "Нет сети", "VPN включён"), with a coloured dot for how it went and, under it, which server and what the core said. Repeats of the same event fold into one row with a "×N" count; the core's routine chatter (rule matches, DNS cache, sniffing) is hidden.
 - **Filters: Всё, Проблемы, Серверы, Сайты**, each with how many kinds of event it holds, and a search box over the words and the raw lines.
 - **A click on a row opens a card under the list** with the line exactly as the core wrote it and what can be done: copy it, show only events of that kind one by one with their times, or open the Servers page when the event is about a server.
 - **Pause and copy stay on top; "⋯" holds the rest**: save to a file, how much the core writes, clear. Copying, saving and problem reports still use the raw lines.
+
 ## 0.6.10 — 12.11.2026
 
 - **No more cut-off notes beside protocols on the Servers page.** The second subscription's ways no longer carry its name as a grey note ("REALITY · ewkereboss.xyz", cut to "REALI…"): the server's card already says which server they lead to. A note now appears only when the provider named a way in words of its own.

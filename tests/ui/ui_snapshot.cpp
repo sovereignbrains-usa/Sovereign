@@ -69,6 +69,26 @@ std::vector<sovereign::tray::UiChip> SampleBoard() {
   };
 }
 
+// A VPS of the user's own, the VPN on it put by the client: the "Мои серверы" tab's (12.11.2026).
+sovereign::tray::UiProfile OwnServerSample() {
+  using sovereign::tray::UiServer;
+  sovereign::tray::UiProfile own;
+  own.id = "p4";
+  own.name = L"Мой VPS";
+  own.ownHost = L"203.0.113.7";
+  own.ownInstalled = true;
+  own.ownProbe = L"Debian 12, вход root, порт 443 свободен — можно ставить";
+  own.detail = L"203.0.113.7 · 3 сервера";
+  own.paidTill = L"01.12.2026";
+  own.daysLeft = 19;
+  own.paidByHand = true;
+  own.serverCount = 3;
+  own.servers = {UiServer{L"Hysteria2 · Мой VPS", L"Hysteria2 · salamander", true},
+                 UiServer{L"REALITY · Мой VPS", L"VLESS · REALITY", true},
+                 UiServer{L"AnyTLS · Мой VPS", L"AnyTLS · REALITY", true}};
+  return own;
+}
+
 UiContent SampleContent() {
   UiContent c;
   c.display = sovereign::tray::Display::On;
@@ -90,7 +110,7 @@ UiContent SampleContent() {
   sovereign::tray::UiProfile packetlab;
   packetlab.id = "p1";
   packetlab.name = L"packetlab";
-  packetlab.detail = L"подписка · серверов: 3 (выкл. 1) · 27.09 19:20";
+  packetlab.detail = L"2 сервера, 1 выкл. · обновлена сегодня в 19:20";
   packetlab.subscription = true;
   packetlab.host = L"packetlab.tech";
   packetlab.usage = L"Трафик: 3,2 ГБ из 100,0 ГБ · оплачено до 01.01.2027 (ещё 87 дн.)";
@@ -101,7 +121,7 @@ UiContent SampleContent() {
   packetlab.daysLeft = 87;
   packetlab.serverCount = 3;
   packetlab.support = true;
-  packetlab.updated = L"27.09 19:20";
+  packetlab.updated = L"сегодня в 19:20";
   packetlab.period = L"каждые 12 ч (как советует сервер)";
   packetlab.servers = {UiServer{L"AnyTLS · Нидерланды", L"AnyTLS · REALITY", true},
                        UiServer{L"AnyTLS · Финляндия", L"AnyTLS", true},
@@ -109,7 +129,7 @@ UiContent SampleContent() {
   sovereign::tray::UiProfile keys;
   keys.id = "p2";
   keys.name = L"NL-1 и ещё 2";
-  keys.detail = L"свой конфиг · серверов: 3";
+  keys.detail = L"свой конфиг · 3 сервера";
   keys.servers = {UiServer{L"NL-1", L"Trojan · WS", true}, UiServer{L"\U0001F1E9\U0001F1EA DE-2", L"Hysteria2", true},
                   UiServer{L"WARP", L"WireGuard", true}};
   sovereign::tray::UiProfile off;
@@ -118,7 +138,7 @@ UiContent SampleContent() {
   off.enabled = false;
   off.subscription = true;
   off.failed = true;
-  off.detail = L"выключена · подписка · серверов: 0";
+  off.detail = L"выключена · 0 серверов";
   c.profiles = {packetlab, keys, off};  c.appsInclude = false;
   c.apps = {L"steam.exe", L"Telegram.exe", L"qbittorrent.exe", L"notepad.exe"};
   // One exe that is there on any Windows: its real icon; the rest aren't known.
@@ -201,6 +221,19 @@ int Snapshots(const std::wstring& dir) {
     UiContent copy = content;
     draw(copy);
   };
+  // The configurations' second tab, "Мои серверы": a VPS of one's own, and its page; then the
+  // first tab with nothing on it.
+  variant([&](UiContent& owned) {
+    owned.profiles.insert(owned.profiles.begin(), OwnServerSample());
+    owned.profileTab = 1;
+    sovereign::tray::RenderMainWindowSnapshot(owned, UiPage::Subscription, logs, 400, 620, 96,
+                                              dir + L"\\subscription-own.png");
+    sovereign::tray::RenderMainWindowSnapshot(owned, UiPage::Profile, logs, 400, 900, 96, dir + L"\\profile-own.png");
+    owned.profiles.resize(1);
+    owned.profileTab = 0;
+    sovereign::tray::RenderMainWindowSnapshot(owned, UiPage::Subscription, logs, 400, 620, 96,
+                                              dir + L"\\subscription-none.png");
+  });
   // The first screen: nothing yet - what the clipboard holds offered, or the ways to bring one.
   variant([&](UiContent& first) {
     first.profiles.clear();
@@ -653,10 +686,11 @@ int EditTest(HINSTANCE instance) {
   // failed from dc9e160 on, a desktop run hung). An inner page's caption opens
   // with back and the page's name (03.11.2026 on, MainWindow's Caption): the
   // configurations' list then has the new version's key (the sample has one
-  // found), "report a problem", the three ways to add (paste, QR, file),
-  // "hide" and the cross - eight, the first configuration next; a
-  // configuration's page has its name, the one to rename, second.
-  constexpr int kListCaption = 8;
+  // found), "report a problem", "hide" and the cross - five; its two tabs
+  // (12.11.2026: the ways to add are the tabs' own, not the title's) make it
+  // seven, the first configuration next; a configuration's page has its name,
+  // the one to rename, second.
+  constexpr int kListCaption = 7;
   constexpr int kProfileTitle = 2;
   const auto tabs = [&](int n) {
     for (int i = 0; i < n; ++i) {
@@ -1012,7 +1046,7 @@ int LayoutTest(const std::wstring& dir) {
   UiContent content = SampleContent();
   content.checks = SampleChecks();
   // The variants live on the heap: eight UiContents on the stack pass /analyze's 16 KB (C6262).
-  std::vector<UiContent> variants(9, content);
+  std::vector<UiContent> variants(11, content);
   UiContent& routed = variants[0];
   // WARP on, with a site of its own: its card lists it, "Свои правила" doesn't.
   routed.routing.rules = {{L"qwen.ai, qwenlm.ai, alicdn.com, aliyun.com", L"напрямую"},
@@ -1078,12 +1112,20 @@ int LayoutTest(const std::wstring& dir) {
   UiContent& foldingRelay = variants[8];
   foldingRelay.settingsMore = true;
   foldingRelay.relayFold = 0.5f;
+  // The configurations' "Мои серверы" tab, a VPS of one's own first (its page too); and a
+  // subscription from one's own server, its page with the look over ssh and no installer.
+  UiContent& owned = variants[9];
+  owned.profiles.insert(owned.profiles.begin(), OwnServerSample());
+  owned.profileTab = 1;
+  UiContent& ownedSubscription = variants[10];
+  ownedSubscription.profiles.front().ownHost = L"packetlab.tech";
+  ownedSubscription.profiles.front().ownProbe = L"Debian 12, вход root, порт 443 занят";
   struct Page {
     UiPage page;
     const wchar_t* name;
     const UiContent* content;
   };
-  const std::array<Page, 16> pages = {{{UiPage::Overview, L"overview", &content},
+  const std::array<Page, 20> pages = {{{UiPage::Overview, L"overview", &content},
                                       {UiPage::Overview, L"overview-troubled", &troubled},
                                       {UiPage::Logs, L"logs-troubled", &troubled},
                                       {UiPage::Servers, L"servers", &content},
@@ -1098,7 +1140,11 @@ int LayoutTest(const std::wstring& dir) {
                                       {UiPage::Settings, L"settings-install", &installing},
                                       {UiPage::Settings, L"settings-idle", &idle},
                                       {UiPage::Settings, L"settings-folding", &foldingSettings},
-                                      {UiPage::Subscription, L"relay-folding", &foldingRelay}}};
+                                      {UiPage::Subscription, L"relay-folding", &foldingRelay},
+                                      {UiPage::Subscription, L"subscription-own", &owned},
+                                      {UiPage::Profile, L"profile-own", &owned},
+                                      {UiPage::Overview, L"overview-own", &owned},
+                                      {UiPage::Profile, L"profile-own-subscription", &ownedSubscription}}};
   CreateDirectoryW(dir.c_str(), nullptr);
   int failures = 0;
   int cut = 0;

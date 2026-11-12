@@ -295,6 +295,7 @@ enum class ItemAction : std::uint8_t {
   LogOnly,     // the selected row's lines one by one, nothing else; or back to all
   LogServer,   // the servers' page, for the selected row's server
   ToggleMore,  // the configurations' relay fold, folded or not (the window's own)
+  ProfileTab,  // the configurations' tab (index: 0 subscriptions, 1 own servers; the window's own)
   ToggleServer,  // a server's card opened or folded (text2: its key, index: open now; the window's own)
   Hide,        // our title bar's cross: the window away to the tray
   RouteMenu,   // the routing mode's pill: its menu dropped or put away (the window's own)
@@ -2053,11 +2054,12 @@ class Painter {
                 L"меняет его, только когда другой заметно быстрее два замера подряд.\n\nПравый клик по "
                 L"серверу — копировать имя или IP выхода."};
       case UiPage::Subscription:
-        return {L"Конфигурации",
-                L"Подписки, ключи и свои конфиги. Включённые работают вместе: их серверы — в общем списке "
-                L"«Серверы», маршруты и DNS — от первой включённой.\n\nНажми на конфигурацию, чтобы "
-                L"переименовать её, настроить обновление или выключить отдельные серверы. Правый клик — "
-                L"обновить, копировать ссылку, удалить."};
+        // Two tabs (12.11.2026): what services gave, and VPS of one's own.
+        return {L"Подписки и серверы",
+                L"«Подписки» — то, что дали сервисы: ссылка, QR-код или файл с конфигом. «Мои серверы» — свои VPS: "
+                L"клиент заходит на них по ssh, проверяет и ставит на них VPN.\n\nВключённые работают вместе: их "
+                L"серверы — в общем списке «Серверы».\n\nНажми на запись — имя, обновление, её серверы. Правый "
+                L"клик — обновить, копировать ссылку, удалить."};
       case UiPage::Profile: {
         const auto found =
             std::find_if(c.profiles.begin(), c.profiles.end(), [&](const UiProfile& p) { return p.id == profile; });
@@ -2470,20 +2472,8 @@ class Painter {
       page_key(L"Журнал", kGlyphLog, UiPage::Logs, L"Журнал: что делает ядро, ошибки");
       page_key(L"Маршруты", kGlyphRoute, UiPage::Routing, L"Маршруты: что идёт через VPN, а что напрямую");
     }
-    if (page == UiPage::Subscription) {
-      // `keys` is read backwards, so the last way goes first: they stand paste, QR, file.
-      // A server of one's own is a row of the page's, not a key: four crowd the title.
-      for (auto way = kAddWays.rbegin(); way != kAddWays.rend(); ++way) {
-        if (way->command == UiCommand::AddOwnServer) {
-          continue;
-        }
-        Item add = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, way->name, way->glyph,
-                                      way->command));
-        add.tip = way->tip;
-        keys.push_back(std::move(add));
-        right -= kKey;
-      }
-    }
+    // The configurations' ways to add are their tabs' own keys, words beside the icons (12.11.2026:
+    // three bare icons in the title said nothing), not the title's.
     if (page == UiPage::Servers) {
       // Always to press: with the connection off the page says so, while one
       // runs a press changes nothing.
@@ -2803,7 +2793,8 @@ class Painter {
       // The name, and what kind of configuration it is after it - if there's room.
       const float nameWidth = std::min(TextWidth(p.name, heading_.get()) + 2, nameRight - left);
       l.items.push_back(Make(Kind::Heading, {left, rowTop + 6, left + nameWidth, rowTop + 32}, p.name));
-      const std::wstring badge = p.subscription ? L"подписка" : p.ownHost.empty() ? L"свой конфиг" : L"свой сервер";
+      // One's own first: a subscription from one's own server is on "Мои серверы" too (12.11.2026).
+      const std::wstring badge = !p.ownHost.empty() ? L"свой сервер" : p.subscription ? L"подписка" : L"свой конфиг";
       const float badgeWidth = TextWidth(badge, caption_.get()) + 2 * kPillPad;
       if (left + nameWidth + 8 + badgeWidth <= nameRight) {
         l.items.push_back(Make(Kind::Pill, {left + nameWidth + 8, rowTop + 8, left + nameWidth + 8 + badgeWidth, rowTop + 30},
@@ -3376,9 +3367,44 @@ class Painter {
   }
 
   float Subscription(Layout& l, const UiContent& c, float x0, float x1, float y) const {
-    // Every configuration: the switch turns it on and off, a click opens it.
-    if (c.profiles.empty()) {
-      const std::wstring none = L"Пока ни одной. Добавь из буфера, по QR-коду или из файла — кнопки вверху.";
+    // Two lists on one page (12.11.2026, asked: "разделить вообще на разные экраны свои впс с
+    // подписками"): subscriptions and configs, and servers of one's own - a tab each, each with
+    // its own ways to add. One's own: marked so (UiProfile::ownHost), a subscription too.
+    const bool mine = c.profileTab == 1;
+    std::vector<std::size_t> listed;  // indices into c.profiles: what the tab holds
+    std::size_t owned = 0;
+    for (std::size_t i = 0; i < c.profiles.size(); ++i) {
+      const bool own = !c.profiles[i].ownHost.empty();
+      owned += own ? 1 : 0;
+      if (own == mine) {
+        listed.push_back(i);
+      }
+    }
+    {
+      const float mid = (x0 + x1) / 2;
+      const std::size_t subscribed = c.profiles.size() - owned;
+      Item subs = Make(Kind::Segment, {x0, y, mid - 4, y + 36},
+                       subscribed > 0 ? std::format(L"Подписки · {}", subscribed) : std::wstring(L"Подписки"));
+      subs.action = ItemAction::ProfileTab;
+      subs.index = 0;
+      subs.checked = !mine;
+      subs.tip = L"Подписки от сервисов и конфиги, добавленные ссылкой, QR-кодом или файлом";
+      l.items.push_back(std::move(subs));
+      Item own = Make(Kind::Segment, {mid + 4, y, x1, y + 36},
+                      owned > 0 ? std::format(L"Мои серверы · {}", owned) : std::wstring(L"Мои серверы"));
+      own.action = ItemAction::ProfileTab;
+      own.index = 1;
+      own.checked = mine;
+      own.tip = L"Свои VPS: клиент заходит на них по ssh, проверяет и ставит VPN";
+      l.items.push_back(std::move(own));
+      y += 36 + kGap;
+    }
+    // The tab's list: the switch turns one on and off, a click opens it.
+    if (listed.empty()) {
+      const std::wstring none = mine ? L"Своих серверов пока нет. Есть VPS — добавь его кнопкой ниже, клиент сам "
+                                       L"поставит на него VPN."
+                                     : L"Подписок пока нет. Добавь кнопками ниже: ссылка из буфера, QR-код с экрана "
+                                       L"или файл.";
       const float h = std::max(56.0f, TextHeight(none, captionWrap_.get(), x1 - x0 - 40) + 32);
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
       l.items.push_back(Make(Kind::Caption, {x0 + 20, y + (h - TextHeight(none, captionWrap_.get(), x1 - x0 - 40)) / 2,
@@ -3386,12 +3412,13 @@ class Painter {
                              none));
       y += h;
     } else {
-      const float h = static_cast<float>(c.profiles.size()) * kProfileRow;
+      const float h = static_cast<float>(listed.size()) * kProfileRow;
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
-      for (std::size_t i = 0; i < c.profiles.size(); ++i) {
+      for (std::size_t n = 0; n < listed.size(); ++n) {
+        const std::size_t i = listed[n];
         const UiProfile& p = c.profiles[i];
-        const float top = y + static_cast<float>(i) * kProfileRow;
-        if (i > 0) {
+        const float top = y + static_cast<float>(n) * kProfileRow;
+        if (n > 0) {
           l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
         }
         Item row = Make(Kind::ProfileRow, {x0 + 4, top + 3, x1 - 76, top + kProfileRow - 3}, p.name, kGlyphChevron);
@@ -3417,13 +3444,38 @@ class Painter {
     for (const std::wstring& note : c.combineNotes) {
       y = Paragraph(l, Kind::Caption, L"Не вошло: " + note, x0, x1, y) + 6;
     }
-    // A server of the user's own: its address typed over this button (his,
-    // 06.11.2026: 'поставил нету кнопок и профиль я удалил').
-    {
-      Item own = CommandItem(Kind::Button, {x0, y, x1, y + kButton}, L"Свой сервер — поставить на него VPN",
-                             kGlyphServer, UiCommand::AddOwnServer);
+    if (mine) {
+      // A server of the user's own: its address typed over this button (06.11.2026: 'поставил
+      // нету кнопок и профиль я удалил').
+      Item own = CommandItem(Kind::Button, {x0, y, x1, y + kButton}, L"Добавить свой VPS", kGlyphServer,
+                             UiCommand::AddOwnServer);
       own.tip = L"Адрес VPS (root@1.2.3.4): клиент зайдёт по ssh-ключу и поставит на него VPN";
       l.items.push_back(std::move(own));
+      y += kButton + 8;
+      return Paragraph(l, Kind::Caption,
+                       L"Нужен VPS с чистым Debian и вход root по ssh-ключу. Клиент сам поставит на него VPN и "
+                       L"добавит сюда. Подписка с твоего же сервера переедет сюда, если на её странице включить "
+                       L"«Мой сервер».",
+                       x0 + 4, x1, y);
+    }
+    // The ways to add a subscription, each with its word (12.11.2026: three bare icons in the
+    // title said nothing): the clipboard, a QR code on the screen, a file.
+    {
+      constexpr std::array<std::pair<const wchar_t*, UiCommand>, 3> kWays = {{
+          {L"Из буфера", UiCommand::PasteSubscription},
+          {L"QR-код", UiCommand::ScanScreen},
+          {L"Из файла", UiCommand::ImportFile},
+      }};
+      const float w = (x1 - x0 - 16) / 3;
+      for (std::size_t i = 0; i < kWays.size(); ++i) {
+        const float left = x0 + static_cast<float>(i) * (w + 8);
+        const auto way = std::find_if(kAddWays.begin(), kAddWays.end(),
+                                      [&](const AddWay& it) { return it.command == kWays[i].second; });
+        Item add = CommandItem(Kind::Button, {left, y, i + 1 == kWays.size() ? x1 : left + w, y + kButton},
+                               kWays[i].first, way != kAddWays.end() ? way->glyph : nullptr, kWays[i].second);
+        add.tip = way != kAddWays.end() ? std::wstring(way->tip) : std::wstring();
+        l.items.push_back(std::move(add));
+      }
       y += kButton + kGap;
     }
 
@@ -3437,14 +3489,14 @@ class Painter {
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y}));
       const std::size_t card = l.items.size() - 1;
       const float fold = FoldOf(c.settingsMore, c.relayFold);
-      Item relay = Make(Kind::ValueRow, row(y), L"Скачивать без подключения", kGlyphChevronDown);
+      Item relay = Make(Kind::ValueRow, row(y), L"Обновлять без VPN", kGlyphChevronDown);
       relay.action = ItemAction::ToggleMore;
       relay.fold = fold;
       if (fold < 0.5f) {  // the summary is the folded fold's; open, the rows say it
         relay.detail = !c.relayHost.empty() ? L"свой" : (c.sharedRelay ? L"Sovereign" : L"выключено");
       }
       l.items.push_back(std::move(relay));
-      HintAfter(l, L"Скачивать без подключения", body_.get(), x0 + 20, x1 - 160, y + kRow / 2,
+      HintAfter(l, L"Обновлять без VPN", body_.get(), x0 + 20, x1 - 160, y + kRow / 2,
                 L"Пока подключение работает, подписки скачиваются через него. Когда его нет, напрямую их сервер "
                 L"увидел бы твой настоящий IP — поэтому они скачиваются через пересыльщик (Cloudflare Worker): сервер "
                 L"подписки видит адрес Cloudflare, а ссылку на подписку — тот, кто держит пересыльщик.\n\n"
@@ -3500,28 +3552,45 @@ class Painter {
     }
     const float mid = (x0 + x1) / 2;
 
-    const float cardHeight = p.subscription ? 128.0f : 64.0f;
+    // The switches: on, refreshing by itself (a subscription), and which tab it is on - a server
+    // of one's own goes to "Мои серверы" (12.11.2026), a subscription from it too.
+    const bool ownable = p.subscription || !p.ownHost.empty() || !p.servers.empty();
+    const float cardHeight = 64.0f * static_cast<float>(1 + (p.subscription ? 1 : 0) + (ownable ? 1 : 0));
     l.items.push_back(Make(Kind::Card, {x0, y, x1, y + cardHeight}));
     Item on = CommandItem(Kind::Switch, {x0 + 4, y + 4, x1 - 4, y + 60}, L"Включена", nullptr, UiCommand::ToggleProfile,
                           index);
     on.detail = p.enabled ? L"её серверы — в общем списке" : L"не участвует в подключении";
     on.checked = p.enabled;
     l.items.push_back(std::move(on));
+    float switchTop = y + 64;
     if (p.subscription) {
-      l.items.push_back(Make(Kind::Divider, {x0 + 20, y + 64, x1 - 20, y + 65}));
-      Item autoUpdate = CommandItem(Kind::Switch, {x0 + 4, y + 68, x1 - 4, y + 124}, L"Автообновление", nullptr,
-                                    UiCommand::ToggleAutoUpdate, index);
+      l.items.push_back(Make(Kind::Divider, {x0 + 20, switchTop, x1 - 20, switchTop + 1}));
+      Item autoUpdate = CommandItem(Kind::Switch, {x0 + 4, switchTop + 4, x1 - 4, switchTop + 60}, L"Автообновление",
+                                    nullptr, UiCommand::ToggleAutoUpdate, index);
       autoUpdate.detail = p.autoUpdate ? p.period : L"только кнопкой «Обновить»";
       autoUpdate.checked = p.autoUpdate;
       l.items.push_back(std::move(autoUpdate));
+      switchTop += 64;
+    }
+    if (ownable) {
+      l.items.push_back(Make(Kind::Divider, {x0 + 20, switchTop, x1 - 20, switchTop + 1}));
+      Item own = CommandItem(Kind::Switch, {x0 + 4, switchTop + 4, x1 - 4, switchTop + 60}, L"Мой сервер", nullptr,
+                             UiCommand::ToggleOwnServer, index);
+      own.detail = !p.ownHost.empty() ? L"в «Мои серверы» · " + p.ownHost : std::wstring(L"в «Подписки»");
+      own.tip = p.ownHost.empty()
+                    ? L"Включи, если это твой VPS: запись переедет в «Мои серверы», клиент сможет проверить его по ssh. "
+                      L"Адрес берётся из конфига"
+                    : L"Выключи — запись вернётся в «Подписки». Сам сервер не меняется";
+      own.checked = !p.ownHost.empty();
+      l.items.push_back(std::move(own));
     }
     y += cardHeight + kGap;
 
     if (p.subscription) {
       const std::vector<std::pair<const wchar_t*, std::wstring>> fields = {
           {L"Обновлена", p.failed ? std::wstring(L"не удалась") : p.updated},
-          {L"Сервер", p.host.empty() ? std::wstring(L"—") : p.host},
-          {L"Конфиг", p.edited ? L"изменён тобой" : L"как в подписке"},
+          {L"Откуда", p.host.empty() ? std::wstring(L"—") : p.host},
+          {L"Конфиг", p.edited ? L"с твоими правками" : L"без правок, как в подписке"},
       };
       const float h = static_cast<float>(fields.size()) * kRow;
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + h}));
@@ -3575,7 +3644,8 @@ class Painter {
         y += kButton + 8;
       }
     }
-    Item rename = Make(Kind::Button, {x0, y, mid - 4, y + kButton}, L"Переименовать",
+    // Marking it one's own is the switch's above (12.11.2026): renaming has the row whole then.
+    Item rename = Make(Kind::Button, {x0, y, p.subscription ? mid - 4 : x1, y + kButton}, L"Переименовать",
                        kGlyphRename);
     rename.action = ItemAction::EditName;
     rename.index = index;
@@ -3585,18 +3655,24 @@ class Painter {
           CommandItem(Kind::Button, {mid + 4, y, x1, y + kButton}, L"Период…", kGlyphClock, UiCommand::ChooseRefreshPeriod, index);
       period.tip = L"Как часто обновлять подписку";
       l.items.push_back(std::move(period));
-    } else {
-      // A config of their own can be marked as a server of theirs: the host is taken from its servers.
-      Item own = CommandItem(Kind::Button, {mid + 4, y, x1, y + kButton},
-                             p.ownHost.empty() ? L"Это мой сервер" : L"Не мой сервер", nullptr,
-                             UiCommand::ToggleOwnServer, index);
-      own.tip = p.ownHost.empty() ? L"Пометить как свой сервер: адрес берётся из конфига"
-                                  : L"Сейчас помечен как свой сервер (" + p.ownHost + L") — снять пометку";
-      l.items.push_back(std::move(own));
     }
     y += kButton + kGap + 4;
 
     // A server of their own: a look at it over ssh - what the system is, whether the installer can go on.
+    // A subscription from it only the look: the installer would put its own config in place of the link's.
+    if (p.subscription && !p.ownHost.empty()) {
+      Item probe = CommandItem(Kind::Button, {x0, y, x1, y + kButton},
+                               p.ownProbing ? L"Смотрю на сервер…" : L"Проверить сервер", nullptr,
+                               UiCommand::ProbeOwnServer, index);
+      probe.tip = L"Зайти по ssh (ключ из ssh-agent или ~\\.ssh) и посмотреть: система, root, занятые порты";
+      probe.enabled = !p.ownProbing && !p.ownInstalling;
+      l.items.push_back(std::move(probe));
+      y += kButton + 8;
+      if (!p.ownProbe.empty()) {
+        y = Paragraph(l, Kind::Caption, p.ownProbe, x0 + 4, x1, y) + kGap;
+      }
+      y += kGap;
+    }
     if (!p.subscription && !p.ownHost.empty()) {
       const bool busy = p.ownProbing || p.ownInstalling;
       Item probe = CommandItem(Kind::Button, {x0, y, mid - 4, y + kButton},
@@ -3673,8 +3749,16 @@ class Painter {
       y += h;
     }
     y += kGap;
-    l.items.push_back(CommandItem(Kind::DangerButton, {x0, y, x1, y + kButton}, L"Удалить конфигурацию", kGlyphDelete,
-                                  UiCommand::RemoveProfile, index));
+    // Said as what it is: a server of one's own only leaves the list, the server and its VPN stay.
+    Item remove = CommandItem(Kind::DangerButton, {x0, y, x1, y + kButton},
+                              !p.ownHost.empty() ? L"Убрать из списка"
+                              : p.subscription   ? L"Удалить подписку"
+                                                 : L"Удалить конфиг",
+                              kGlyphDelete, UiCommand::RemoveProfile, index);
+    if (!p.ownHost.empty()) {
+      remove.tip = L"Убрать запись из клиента. Сам сервер и VPN на нём останутся";
+    }
+    l.items.push_back(std::move(remove));
     return y + kButton;
   }
 
@@ -6083,6 +6167,7 @@ struct MainWindow::Impl {
   LogView log;
   bool selecting = false;      // dragging a selection over the log
   bool settingsMore = false;   // the configurations' relay fold open (UiContent::settingsMore)
+  int profileTab = 0;          // the configurations' tab (UiContent::profileTab)
   bool routeMenu = false;      // the routing mode's menu dropped (UiContent::routeMenu)
   bool lidUp = false;          // the kill switch's lid lifted, for kLidUpMs (UiContent::lidUp)
   // The servers' order on their page (UiContent::serverOrder): kept through
@@ -6599,6 +6684,7 @@ struct MainWindow::Impl {
       state.server = log.AboutWay(log.caret);
     }
     content.settingsMore = settingsMore;
+    content.profileTab = profileTab;
     content.routeMenu = routeMenu;
     content.lidUp = lidUp;
     content.serverOrder = serverOrder;
@@ -6959,6 +7045,15 @@ struct MainWindow::Impl {
 
   void Go(UiPage p) {
     EndEdit(true);
+    // A configuration opened from anywhere: the list's tab is the one it is on, so "Назад" lands by it;
+    // back from it, the one it is on now (its "Мой сервер" switched there).
+    if (p == UiPage::Profile || (p == UiPage::Subscription && page == UiPage::Profile)) {
+      const auto opened = std::find_if(content.profiles.begin(), content.profiles.end(),
+                                       [&](const UiProfile& it) { return it.id == openProfile; });
+      if (opened != content.profiles.end()) {
+        profileTab = opened->ownHost.empty() ? 0 : 1;
+      }
+    }
     if (p != page) {
       page = p;
       scroll = 0;
@@ -7003,6 +7098,14 @@ struct MainWindow::Impl {
         if (item.index >= 0 && static_cast<std::size_t>(item.index) < content.profiles.size()) {
           openProfile = content.profiles[static_cast<std::size_t>(item.index)].id;
           Go(UiPage::Profile);
+        }
+        return;
+      case ItemAction::ProfileTab:
+        if (std::clamp(item.index, 0, 1) != profileTab) {
+          profileTab = std::clamp(item.index, 0, 1);
+          scroll = 0;
+          in.pressed = -1;
+          Relayout();
         }
         return;
       case ItemAction::LogFilter:

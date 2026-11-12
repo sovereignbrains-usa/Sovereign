@@ -238,13 +238,29 @@ std::string Narrow(const std::wstring& wide) {
   return out;
 }
 
-std::wstring LocalTime(std::int64_t unixSeconds) {
+// "сегодня в 23:41", "вчера в 08:10", "05.11 в 14:02" - when a configuration was last updated.
+std::wstring FreshTime(std::int64_t unixSeconds) {
   const auto t = static_cast<std::time_t>(unixSeconds);
+  const std::time_t now = std::time(nullptr);
+  const std::time_t yesterday = now - 24 * 60 * 60;
   std::tm tm{};
+  std::tm today{};
+  std::tm before{};
   localtime_s(&tm, &t);
-  wchar_t text[32]{};
-  wcsftime(text, 32, L"%d.%m %H:%M", &tm);
-  return text;
+  localtime_s(&today, &now);
+  localtime_s(&before, &yesterday);
+  wchar_t clock[16]{};
+  wcsftime(clock, 16, L"%H:%M", &tm);
+  const auto sameDay = [&](const std::tm& day) { return tm.tm_year == day.tm_year && tm.tm_yday == day.tm_yday; };
+  if (sameDay(today)) {
+    return std::wstring(L"сегодня в ") + clock;
+  }
+  if (sameDay(before)) {
+    return std::wstring(L"вчера в ") + clock;
+  }
+  wchar_t date[16]{};
+  wcsftime(date, 16, L"%d.%m", &tm);
+  return std::wstring(date) + L" в " + clock;
 }
 
 // "05:07:30  ERROR  outbound/naive[Naive]: ..." - a line of the log window.
@@ -2112,7 +2128,8 @@ class Worker {
       }
       case ProfileChange::What::OwnInstall: {
         ProfileRuntime& state = runtime_[change.id];
-        if (!profile->own || state.ownProbing || state.ownInstalling) {
+        // A subscription marked one's own isn't installed over: its config is the link's.
+        if (!profile->own || !profile->url.empty() || state.ownProbing || state.ownInstalling) {
           return;
         }
         state.ownInstalling = true;
@@ -2160,15 +2177,24 @@ class Worker {
       case ProfileChange::What::OwnServer:
         if (!change.on) {
           profile->own.reset();
-        } else if (profile->url.empty()) {
-          // The host is the first of its servers' that a command line can hold; none: nothing to say.
+        } else {
+          // The host is the first of its servers' that a command line can hold; a subscription
+          // from a server of one's own (12.11.2026, asked: "разделить свои впс с подписками") has
+          // its link's host to fall back on; none: nothing to say.
+          std::string host;
           for (const auto& server : runtime_[change.id].servers) {
             if (sovereign::tray::IsOwnHost(server.address)) {
-              sovereign::tray::OwnServer own;
-              own.host = server.address;
-              profile->own = std::move(own);
+              host = server.address;
               break;
             }
+          }
+          if (host.empty() && !profile->url.empty()) {
+            host = Narrow(sovereign::tray::UrlHost(Widen(profile->url)));
+          }
+          if (!host.empty() && sovereign::tray::IsOwnHost(host)) {
+            sovereign::tray::OwnServer own;
+            own.host = std::move(host);
+            profile->own = std::move(own);
           }
         }
         break;
@@ -3835,7 +3861,7 @@ void RequestSubscription(std::string url) {
       {.title = L"Как скачать подписку?",
        .text = L"Подключения нет. Напрямую сервер подписки увидит твой настоящий IP-адрес. Через сервер Sovereign "
                L"(Cloudflare) он увидит адрес Cloudflare, но ссылку на подписку увидит тот, кто держит этот сервер, "
-               L"— автор Sovereign. Выбор запомнится: Настройки → «Скачивать без подключения».",
+               L"— автор Sovereign. Выбор запомнится: Подписки → «Обновлять без VPN».",
        .yes = L"Через сервер Sovereign",
        .no = L"Не добавлять",
        .other = L"Напрямую",
@@ -5263,7 +5289,7 @@ UiContent ContentFrom(const View& v) {
     shown.ownProbe = shown.ownProbing ? std::wstring() : Widen(profile.ownProbe);
     shown.failed = !profile.error.empty();
     shown.host = sovereign::tray::UrlHost(Widen(profile.url));
-    shown.updated = profile.lastRefresh ? LocalTime(profile.lastRefresh) : L"ещё не загружена";
+    shown.updated = profile.lastRefresh ? FreshTime(profile.lastRefresh) : L"ещё не загружена";
     shown.autoUpdate = profile.autoUpdate;
     shown.period = profile.userHours > 0
                        ? L"каждые " + hours(profile.userHours)
@@ -5307,13 +5333,17 @@ UiContent ContentFrom(const View& v) {
       shown.servers.push_back({.name = Widen(server.tag), .label = Widen(server.label), .enabled = server.enabled});
       off += server.enabled ? 0 : 1;
     }
-    // The list's line: what it is, how many servers, how fresh.
-    std::wstring detail = shown.subscription ? L"подписка"
-                          : shown.ownHost.empty() ? L"свой конфиг"
-                                                  : L"свой сервер " + shown.ownHost;
-    detail += std::format(L" · серверов: {}", profile.servers.size() - off);
+    // The list's line in plain words: the tab already says what it is (12.11.2026: "нихуя не
+    // понимаю"), so where it comes from, how many servers, how fresh.
+    const std::size_t on = profile.servers.size() - off;
+    std::wstring detail = std::format(L"{} {}", on, sovereign::tray::ServersWord(static_cast<std::int64_t>(on)));
     if (off > 0) {
-      detail += std::format(L" (выкл. {})", off);
+      detail += std::format(L", {} выкл.", off);
+    }
+    if (!shown.ownHost.empty()) {
+      detail.insert(0, shown.ownHost + L" · ");
+    } else if (!shown.subscription) {
+      detail.insert(0, L"свой конфиг · ");
     }
     if (!profile.enabled) {
       detail.insert(0, L"выключена · ");
@@ -5321,8 +5351,8 @@ UiContent ContentFrom(const View& v) {
       detail += L" · новая версия ждёт";
     } else if (shown.failed) {
       detail += L" · не обновилась";
-    } else if (shown.subscription && profile.lastRefresh) {
-      detail += L" · " + shown.updated;
+    } else if (shown.subscription) {
+      detail += profile.lastRefresh ? L" · обновлена " + shown.updated : L" · ещё не загружена";
     }
     shown.detail = std::move(detail);
     // In trouble: said on the main screen, the first subscription that is.

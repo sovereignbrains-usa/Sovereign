@@ -3401,8 +3401,7 @@ class Painter {
     }
     // The tab's list: the switch turns one on and off, a click opens it.
     if (listed.empty()) {
-      const std::wstring none = mine ? L"Своих серверов пока нет. Есть VPS — добавь его кнопкой ниже, клиент сам "
-                                       L"поставит на него VPN."
+      const std::wstring none = mine ? L"Своих серверов пока нет."
                                      : L"Подписок пока нет. Добавь кнопками ниже: ссылка из буфера, QR-код с экрана "
                                        L"или файл.";
       const float h = std::max(56.0f, TextHeight(none, captionWrap_.get(), x1 - x0 - 40) + 32);
@@ -3453,9 +3452,8 @@ class Painter {
       l.items.push_back(std::move(own));
       y += kButton + 8;
       return Paragraph(l, Kind::Caption,
-                       L"Нужен VPS с чистым Debian и вход root по ssh-ключу. Клиент сам поставит на него VPN и "
-                       L"добавит сюда. Подписка с твоего же сервера переедет сюда, если на её странице включить "
-                       L"«Мой сервер».",
+                       L"Нужен VPS с чистым Debian и вход root по ssh-ключу — клиент сам поставит на него VPN. "
+                       L"Подписка уже с твоего сервера? Открой её и включи «Мой сервер» — она переедет сюда.",
                        x0 + 4, x1, y);
     }
     // The ways to add a subscription, each with its word (12.11.2026: three bare icons in the
@@ -3576,7 +3574,7 @@ class Painter {
       l.items.push_back(Make(Kind::Divider, {x0 + 20, switchTop, x1 - 20, switchTop + 1}));
       Item own = CommandItem(Kind::Switch, {x0 + 4, switchTop + 4, x1 - 4, switchTop + 60}, L"Мой сервер", nullptr,
                              UiCommand::ToggleOwnServer, index);
-      own.detail = !p.ownHost.empty() ? L"в «Мои серверы» · " + p.ownHost : std::wstring(L"в «Подписки»");
+      own.detail = !p.ownHost.empty() ? L"в «Моих серверах» · " + p.ownHost : std::wstring(L"включи, если сервер твой");
       own.tip = p.ownHost.empty()
                     ? L"Включи, если это твой VPS: запись переедет в «Мои серверы», клиент сможет проверить его по ssh. "
                       L"Адрес берётся из конфига"

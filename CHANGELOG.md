@@ -4,6 +4,11 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.13 — 12.11.2026
+
+- **The empty "Мои серверы" tab says it once**: "Своих серверов пока нет.", and under "Добавить свой VPS" what it needs and how a subscription from your own server moves there.
+- **The "Мой сервер" switch reads as a hint, not a place**: "включи, если сервер твой" while it's off, "в «Моих серверах» · адрес" when it's on.
+
 ## 0.6.12 — 12.11.2026
 
 **Subscriptions and your own servers are on two tabs of one page.** The page is now called "Подписки и серверы"; at its top a switch "Подписки · N | Мои серверы · M" shows either the subscriptions and configs, or the servers of your own (a VPS set up by Sovereign or marked as yours). Opening a configuration and coming back lands on its tab.

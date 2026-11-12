@@ -4,6 +4,12 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.11 — 12.11.2026
+
+**The Log page reads as events in plain words, not raw core lines.** Each row says what happened ("AnyTLS · Финляндия: не ответил вовремя", "youtube.com — через AnyTLS · Нидерланды", "mc.yandex.ru — заблокирован: реклама или слежка", "Нет сети", "VPN включён"), with a coloured dot for how it went and, under it, which server and what the core said. Repeats of the same event fold into one row with a "×N" count; the core's routine chatter (rule matches, DNS cache, sniffing) is hidden.
+- **Filters: Всё, Проблемы, Серверы, Сайты**, each with how many kinds of event it holds, and a search box over the words and the raw lines.
+- **A click on a row opens a card under the list** with the line exactly as the core wrote it and what can be done: copy it, show only events of that kind one by one with their times, or open the Servers page when the event is about a server.
+- **Pause and copy stay on top; "⋯" holds the rest**: save to a file, how much the core writes, clear. Copying, saving and problem reports still use the raw lines.
 ## 0.6.10 — 12.11.2026
 
 - **No more cut-off notes beside protocols on the Servers page.** The second subscription's ways no longer carry its name as a grey note ("REALITY · ewkereboss.xyz", cut to "REALI…"): the server's card already says which server they lead to. A note now appears only when the provider named a way in words of its own.

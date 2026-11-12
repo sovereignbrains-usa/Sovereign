@@ -5,7 +5,8 @@ enable_language(RC)
 # tests/unit (tray_model_test, subscription_test, app_rules_test,
 # protocol_choice_test, log_lines_test, delays_test, update_test,
 # config_sync_test, exit_ip_test, log_level_test, share_links_test,
-# import_formats_test, qr_codes_test, profiles_test, effective_config_test).
+# import_formats_test, qr_codes_test, profiles_test, effective_config_test,
+# log_events_test).
 add_library(sovereign_tray_lib STATIC
   tray_model.cpp
   tray_model.h
@@ -17,6 +18,8 @@ add_library(sovereign_tray_lib STATIC
   protocol_choice.h
   log_lines.cpp
   log_lines.h
+  log_events.cpp
+  log_events.h
   cache_file.cpp
   cache_file.h
   effective_config.cpp

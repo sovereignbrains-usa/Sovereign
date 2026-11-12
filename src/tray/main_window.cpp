@@ -31,6 +31,8 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -38,6 +40,7 @@
 #include "diagnostics.h"
 #include "flags.h"
 #include "icons.h"
+#include "log_events.h"
 #include "resource.h"
 #include "ui_style.h"
 
@@ -90,9 +93,9 @@ constexpr float kPillSide = 12;      // the mode's pill: its words from its ends
 constexpr float kChevron = 14;       // and the chevron after them
 constexpr ULONGLONG kToggleGraceMs = 400;  // a tray click right after the window lost focus hides it
 
-// The log page: a line's height, and how many lines it keeps (the tray keeps
-// no more either).
-constexpr float kLogLine = 20;
+// The log page: a row's height (an event: what happened, and with what under
+// it), and how many lines it keeps (the tray keeps no more either).
+constexpr float kLogRow = 44;
 constexpr std::size_t kLogKeep = 5000;
 // Its scrollbar: the strip at its right edge a press takes - wider than the
 // thumb drawn. The middle button's scrolling: a frame, the still zone round
@@ -115,6 +118,7 @@ constexpr UINT kLogMenuCopyAll = 2;
 constexpr UINT kLogMenuSelectAll = 3;
 constexpr UINT kLogMenuSave = 4;
 constexpr UINT kLogMenuClear = 5;
+constexpr UINT kLogMenuLevel = 6;  // the "⋯" key's: how much the core writes (UiCommand::ChooseLogLevel)
 
 // A right-click menu's items, on anything but the log (ItemMenu).
 constexpr UINT kMenuOpen = 101;
@@ -176,6 +180,8 @@ constexpr const wchar_t* kGlyphSave = L"\xE74E";
 constexpr const wchar_t* kGlyphPause = L"\xE769";
 constexpr const wchar_t* kGlyphPlay = L"\xE768";
 constexpr const wchar_t* kGlyphFilter = L"\xE71C";
+constexpr const wchar_t* kGlyphMore = L"\xE712";    // "⋯": what else can be done here
+constexpr const wchar_t* kGlyphSearch = L"\xE721";
 constexpr const wchar_t* kGlyphQrCode = L"\xED14";
 constexpr const wchar_t* kGlyphDelete = L"\xE74D";
 constexpr const wchar_t* kGlyphRename = L"\xE8AC";
@@ -254,6 +260,7 @@ enum class Kind : std::uint8_t {
   Dot,           // an on/off filter as a thing: a hairline rectangle, a dot in it that's lit when on (`checked`)
   Trace,         // the last hour of blocks, a bar a minute (text2: one wchar per minute, its height in 0..1000)
   Readout,       // a big number with its unit under it, right-aligned (text: the number, detail: the unit)
+  Find,          // the log's search: a box typed in on a click (text: what's sought; empty: what can be)
 };
 
 // The servers' columns at a Choice's right edge, from the edge in: the failures (a dot and a count), then the
@@ -279,9 +286,14 @@ enum class ItemAction : std::uint8_t {
   Page,
   OpenProfile,
   EditName,
-  ToggleLevel,
+  LogFilter,   // the log's filter (index: kLogFilterNames)
   PauseLogs,
   SaveLogs,
+  CopyLogs,    // the log's lines as the core wrote them (index 0: the selected rows', 1: all)
+  LogMore,     // the log's "⋯": save, how much the core writes, clear
+  FindLog,     // the log's search box: typed in
+  LogOnly,     // the selected row's lines one by one, nothing else; or back to all
+  LogServer,   // the servers' page, for the selected row's server
   ToggleMore,  // the configurations' relay fold, folded or not (the window's own)
   ToggleServer,  // a server's card opened or folded (text2: its key, index: open now; the window's own)
   Hide,        // our title bar's cross: the window away to the tray
@@ -430,42 +442,74 @@ inline float FoldBody(Layout& l, std::size_t first, float from, float to, float 
   return foot;
 }
 
-// The log's level groups, as its filter shows them.
-constexpr int kLevelGroups = 4;
-constexpr const wchar_t* kLevelNames[kLevelGroups] = {L"Ошибки", L"Предупр.", L"Инфо", L"Отладка"};
+// The log page's filters (logs-concept.html, variant A): everything, what
+// went wrong (warnings, errors), the servers' ways, the sites.
+constexpr int kLogFilters = 4;
+constexpr const wchar_t* kLogFilterNames[kLogFilters] = {L"Всё", L"Проблемы", L"Серверы", L"Сайты"};
 
-// A log line's group: 0 errors (and fatal, panic), 1 warnings, 2 info (and
-// lines of no level), 3 debug and trace - by FormatLogLine's level column
-// (main.cpp): "05:07:30  ERROR  outbound/...".
-int LevelGroup(std::wstring_view line) {
-  if (line.size() < 15 || line[8] != L' ' || line[9] != L' ') {
-    return 2;
+bool InLogFilter(const LogEvent& event, int filter) {
+  switch (filter) {
+    case 1: return event.tone == LogTone::Warn || event.tone == LogTone::Bad;
+    case 2: return event.topic == LogTopic::Server;
+    case 3: return event.topic == LogTopic::Site;
+    default: return true;
   }
-  const std::wstring_view level = line.substr(10, 5);
-  if (level.starts_with(L"ERROR") || level.starts_with(L"FATAL") || level.starts_with(L"PANIC")) {
-    return 0;
-  }
-  if (level.starts_with(L"WARN")) {
-    return 1;
-  }
-  if (level.starts_with(L"DEBUG") || level.starts_with(L"TRACE")) {
-    return 3;
-  }
-  return 2;
 }
 
-// The log page's state: its lines (newest last) and the ones the level
-// filter shows, how far those are scrolled and which are selected - from
-// anchor to caret, inclusive, as positions among the shown. Paused, new lines
-// wait in `held` and the view stays still.
+// `what` in `text`, as a person reads it: case aside ("YouTube", "youtube").
+bool HasText(std::wstring_view text, std::wstring_view what) {
+  if (what.empty()) {
+    return true;
+  }
+  if (text.size() < what.size()) {
+    return false;
+  }
+  return FindNLSStringEx(LOCALE_NAME_USER_DEFAULT, FIND_FROMSTART | NORM_IGNORECASE, text.data(),
+                         static_cast<int>(text.size()), what.data(), static_cast<int>(what.size()), nullptr, nullptr,
+                         nullptr, 0) >= 0;
+}
+
+// The servers' ways as the log's events name them: the core's tag, what it
+// is, where its server is (UiContent's protocols, protocolTitles, locations).
+std::vector<LogWay> WaysOf(const UiContent& c) {
+  std::vector<LogWay> ways;
+  for (std::size_t i = 0; i < c.protocols.size(); ++i) {
+    LogWay way;
+    way.tag = c.protocols[i];
+    way.title = i < c.protocolTitles.size() ? c.protocolTitles[i] : std::wstring();
+    if (i < c.locations.size()) {
+      const UiLocation& at = c.locations[i];
+      way.where = at.ip;
+      if (!at.countryName.empty()) {
+        way.where = way.where.empty() ? at.countryName : way.where + L" · " + at.countryName;
+      }
+    }
+    ways.push_back(std::move(way));
+  }
+  return ways;
+}
+
+// The log page's state: the core's lines as it wrote them (newest last -
+// what's copied, saved and goes into a report) and each read as an event
+// (log_events.h); the rows the filter and the search show, one per kind of
+// event with how many times it came ("Только такие": that kind's one by
+// one), how far they are scrolled and which are selected - from anchor to
+// caret, inclusive, as rows. Paused, new lines wait in `held` and the view
+// stays still.
 struct LogView {
   std::deque<std::wstring> lines;
-  std::vector<int> shown;  // indices into lines
-  std::array<bool, kLevelGroups> levels{true, true, true, true};
-  std::array<int, kLevelGroups> counts{};  // lines per group
+  std::deque<LogEvent> events;  // one per line
+  std::vector<LogWay> ways;     // what the events name the servers' ways by
+  std::vector<int> shown;       // a row's newest line, oldest row first
+  std::vector<int> repeats;     // how many lines a row stands for
+  int filter = 0;               // kLogFilterNames
+  std::wstring only;            // a kind's key: its lines one by one, nothing else; empty: all
+  std::wstring onlyTitle;       // what that kind is
+  std::wstring search;          // only the rows with it in their words or lines
+  std::array<int, kLogFilters> counts{};  // kinds of event per filter
   bool paused = false;
   std::vector<std::wstring> held;
-  float scroll = 0;     // DIPs from the first shown line
+  float scroll = 0;     // DIPs from the first row
   bool follow = true;   // stays at the bottom as lines come
   int anchor = -1;      // -1: no selection
   int caret = -1;
@@ -474,19 +518,125 @@ struct LogView {
 
   int Count() const { return static_cast<int>(shown.size()); }
   const std::wstring& Line(int i) const { return lines[static_cast<std::size_t>(shown[static_cast<std::size_t>(i)])]; }
+  const LogEvent& Event(int i) const { return events[static_cast<std::size_t>(shown[static_cast<std::size_t>(i)])]; }
+  int Repeats(int i) const { return repeats[static_cast<std::size_t>(i)]; }
   bool HasSelection() const { return anchor >= 0 && caret >= 0 && caret < Count(); }
   bool Selected(int i) const { return HasSelection() && i >= std::min(anchor, caret) && i <= std::max(anchor, caret); }
-  float Height() const { return static_cast<float>(shown.size()) * kLogLine; }
+  float Height() const { return static_cast<float>(shown.size()) * kLogRow; }
+  // A row about one of the servers' ways: there's a server to show.
+  bool AboutWay(int i) const {
+    const std::wstring& way = Event(i).way;
+    return !way.empty() && std::any_of(ways.begin(), ways.end(), [&](const LogWay& w) { return w.tag == way; });
+  }
 
-  void Rebuild() {
-    shown.clear();
-    counts.fill(0);
+  void Push(std::wstring line) {
+    events.push_back(EventOf(line, ways));
+    lines.push_back(std::move(line));
+  }
+
+  // The oldest `n` lines gone.
+  void Cut(std::size_t n) {
+    n = std::min(n, lines.size());
+    lines.erase(lines.begin(), lines.begin() + static_cast<std::ptrdiff_t>(n));
+    events.erase(events.begin(), events.begin() + static_cast<std::ptrdiff_t>(n));
+    for (int& line : shown) {
+      line -= static_cast<int>(n);  // a row's line gone: below 0, its row found again by its kind
+    }
+  }
+
+  void Clear() {
+    lines.clear();
+    events.clear();
+  }
+
+  // The servers' ways changed (a refresh, a renamed server): the lines read again. False: the same.
+  bool SetWays(std::vector<LogWay> fresh) {
+    if (fresh == ways) {
+      return false;
+    }
+    ways = std::move(fresh);
     for (std::size_t i = 0; i < lines.size(); ++i) {
-      const int group = LevelGroup(lines[i]);
-      ++counts[static_cast<std::size_t>(group)];
-      if (levels[static_cast<std::size_t>(group)]) {
-        shown.push_back(static_cast<int>(i));
+      events[i] = EventOf(lines[i], ways);
+    }
+    return true;
+  }
+
+  bool Matches(std::size_t i) const {
+    if (search.empty()) {
+      return true;
+    }
+    const LogEvent& event = events[i];
+    return HasText(event.title, search) || HasText(event.detail, search) || HasText(lines[i], search);
+  }
+
+  // The rows again, from the newest line back: a kind seen already adds to its row. The
+  // selection stays on its kinds where they are still shown.
+  void Rebuild() {
+    // A selected row's newest line and its kind (none: -1, empty).
+    const auto lineOf = [this](int row) { return row >= 0 && row < Count() ? shown[static_cast<std::size_t>(row)] : -1; };
+    const auto keyOf = [this](int line) {
+      return line >= 0 && static_cast<std::size_t>(line) < events.size() ? events[static_cast<std::size_t>(line)].key
+                                                                          : std::wstring();
+    };
+    const bool selection = HasSelection();
+    const int anchorLine = selection ? lineOf(anchor) : -1;
+    const int caretLine = selection ? lineOf(caret) : -1;
+    const std::wstring anchorKey = keyOf(anchorLine);
+    const std::wstring caretKey = keyOf(caretLine);
+    shown.clear();
+    repeats.clear();
+    counts.fill(0);
+    std::array<std::unordered_set<std::wstring_view>, kLogFilters> kinds;
+    std::unordered_map<std::wstring_view, std::size_t> rows;
+    const bool merge = only.empty();
+    for (std::size_t i = events.size(); i-- > 0;) {
+      const LogEvent& event = events[i];
+      if (event.hidden) {
+        continue;
       }
+      for (std::size_t f = 0; f < kinds.size(); ++f) {
+        if (InLogFilter(event, static_cast<int>(f)) && kinds[f].insert(event.key).second) {
+          ++counts[f];
+        }
+      }
+      if (merge ? !InLogFilter(event, filter) : event.key != only) {
+        continue;
+      }
+      if (!Matches(i)) {
+        continue;
+      }
+      if (merge) {
+        if (const auto [at, fresh] = rows.try_emplace(event.key, shown.size()); !fresh) {
+          ++repeats[at->second];
+          continue;
+        }
+      }
+      shown.push_back(static_cast<int>(i));
+      repeats.push_back(1);
+    }
+    std::reverse(shown.begin(), shown.end());
+    std::reverse(repeats.begin(), repeats.end());
+    // The selection: on the same lines where they are rows still (one by one), else on the same kinds.
+    const auto rowOf = [this](int line, const std::wstring& key) {
+      int byKey = -1;
+      for (int r = 0; r < Count(); ++r) {
+        if (shown[static_cast<std::size_t>(r)] == line) {
+          return r;
+        }
+        if (byKey < 0 && !key.empty() && Event(r).key == key) {
+          byKey = r;
+        }
+      }
+      return byKey;
+    };
+    if (selection) {
+      caret = rowOf(caretLine, caretKey);
+      anchor = rowOf(anchorLine, anchorKey);
+      if (caret < 0 || anchor < 0) {
+        anchor = caret = -1;
+      }
+    } else {
+      anchor = caret = -1;
     }
   }
 };
@@ -507,9 +657,14 @@ std::optional<D2D1_RECT_F> LogThumb(D2D1_RECT_F box, const LogView& log) {
 struct LogState {
   bool paused = false;
   std::size_t held = 0;
-  std::array<int, kLevelGroups> counts{};
-  std::array<bool, kLevelGroups> levels{true, true, true, true};
-  std::wstring detail;  // the caret's line in full: the list cuts long ones
+  std::array<int, kLogFilters> counts{};
+  int filter = 0;
+  std::wstring search;
+  bool only = false;       // a kind's lines one by one (LogView::only)
+  std::wstring onlyTitle;  // that kind
+  bool selected = false;   // a row is: its card under the list
+  std::wstring detail;     // the selected row's line as the core wrote it
+  bool server = false;     // it's about one of the servers' ways: "Показать сервер"
 };
 
 // The live traffic round the main screen's switch (UiContent::flow*): dots
@@ -1456,16 +1611,16 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 47> kNames = {
+    static constexpr std::array<const wchar_t*, 48> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
         L"AppTitle", L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
         L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link",   L"Instrument", L"Dot",  L"Trace",
-        L"Readout"};
+        L"Readout",  L"Find"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
-    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Readout) + 1);
+    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Find) + 1);
     std::wstring out;
     for (std::size_t i = 0; i < l.items.size(); ++i) {
       const Item& it = l.items[i];
@@ -3821,17 +3976,25 @@ class Painter {
     return y + kButton;
   }
 
-  // The log: a row of the level the core writes on the left, pause and save
-  // on the right; the level filter; the lines, filling the window; the
-  // selected line in full under them. Right-click for copy, select all, save, clear.
+  // The log (logs-concept.html, variant A): the search on top with pause, copy and "⋯" (save, how much the
+  // core writes, clear) on its right; what's wrong right now; the filter; the events, a row each, filling
+  // the window; the selected one's card under them - its line as the core wrote it, and what can be done.
+  // Right-click for copy, select all, save, clear.
   float Logs(Layout& l, const UiContent& c, const LogState& s, float x0, float x1, float y, float height) const {
     const float titleTop = y - 1;  // the keys of 36 on the row of kButton's line
     y += kButton + kGap;
     float right = x1;
-    Item save = Make(Kind::IconButton, {right - 36, titleTop, right, titleTop + 36}, L"Сохранить в файл", kGlyphSave);
-    save.action = ItemAction::SaveLogs;
-    save.tip = L"Сохранить журнал в файл";
-    l.items.push_back(std::move(save));
+    Item more = Make(Kind::IconButton, {right - 36, titleTop, right, titleTop + 36}, L"Ещё", kGlyphMore);
+    more.action = ItemAction::LogMore;
+    more.tip = c.logLevel.empty() ? std::wstring(L"Сохранить в файл, подробность записи (авто), очистить")
+                                  : L"Сохранить в файл, подробность записи (" + c.logLevel + L"), очистить";
+    l.items.push_back(std::move(more));
+    right -= 40;
+    Item copy = Make(Kind::IconButton, {right - 36, titleTop, right, titleTop + 36}, L"Копировать всё", kGlyphCopy);
+    copy.action = ItemAction::CopyLogs;
+    copy.index = 1;
+    copy.tip = L"Скопировать журнал как есть - для поддержки";
+    l.items.push_back(std::move(copy));
     right -= 40;
     const bool waiting = s.paused && s.held > 0;
     const float pauseWidth = waiting ? 84.0f : 36.0f;
@@ -3844,11 +4007,10 @@ class Painter {
                 : s.paused ? L"Продолжить: новые строки снова пойдут"
                            : L"Пауза: новые строки подождут, пока читаешь";
     l.items.push_back(std::move(pause));
-    Item writes = CommandItem(Kind::Button, {x0, titleTop + 1, x0 + 132, titleTop + 1 + kButton},
-                              c.logLevel.empty() ? std::wstring(L"запись: авто") : L"запись: " + c.logLevel,
-                              kGlyphFilter, UiCommand::ChooseLogLevel);
-    writes.tip = L"Насколько подробно ядро пишет журнал";
-    l.items.push_back(std::move(writes));
+    right -= pauseWidth + 8;
+    Item find = Make(Kind::Find, {x0, titleTop, right, titleTop + 36}, s.search);
+    find.action = ItemAction::FindLog;
+    l.items.push_back(std::move(find));
 
     // What's wrong right now, in full and in red, over the lines (the main
     // screen has one line of it); the subscription's report under its trouble.
@@ -3860,31 +4022,69 @@ class Painter {
       y += kButton + kGap;
     }
 
-    // Which levels are shown, with how many lines each.
-    const float chip = (x1 - x0 - 3 * 6) / kLevelGroups;
-    for (int i = 0; i < kLevelGroups; ++i) {
-      const float left = x0 + static_cast<float>(i) * (chip + 6);
-      Item level = Make(Kind::Chip, {left, y, left + chip, y + 30},
-                        std::format(L"{} {}", kLevelNames[i], s.counts[static_cast<std::size_t>(i)]));
-      level.action = ItemAction::ToggleLevel;
-      level.index = i;
-      level.checked = s.levels[static_cast<std::size_t>(i)];
-      l.items.push_back(std::move(level));
+    // Which events are shown, with how many kinds of each; one kind one by one: the way back, and which.
+    if (s.only) {
+      constexpr float kBack = 120;
+      Item back = Make(Kind::Chip, {x0, y, x0 + kBack, y + 30}, L"← Все записи");
+      back.action = ItemAction::LogOnly;
+      back.checked = true;
+      back.tip = L"Снова все записи";
+      l.items.push_back(std::move(back));
+      l.items.push_back(Make(Kind::Caption, {x0 + kBack + 10, y, x1, y + 30}, L"только: " + s.onlyTitle));
+    } else {
+      std::array<std::wstring, kLogFilters> labels;
+      float used = 0;
+      for (std::size_t i = 0; i < labels.size(); ++i) {
+        labels[i] = std::format(L"{} {}", kLogFilterNames[i], s.counts[i]);
+        used += TextWidth(labels[i], chip_.get()) + 20;
+      }
+      // As wide as each says, what's left shared out: no word cut.
+      const float gaps = 6.0f * static_cast<float>(kLogFilters - 1);
+      const float spare = std::max(0.0f, (x1 - x0 - gaps - used) / static_cast<float>(kLogFilters));
+      float left = x0;
+      for (std::size_t i = 0; i < labels.size(); ++i) {
+        const float w = TextWidth(labels[i], chip_.get()) + 20 + spare;
+        Item filter = Make(Kind::Chip, {left, y, left + w, y + 30}, labels[i]);
+        filter.action = ItemAction::LogFilter;
+        filter.index = static_cast<int>(i);
+        filter.checked = s.filter == static_cast<int>(i);
+        l.items.push_back(std::move(filter));
+        left += w + 6;
+      }
     }
     y += 30 + 10;
 
-    // Fills the window: the lines scroll inside, the page doesn't.
-    const float detailHeight =
-        s.detail.empty() ? 0.0f
-                         : std::min(std::max(84.0f, height * 0.3f), TextHeight(s.detail, captionWrap_.get(), x1 - x0 - 28)) + 20;
+    // Fills the window: the rows scroll inside, the page doesn't.
+    constexpr float kActions = 30;
+    const float lineHeight =
+        s.selected ? std::min(std::max(36.0f, height * 0.16f), TextHeight(s.detail, captionWrap_.get(), x1 - x0 - 28))
+                   : 0.0f;
+    const float detailHeight = s.selected ? 12 + lineHeight + 10 + kActions + 12 : 0.0f;
     const float bottom = std::max(y + 120, height - kPad - (detailHeight > 0 ? detailHeight + 8 : 0.0f));
     l.items.push_back(Make(Kind::Card, {x0, y, x1, bottom}));
     l.items.push_back(Make(Kind::LogBox, {x0, y, x1, bottom}));
     l.logBox = D2D1_RECT_F{x0 + 1, y + 8, x1 - 1, bottom - 8};
     if (detailHeight > 0) {
+      // The selected row: its line as the core wrote it, and what can be done with it.
       const float top = bottom + 8;
       l.items.push_back(Make(Kind::Card, {x0, top, x1, top + detailHeight}));
-      l.items.push_back(Make(Kind::Caption, {x0 + 14, top + 10, x1 - 14, top + detailHeight - 10}, s.detail));
+      l.items.push_back(Make(Kind::Caption, {x0 + 14, top + 12, x1 - 14, top + 12 + lineHeight}, s.detail));
+      const float keys = top + 12 + lineHeight + 10;
+      float left = x0 + 14;
+      const auto action = [&](std::wstring text, const wchar_t* glyph, ItemAction what, std::wstring tip) {
+        const float w = TextWidth(text, button_.get()) + (glyph != nullptr ? 26.0f : 0.0f) + 28;
+        Item key = Make(Kind::Button, {left, keys, left + w, keys + kActions}, std::move(text), glyph);
+        key.action = what;
+        key.tip = std::move(tip);
+        l.items.push_back(std::move(key));
+        left += w + 8;
+      };
+      action(L"Скопировать", kGlyphCopy, ItemAction::CopyLogs, L"Скопировать выбранное как есть");
+      action(s.only ? std::wstring(L"Все записи") : std::wstring(L"Только такие"), nullptr, ItemAction::LogOnly,
+             s.only ? L"Снова все записи" : L"Только такие записи, каждая отдельно - когда и с чем");
+      if (s.server) {
+        action(L"Показать сервер", nullptr, ItemAction::LogServer, L"Открыть страницу серверов");
+      }
       return top + detailHeight - kPad + 1;
     }
     return bottom - kPad + 1;  // exactly the view: nothing to scroll
@@ -5038,6 +5238,17 @@ class Painter {
         }
         break;
       }
+      case Kind::Find: {
+        // The log's search: a dark well, a magnifier, what's sought or what to seek in it.
+        k.Round(r, 6, Rgb(0, 0, 0, 0.18f));
+        k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
+        k.Outline(r, 6, Rgb(255, 255, 255, it.text.empty() ? 0.08f : 0.22f));
+        const float cy = (r.top + r.bottom) / 2;
+        k.Text(kGlyphSearch, glyph_.get(), {r.left + 6, cy - 10, r.left + 30, cy + 10}, secondary);
+        k.Text(it.text.empty() ? std::wstring_view(L"Поиск: сайт, сервер, ошибка") : std::wstring_view(it.text),
+               body_.get(), {r.left + 36, cy - 10, r.right - 8, cy + 10}, it.text.empty() ? secondary : primary);
+        break;
+      }
       case Kind::LogBox: break;  // DrawLog
     }
   }
@@ -5192,47 +5403,60 @@ class Painter {
     k.Text(it.text, button_.get(), r, ink);
   }
 
-  // The log's visible lines in `box`: time and level in their own colors,
-  // selected lines highlighted, a thumb when there is more to scroll.
+  // The log's visible rows in `box`: the time, a dot of how it went, what
+  // happened and with what under it, how many times on the right; selected
+  // rows highlighted, a thumb when there is more to scroll.
   void DrawLog(const Canvas& k, D2D1_RECT_F box, const LogView& log) const {
     const D2D1_COLOR_F primary = Rgb(222, 226, 234);
     const D2D1_COLOR_F secondary = FromColorRef(ui::kSecondaryText);
     if (log.shown.empty()) {
-      k.Text(log.lines.empty() ? L"Пока пусто: служба ещё ничего не написала." : L"Ни одной строки этих уровней.",
-             button_.get(), box, secondary);
+      const wchar_t* empty = log.lines.empty()    ? L"Пока пусто: служба ещё ничего не написала."
+                             : !log.search.empty() ? L"Ничего не нашлось."
+                             : log.filter == 1     ? L"Проблем нет."
+                                                   : L"Здесь пока ничего.";
+      k.Text(empty, button_.get(), box, secondary);
       return;
     }
     k.t->PushAxisAlignedClip(box, D2D1_ANTIALIAS_MODE_ALIASED);
-    const auto first = static_cast<std::size_t>(std::max(0.0f, std::floor(log.scroll / kLogLine)));
+    const auto first = static_cast<std::size_t>(std::max(0.0f, std::floor(log.scroll / kLogRow)));
+    const float textEnd = box.right - kLogBar;  // the scrollbar's strip on the right
     for (auto i = static_cast<int>(first); i < log.Count(); ++i) {
-      const float top = box.top + static_cast<float>(i) * kLogLine - log.scroll;
+      const float top = box.top + static_cast<float>(i) * kLogRow - log.scroll;
       if (top > box.bottom) {
         break;
       }
-      const D2D1_RECT_F row{box.left, top, box.right, top + kLogLine};
+      const D2D1_RECT_F row{box.left, top, box.right, top + kLogRow};
       if (log.Selected(i)) {
         k.Fill(row, FromColorRef(ui::kLit, 0.12f));
+      } else if (i > 0 && !log.Selected(i - 1)) {
+        k.t->DrawLine({box.left + 12, top}, {textEnd, top}, k.Color(Rgb(255, 255, 255, 0.05f)), 1.0f);
       }
-      // "05:07:30  ERROR  outbound/...": FormatLogLine's columns (main.cpp).
-      const std::wstring_view line = log.Line(i);
-      const float x = box.left + 14;
-      if (line.size() > 17 && line[8] == L' ' && line[9] == L' ') {
-        const std::wstring_view level = line.substr(10, 5);
-        D2D1_COLOR_F levelColor = secondary;
-        D2D1_COLOR_F message = primary;
-        if (level.starts_with(L"ERROR") || level.starts_with(L"FATAL") || level.starts_with(L"PANIC")) {
-          levelColor = FromColorRef(ui::kDanger);
-          message = levelColor;
-        } else if (level.starts_with(L"WARN")) {
-          levelColor = FromColorRef(ui::kWarning);
-        } else if (level.starts_with(L"DEBUG") || level.starts_with(L"TRACE")) {
-          message = secondary;
-        }
-        k.Text(line.substr(0, 8), mono_.get(), {x, row.top, x + 70, row.bottom}, secondary);
-        k.Text(level, mono_.get(), {x + 72, row.top, x + 124, row.bottom}, levelColor);
-        k.Text(line.substr(17), mono_.get(), {x + 126, row.top, box.right - 14, row.bottom}, message);
-      } else {
-        k.Text(line, mono_.get(), {x, row.top, box.right - 14, row.bottom}, primary);
+      const LogEvent& event = log.Event(i);
+      const bool two = !event.detail.empty();
+      const float mid = two ? top + 15 : top + kLogRow / 2;
+      const float x = box.left + 12;
+      k.Text(event.time.empty() ? std::wstring_view(L"--:--") : std::wstring_view(event.time), caption_.get(),
+             {x, mid - 10, x + 40, mid + 10}, secondary);
+      const COLORREF tone = event.tone == LogTone::Bad    ? ui::kDanger
+                            : event.tone == LogTone::Warn ? ui::kWarning
+                            : event.tone == LogTone::Ok   ? ui::kUpload
+                                                          : ui::kSecondaryText;
+      k.t->FillEllipse(D2D1::Ellipse({x + 48, mid}, 4, 4),
+                       k.Color(FromColorRef(tone, event.tone == LogTone::Neutral ? 0.6f : 1.0f)));
+      const float left = x + 60;
+      float end = textEnd;
+      if (const int times = log.Repeats(i); times > 1) {
+        const std::wstring count = std::format(L"×{}", times);
+        const float w = TextWidth(count, chip_.get()) + 14;
+        const D2D1_RECT_F badge{end - w, mid - 9, end, mid + 9};
+        k.Round(badge, 9, Rgb(255, 255, 255, 0.08f));
+        k.Text(count, chip_.get(), badge, secondary);
+        end = badge.left - 8;
+      }
+      k.Text(event.title.empty() ? std::wstring_view(log.Line(i)) : std::wstring_view(event.title), body_.get(),
+             {left, mid - 10, end, mid + 10}, primary);
+      if (two) {
+        k.Text(event.detail, caption_.get(), {left, top + 25, textEnd, top + 41}, secondary);
       }
     }
     if (const auto thumb = LogThumb(box, log)) {
@@ -6250,7 +6474,7 @@ struct MainWindow::Impl {
       return -1;
     }
     const float y = ToDip(px.y) - layout.logBox->top + log.scroll;
-    const auto line = static_cast<int>(std::floor(y / kLogLine));
+    const auto line = static_cast<int>(std::floor(y / kLogRow));
     return std::clamp(line, 0, log.Count() - 1);
   }
 
@@ -6343,15 +6567,34 @@ struct MainWindow::Impl {
     InvalidateRect(hwnd, nullptr, FALSE);
   }
 
+  // The log scrolled just enough for `row` to be in view.
+  void ShowLogRow(int row) {
+    if (!layout.logBox || row < 0) {
+      return;
+    }
+    const float view = layout.logBox->bottom - layout.logBox->top;
+    const float top = static_cast<float>(row) * kLogRow;
+    if (top < log.scroll) {
+      ScrollLog(top - log.scroll);
+    } else if (top + kLogRow > log.scroll + view) {
+      ScrollLog(top + kLogRow - view - log.scroll);
+    }
+  }
+
   void Relayout() {
     const D2D1_SIZE_F size = ClientDip();
     LogState state;
     state.paused = log.paused;
     state.held = log.held.size();
     state.counts = log.counts;
-    state.levels = log.levels;
+    state.filter = log.filter;
+    state.search = log.search;
+    state.only = !log.only.empty();
+    state.onlyTitle = log.onlyTitle;
     if (log.HasSelection()) {
+      state.selected = true;
       state.detail = log.Line(log.caret);
+      state.server = log.AboutWay(log.caret);
     }
     content.settingsMore = settingsMore;
     content.routeMenu = routeMenu;
@@ -6760,13 +7003,39 @@ struct MainWindow::Impl {
           Go(UiPage::Profile);
         }
         return;
-      case ItemAction::ToggleLevel:
-        log.levels[static_cast<std::size_t>(item.index)] = !log.levels[static_cast<std::size_t>(item.index)];
-        log.anchor = log.caret = -1;  // positions among the shown: they mean other lines now
+      case ItemAction::LogFilter:
+        log.filter = std::clamp(item.index, 0, kLogFilters - 1);
+        log.only.clear();
+        log.onlyTitle.clear();
+        log.Rebuild();
+        log.follow = true;
+        ClampLog();
+        Relayout();
+        return;
+      case ItemAction::CopyLogs:
+        CopyToClipboard(hwnd, LogText(item.index != 1 && log.HasSelection()));
+        return;
+      case ItemAction::LogMore: LogMoreMenu(item.rect); return;
+      case ItemAction::FindLog:
+        BeginEdit({item.rect.left + 32, item.rect.top, item.rect.right - 4, item.rect.bottom}, UiCommand::RenameProfile,
+                  -1, log.search, false);
+        edit.search = true;
+        return;
+      case ItemAction::LogOnly:
+        if (!log.only.empty()) {
+          log.only.clear();
+          log.onlyTitle.clear();
+        } else if (log.HasSelection()) {
+          const LogEvent& event = log.Event(log.caret);
+          log.only = event.key;
+          log.onlyTitle = event.title;
+          log.follow = true;
+        }
         log.Rebuild();
         ClampLog();
         Relayout();
         return;
+      case ItemAction::LogServer: Go(UiPage::Servers); return;
       case ItemAction::PauseLogs:
         log.paused = !log.paused;
         if (!log.paused) {
@@ -6820,16 +7089,67 @@ struct MainWindow::Impl {
     onCommand(item.command, args);
   }
 
-  // The shown lines, selected ones only or all, as text (CRLF).
+  // As the core wrote them (CRLF): the selected rows' lines, or every line the window keeps.
   std::wstring LogText(bool selectedOnly) const {
     std::wstring text;
-    for (int i = 0; i < log.Count(); ++i) {
-      if (!selectedOnly || log.Selected(i)) {
-        text += log.Line(i);
-        text += L"\r\n";
+    if (selectedOnly) {
+      for (int i = 0; i < log.Count(); ++i) {
+        if (log.Selected(i)) {
+          text += log.Line(i);
+          text += L"\r\n";
+        }
       }
+      return text;
+    }
+    for (const std::wstring& line : log.lines) {
+      text += line;
+      text += L"\r\n";
     }
     return text;
+  }
+
+  // The window's copy only: the service keeps its own, the next lines come.
+  void ClearLogs() {
+    log.Clear();
+    log.held.clear();
+    log.only.clear();
+    log.onlyTitle.clear();
+    log.anchor = log.caret = -1;
+    log.follow = true;
+    log.Rebuild();
+    ClampLog();
+    Relayout();
+  }
+
+  // The "⋯" key's menu, under it: save, how much the core writes, clear.
+  void LogMoreMenu(D2D1_RECT_F key) {
+    wil::unique_hmenu menu(CreatePopupMenu());
+    if (!menu) {
+      return;
+    }
+    const float scale = static_cast<float>(Dpi()) / 96.0f;
+    POINT at{static_cast<LONG>(key.right * scale), static_cast<LONG>(key.bottom * scale)};
+    ClientToScreen(hwnd, &at);
+    const std::wstring level =
+        L"Подробность записи: " + (content.logLevel.empty() ? std::wstring(L"авто") : content.logLevel) + L"…";
+    AppendMenuW(menu.get(), log.lines.empty() ? MF_STRING | MF_GRAYED : MF_STRING, kLogMenuSave, L"Сохранить в файл…");
+    AppendMenuW(menu.get(), MF_STRING, kLogMenuLevel, level.c_str());
+    AppendMenuW(menu.get(), MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu.get(), log.lines.empty() ? MF_STRING | MF_GRAYED : MF_STRING, kLogMenuClear, L"Очистить");
+    const auto command = static_cast<UINT>(
+        TrackPopupMenu(menu.get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTALIGN | TPM_TOPALIGN, at.x, at.y, 0, hwnd, nullptr));
+    switch (command) {
+      case kLogMenuSave: SaveLogs(); break;
+      case kLogMenuLevel: {
+        UiArgs args;
+        args.owner = hwnd;
+        args.anchor = at;
+        onCommand(UiCommand::ChooseLogLevel, args);
+        break;
+      }
+      case kLogMenuClear: ClearLogs(); break;
+      default: break;
+    }
   }
 
   // Ctrl+C: the selected lines, or all shown if none are.
@@ -6919,23 +7239,14 @@ struct MainWindow::Impl {
       case kLogMenuCopyAll: CopyToClipboard(hwnd, LogText(false)); break;
       case kLogMenuSelectAll: SelectAllLogs(); break;
       case kLogMenuSave: SaveLogs(); break;
-      case kLogMenuClear:
-        // The window's copy only: the service keeps its own, the next lines come.
-        log.lines.clear();
-        log.held.clear();
-        log.anchor = log.caret = -1;
-        log.follow = true;
-        log.Rebuild();
-        ClampLog();
-        Relayout();
-        break;
+      case kLogMenuClear: ClearLogs(); break;
       default: break;
     }
   }
 
   void AddLogs(const std::vector<std::wstring>& lines, bool replace) {
     if (replace) {
-      log.lines.clear();
+      log.Clear();
       log.held.clear();
       log.anchor = log.caret = -1;
       log.follow = true;
@@ -6951,22 +7262,21 @@ struct MainWindow::Impl {
       return;
     }
     for (const std::wstring& line : lines) {
-      log.lines.push_back(line);
+      log.Push(line);
     }
-    int shiftShown = 0;
+    // Rows above what the user looks at: as many fewer, the view kept on the same ones.
+    const auto first = static_cast<int>(std::max(0.0f, std::floor(log.scroll / kLogRow)));
+    int firstLine = first < log.Count() ? log.shown[static_cast<std::size_t>(first)] : -1;
     if (log.lines.size() > kLogKeep) {
-      // The oldest go; what the user looks at and selected stays in place.
       const std::size_t cut = log.lines.size() - kLogKeep;
-      shiftShown = static_cast<int>(std::count_if(log.shown.begin(), log.shown.end(),
-                                                  [&](int i) { return static_cast<std::size_t>(i) < cut; }));
-      log.lines.erase(log.lines.begin(), log.lines.begin() + static_cast<std::ptrdiff_t>(cut));
+      log.Cut(cut);  // the oldest go
+      firstLine -= static_cast<int>(cut);
     }
     log.Rebuild();
-    if (shiftShown > 0) {
-      log.scroll = std::max(0.0f, log.scroll - static_cast<float>(shiftShown) * kLogLine);
-      if (log.HasSelection() || log.anchor >= 0) {
-        log.anchor = std::max(log.anchor - shiftShown, 0);
-        log.caret = std::max(log.caret - shiftShown, 0);
+    if (!log.follow && firstLine >= 0) {
+      const auto at = std::find(log.shown.begin(), log.shown.end(), firstLine);
+      if (at != log.shown.end()) {  // still its row's newest: the same row on top
+        log.scroll = std::max(0.0f, log.scroll + static_cast<float>(static_cast<int>(at - log.shown.begin()) - first) * kLogRow);
       }
     }
     ClampLog();
@@ -7031,6 +7341,7 @@ struct MainWindow::Impl {
     wil::unique_hwnd box;
     UiCommand onEnter = UiCommand::RenameProfile;
     int index = 0;
+    bool search = false;  // the log's: what's typed filters the rows as it's typed, nothing goes to the tray
   };
   InlineEdit edit;
   wil::unique_hfont editFont;
@@ -7058,6 +7369,7 @@ struct MainWindow::Impl {
     }
     edit.onEnter = onEnter;
     edit.index = index;
+    edit.search = false;
     SendMessageW(edit.box.get(), WM_SETFONT, reinterpret_cast<WPARAM>(editFont.get()), TRUE);
     SendMessageW(edit.box.get(), EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(Scale(8, dpi), Scale(8, dpi)));
     // A name is short; a rule's sites, a DNS server's URL may be long (64 cut
@@ -7078,10 +7390,17 @@ struct MainWindow::Impl {
     text.resize(static_cast<std::size_t>(GetWindowTextW(edit.box.get(), text.data(), static_cast<int>(text.size()))));
     const UiCommand command = edit.onEnter;
     const int index = edit.index;
+    const bool search = std::exchange(edit.search, false);
     edit.box.reset();  // its WM_KILLFOCUS finds no box: nothing twice
     in.edit.reset();
     InvalidateRect(hwnd, nullptr, FALSE);
     SetFocus(hwnd);
+    if (search) {
+      if (keep) {
+        SetLogSearch(text);  // as typed already (EN_CHANGE); Esc emptied it
+      }
+      return;
+    }
     const auto first = text.find_first_not_of(L" \t");
     if (!keep || first == std::wstring::npos) {
       return;
@@ -7093,11 +7412,29 @@ struct MainWindow::Impl {
     onCommand(command, args);
   }
 
+  // The log's rows with `text` in them (case aside), the newest in view.
+  void SetLogSearch(std::wstring_view text) {
+    const auto first = text.find_first_not_of(L" \t");
+    std::wstring sought(first == std::wstring_view::npos ? std::wstring_view()
+                                                         : text.substr(first, text.find_last_not_of(L" \t") - first + 1));
+    if (sought == log.search) {
+      return;
+    }
+    log.search = std::move(sought);
+    log.Rebuild();
+    log.follow = true;
+    ClampLog();
+    Relayout();
+  }
+
   static LRESULT CALLBACK EditProc(HWND box, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR data) {
     auto* self = reinterpret_cast<Impl*>(data);  // NOLINT(performance-no-int-to-ptr) - the subclass's reference data
     switch (message) {
       case WM_KEYDOWN:
         if (wParam == VK_RETURN || wParam == VK_ESCAPE) {
+          if (wParam == VK_ESCAPE && self->edit.search) {
+            SetWindowTextW(box, L"");  // the log's search: Esc takes it away
+          }
           self->EndEdit(wParam == VK_RETURN);
           return 0;
         }
@@ -7230,11 +7567,11 @@ struct MainWindow::Impl {
             log.caret = line;
             // Past the box's edge: the lines follow the mouse.
             if (ToDip(at.y) < box.top) {
-              ScrollLog(-kLogLine);
+              ScrollLog(-kLogRow);
             } else if (ToDip(at.y) > box.bottom) {
-              ScrollLog(kLogLine);
+              ScrollLog(kLogRow);
             }
-            InvalidateRect(w, nullptr, FALSE);
+            Relayout();  // the card under the list: the row's line
           }
           return 0;
         }
@@ -7332,7 +7669,8 @@ struct MainWindow::Impl {
             log.anchor = log.caret = line;
           }
           selecting = line >= 0;
-          Relayout();  // the copy button's label
+          Relayout();  // the row's card under the list
+          ShowLogRow(log.caret);  // which the card's coming may have covered
           return 0;
         }
         in.pressed = HitAt(at);
@@ -7397,7 +7735,7 @@ struct MainWindow::Impl {
         ScreenToClient(w, &at);
         const float step = -static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA;
         if (InLog(at)) {
-          ScrollLog(step * 3 * kLogLine);
+          ScrollLog(step * 2 * kLogRow);
         } else {
           ScrollBy(step * kWheelStep);
         }
@@ -7430,6 +7768,16 @@ struct MainWindow::Impl {
           deactivatedAt = GetTickCount64();
         }
         return DefWindowProcW(w, message, wParam, lParam);
+      case WM_COMMAND:
+        // The log's search box: the rows follow what's typed.
+        if (HIWORD(wParam) == EN_CHANGE && edit.box && edit.search &&
+            reinterpret_cast<HWND>(lParam) == edit.box.get()) {  // NOLINT(performance-no-int-to-ptr) - the control's window
+          std::wstring text(static_cast<std::size_t>(GetWindowTextLengthW(edit.box.get())) + 1, L'\0');
+          text.resize(static_cast<std::size_t>(GetWindowTextW(edit.box.get(), text.data(), static_cast<int>(text.size()))));
+          SetLogSearch(text);
+          return 0;
+        }
+        break;
       case kEndEditMessage:
         if (edit.box && GetFocus() != edit.box.get()) {
           EndEdit(true);
@@ -7522,7 +7870,7 @@ struct MainWindow::Impl {
       }
       return true;
     }
-    const float screen = onLog ? layout.logBox->bottom - layout.logBox->top - kLogLine : ClientDip().height * 0.8f;
+    const float screen = onLog ? layout.logBox->bottom - layout.logBox->top - kLogRow : ClientDip().height * 0.8f;
     const auto scrollBy = [&](float dip) {
       if (onLog) {
         ScrollLog(dip);
@@ -7540,8 +7888,8 @@ struct MainWindow::Impl {
           Activate(item);
         }
         return true;
-      case VK_DOWN: scrollBy(onLog ? kLogLine : kWheelStep / 2); return true;
-      case VK_UP: scrollBy(onLog ? -kLogLine : -kWheelStep / 2); return true;
+      case VK_DOWN: scrollBy(onLog ? kLogRow : kWheelStep / 2); return true;
+      case VK_UP: scrollBy(onLog ? -kLogRow : -kWheelStep / 2); return true;
       case VK_NEXT: scrollBy(screen); return true;
       case VK_PRIOR: scrollBy(-screen); return true;
       case VK_HOME: scrollBy(-total); return true;
@@ -7643,6 +7991,9 @@ void MainWindow::Update(const UiContent& content) {
   }
   m.content = content;
   m.NoteFolds();
+  if (m.log.SetWays(WaysOf(content))) {
+    m.log.Rebuild();  // a server's name or place came or changed: the rows say it now
+  }
   if (IsVisible()) {
     m.Relayout();
     m.KickLive();
@@ -7700,21 +8051,31 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
   target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
 
   LogView log;
-  log.lines.assign(logs.begin(), logs.end());
+  log.SetWays(WaysOf(content));
+  for (const std::wstring& line : logs) {
+    log.Push(line);
+  }
   log.Rebuild();
   LogState state;
   state.counts = log.counts;
-  if (log.Count() > 2) {
-    // Shows what a selection looks like, and the selected line in full.
-    log.anchor = 1;
-    log.caret = 2;
-    state.detail = log.Line(log.caret);
+  // Shows what a selected row looks like: a server's trouble, its line in full under the list.
+  for (int i = log.Count(); i-- > 0;) {
+    if (log.Event(i).topic == LogTopic::Server) {
+      log.anchor = log.caret = i;
+      state.selected = true;
+      state.detail = log.Line(i);
+      state.server = log.AboutWay(i);
+      break;
+    }
   }
   float scroll = 0;
   const float scale = 96.0f / dpi;
   const std::string profile = content.profiles.empty() ? std::string() : content.profiles.front().id;
   const Layout layout = painter.Build(content, page, profile, static_cast<float>(width) * scale,
                                       static_cast<float>(height) * scale, scroll, state);
+  if (layout.logBox) {  // at the newest, as the window follows them
+    log.scroll = std::max(0.0f, log.Height() - (layout.logBox->bottom - layout.logBox->top));
+  }
   // The live traffic as it would be a few seconds in, an ad broken on the cube among it.
   LiveTraffic live;
   if (layout.glow) {

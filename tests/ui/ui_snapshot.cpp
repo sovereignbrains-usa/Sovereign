@@ -150,14 +150,22 @@ UiContent SampleContent() {
 }
 
 std::vector<std::wstring> SampleLogs() {
+  // As the core writes them; the log page reads them as events (log_events.h).
   return {
-      L"19:20:01  INFO   sing-box started (1.14.1)",
+      L"19:20:01  INFO   sing-box started (0.31s)",
       L"19:20:01  INFO   inbound/tun[tun-in]: started at sovereign-tun",
-      L"19:20:02  INFO   outbound/anytls[AnyTLS · Нидерланды]: connected",
-      L"19:20:05  WARN   dns: exchange failed for telemetry.example: context deadline exceeded",
-      L"19:21:14  INFO   router: match process_name=steam.exe => direct",
-      L"19:22:40  ERROR  outbound/anytls[AnyTLS · Финляндия]: dial tcp 203.0.113.7:443: i/o timeout",
-      L"19:22:41  INFO   urltest[auto]: best AnyTLS · Нидерланды (48 ms)",
+      L"19:20:02  INFO   network: updated default interface Wi-Fi, index 12",
+      L"19:20:03  INFO   [12 0ms] outbound/anytls[AnyTLS · Нидерланды]: outbound connection to youtube.com:443",
+      L"19:20:04  INFO   [13 0ms] outbound/direct[direct]: outbound connection to sberbank.ru:443",
+      L"19:20:05  INFO   ads: blocked mc.yandex.ru",
+      L"19:20:05  INFO   [14 0ms] router: match[4] rule_set=sov-ads => reject",
+      L"19:20:09  INFO   ads: blocked mc.yandex.ru",
+      L"19:21:30  ERROR  dns: exchange failed for telemetry.example. IN A: context deadline exceeded",
+      L"19:22:40  ERROR  outbound/anytls[AnyTLS · Финляндия]: open connection to youtube.com:443: dial tcp "
+      L"203.0.113.7:443: i/o timeout",
+      L"19:22:52  ERROR  outbound/anytls[AnyTLS · Финляндия]: open connection to youtube.com:443: dial tcp "
+      L"203.0.113.7:443: i/o timeout",
+      L"19:23:05  INFO   [15 0ms] outbound/anytls[AnyTLS · Нидерланды]: outbound connection to discord.com:443",
   };
 }
 

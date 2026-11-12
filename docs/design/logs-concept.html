@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Sovereign — журнал: понятнее</title>
+<style>
+/* Страница «Журнал» (12.11.2026, его: «интерфейс»): было - строки sing-box, обрезанные многоточием,
+   полный текст внизу; стало - два варианта. Цвета и меры - из ui_style.h, как servers-instruments.html. */
+@font-face { font-family: "Geist"; src: url("../../assets/fonts/Geist.ttf") format("truetype"); font-weight: 100 900; }
+:root {
+  color-scheme: dark;
+  --window: rgb(14 14 15); --card: rgb(24 24 26); --raised: rgb(44 44 49);
+  --ink-1: rgb(242 244 248); --ink-2: rgb(156 158 164);
+  --lit: rgb(226 229 235); --lit-ink: rgb(16 17 20);
+  --vpn: 76 146 255; --block: 240 96 96; --ok: 64 196 140; --warn: 240 196 64;
+  --hair: rgb(255 255 255 / .08); --desk: rgb(29 32 38);
+  --font: "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", Consolas, monospace;
+  --icons: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #070708; color: var(--ink-1); font: 14px/1.4 var(--font); }
+main { max-width: 1560px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+.lede { color: var(--ink-2); max-width: 980px; margin: 0 0 24px; }
+.row { background: var(--desk); border-radius: 8px; padding: 28px; display: grid; grid-template-columns: repeat(3, 460px); gap: 32px; justify-content: center; align-items: start; }
+.cap { color: var(--ink-2); font-size: 12.5px; margin: 0 0 10px; min-height: 36px; }
+.cap b { color: var(--ink-1); font-weight: 600; }
+.gl { font-family: var(--icons); font-style: normal; }
+.ok { color: rgb(var(--ok)); } .warn { color: rgb(var(--warn)); } .bad { color: rgb(var(--block)); } .dim { color: var(--ink-2); }
+
+.win { width: 460px; height: 660px; background: var(--window); border: 1px solid rgb(var(--vpn)); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+.bar { height: 40px; display: flex; align-items: center; flex: none; }
+.bar .k { width: 36px; height: 36px; display: grid; place-items: center; font-family: var(--icons); font-size: 13px; color: var(--ink-2); border-radius: 6px; }
+.bar .k.on { background: rgb(255 255 255 / .08); color: var(--ink-1); }
+.bar .title { font-weight: 600; font-size: 17.75px; margin-left: 2px; }
+.bar .sp { flex: 1; }
+.body { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.card { background: var(--card); border-radius: 8px; outline: 1px solid var(--hair); outline-offset: -1px; }
+
+/* ---------- было ---------- */
+.old .btn { height: 30px; padding: 0 12px; border-radius: 6px; outline: 1px solid rgb(255 255 255 / .16); outline-offset: -1px; font-size: 13px; display: inline-flex; align-items: center; gap: 8px; }
+.old .tools { display: flex; align-items: center; gap: 6px; }
+.old .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.old .chips span { height: 30px; display: grid; place-items: center; border-radius: 15px; outline: 1px solid rgb(255 255 255 / .2); outline-offset: -1px; font-size: 12.5px; }
+.old .box { flex: 1; padding: 8px 0; font: 11.5px/1.5 var(--mono); }
+.old .ln { display: grid; grid-template-columns: 58px 50px 1fr; padding: 0 12px; white-space: nowrap; }
+.old .ln span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.old .ln.sel { background: rgb(255 255 255 / .06); }
+.old .det { padding: 10px 12px; font-size: 12px; color: var(--ink-2); }
+
+/* общие для «стало» */
+.seg { display: flex; border-radius: 7px; background: rgb(255 255 255 / .05); padding: 3px; gap: 2px; }
+.seg span { flex: 1; text-align: center; padding: 5px 0; border-radius: 5px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.seg span b { font-weight: 600; margin-left: 4px; }
+.seg span.on { background: var(--raised); color: var(--ink-1); }
+.find { height: 32px; border-radius: 7px; background: rgb(255 255 255 / .05); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--ink-2); font-size: 13px; }
+.find .gl { font-size: 12px; }
+.now { border-radius: 8px; padding: 10px 12px; display: grid; grid-template-columns: 18px 1fr auto; gap: 2px 8px; align-items: start;
+       background: rgb(var(--block) / .1); outline: 1px solid rgb(var(--block) / .35); outline-offset: -1px; }
+.now .gl { color: rgb(var(--block)); font-size: 14px; margin-top: 2px; }
+.now b { font-weight: 600; font-size: 13.5px; }
+.now p { grid-column: 2 / 4; margin: 0; color: var(--ink-2); font-size: 12.5px; }
+.now a { color: rgb(var(--vpn)); font-size: 12.5px; text-decoration: none; white-space: nowrap; }
+.list { flex: 1; overflow: hidden; padding: 4px 0; }
+.day { font-size: 11.5px; color: var(--ink-2); padding: 8px 14px 4px; letter-spacing: .02em; }
+.more { text-align: center; color: var(--ink-2); font-size: 12px; padding: 6px 0 2px; }
+.pause { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--ink-2); padding: 0 2px; }
+.pause a { color: rgb(var(--vpn)); text-decoration: none; }
+
+/* ---------- А: события человеческими словами ---------- */
+.ev { display: grid; grid-template-columns: 40px 14px 1fr; gap: 0 8px; padding: 7px 14px; align-items: start; }
+.ev + .ev { border-top: 1px solid var(--hair); }
+.ev time { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.ev .dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 7px; background: var(--ink-2); opacity: .5; }
+.ev .dot.ok { background: rgb(var(--ok)); opacity: 1; } .ev .dot.warn { background: rgb(var(--warn)); opacity: 1; } .ev .dot.bad { background: rgb(var(--block)); opacity: 1; }
+.ev .t { font-size: 13.5px; }
+.ev .t .x { color: var(--ink-2); font-size: 12px; margin-left: 6px; }
+.ev .s { font-size: 12px; color: var(--ink-2); }
+.ev .s i { font-style: normal; color: var(--ink-1); }
+.ev.open { background: rgb(255 255 255 / .04); }
+.raw { grid-column: 3; margin-top: 6px; font: 11.5px/1.5 var(--mono); color: var(--ink-2); background: rgb(0 0 0 / .3); border-radius: 5px; padding: 6px 8px; overflow-wrap: anywhere; }
+.raw + .acts { grid-column: 3; display: flex; gap: 14px; margin-top: 6px; font-size: 12px; }
+.acts a { color: rgb(var(--vpn)); text-decoration: none; }
+
+/* ---------- Б: строки ядра, но целиком и с подсветкой ---------- */
+.ln2 { display: grid; grid-template-columns: 3px 66px 1fr; gap: 0 9px; padding: 4px 12px 4px 0; font: 12px/1.5 var(--mono); }
+.ln2 .bar2 { border-radius: 2px; background: transparent; }
+.ln2.warn .bar2 { background: rgb(var(--warn)); } .ln2.bad .bar2 { background: rgb(var(--block)); }
+.ln2 time { color: var(--ink-2); padding-left: 10px; }
+.ln2 .m { word-break: break-word; }
+.ln2 .src { color: rgb(var(--vpn)); }
+.ln2 .who { background: rgb(255 255 255 / .08); border-radius: 3px; padding: 0 4px; color: var(--ink-1); font-family: var(--font); font-size: 12px; }
+.ln2.bad .m .e { color: rgb(var(--block)); }
+.ln2.warn .m .e { color: rgb(var(--warn)); }
+.ln2 .rep { font-family: var(--font); color: var(--ink-2); font-size: 11.5px; margin-left: 6px; }
+.ln2.sel { background: rgb(255 255 255 / .05); }
+.ln2 .hint { grid-column: 3; font-family: var(--font); font-size: 12.5px; color: var(--ink-1); margin-top: 4px; }
+.ln2 .hint .dim { font-size: 12px; }
+
+.notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 32px; margin-top: 20px; font-size: 13px; color: var(--ink-2); }
+.notes b { color: var(--ink-1); display: block; margin-bottom: 2px; font-weight: 600; }
+.notes ul { margin: 6px 0 0; padding-left: 18px; }
+.notes li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Журнал: понятнее</h1>
+<p class="lede">Сейчас это сырые строки ядра, обрезанные многоточием. Полный текст виден только у выбранной строки, в рамке внизу. Ниже два варианта, данные взяты с твоей машины. <b style="color:var(--ink-1)">А</b>: события человеческими словами, сырая строка раскрывается по клику. <b style="color:var(--ink-1)">Б</b>: строки ядра как есть, но целиком, с подсветкой и подсказкой под ошибкой.</p>
+
+<div class="row">
+
+<!-- ================= БЫЛО ================= -->
+<div>
+<p class="cap"><b>Было.</b> Строки обрезаны как раз на сути. Четыре кнопки фильтров похожи на действия. Непонятно, что значит «запись: авто».</p>
+<div class="win old">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Журнал</span><span class="sp"></span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="tools"><span class="btn"><i class="gl">&#xE71C;</i>запись: авто</span><span style="flex:1"></span><span class="btn" style="outline:none"><i class="gl">&#xE769;</i></span><span class="btn" style="outline:none"><i class="gl">&#xE74E;</i></span></div>
+    <div class="chips"><span>Ошибки 2</span><span>Предупр. 1</span><span>Инфо 6</span><span>Отладка 0</span></div>
+    <div class="card box">
+      <div class="ln"><span class="dim">19:20:01</span><span class="dim">INFO</span><span>sing-box started (1.13.4)</span></div>
+      <div class="ln"><span class="dim">19:20:01</span><span class="dim">INFO</span><span>inbound/tun[tun-in]: started at sovereign-tun</span></div>
+      <div class="ln sel"><span class="dim">19:20:02</span><span class="dim">INFO</span><span>outbound/vless[REALITY · ewkereboss.xyz]: connected</span></div>
+      <div class="ln"><span class="dim">19:20:05</span><span class="warn">WARN</span><span class="warn">dns: exchange failed for api.telegram.org: context deadline exceeded</span></div>
+      <div class="ln"><span class="dim">19:21:14</span><span class="dim">INFO</span><span>router: match process_name=steam.exe =&gt; direct</span></div>
+      <div class="ln"><span class="dim">19:22:40</span><span class="bad">ERROR</span><span class="bad">outbound/anytls[AnyTLS-ECH]: use of closed network connection</span></div>
+      <div class="ln"><span class="dim">19:22:40</span><span class="bad">ERROR</span><span class="bad">outbound/anytls[AnyTLS-ECH]: use of closed network connection</span></div>
+      <div class="ln"><span class="dim">19:22:41</span><span class="dim">INFO</span><span>urltest[auto]: best REALITY · ewkereboss.xyz (45 ms)</span></div>
+    </div>
+    <div class="card det">19:20:02 INFO outbound/vless[REALITY · ewkereboss.xyz]: connected</div>
+  </div>
+</div>
+</div>
+
+<!-- ================= А ================= -->
+<div>
+<p class="cap"><b>А. События.</b> Каждая строка — что случилось, по-русски, и с чем: сервер, способ, сайт, программа. Одинаковые склеены в одну «×12». Клик раскрывает строку ядра.</p>
+<div class="win">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Журнал</span><span class="sp"></span>
+    <span class="k" title="Пауза">&#xE769;</span><span class="k" title="Скопировать всё">&#xE8C8;</span><span class="k" title="Ещё: сохранить в файл, подробность записи, очистить">&#xE712;</span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="now"><i class="gl">&#xEA39;</i><b>AnyTLS + ECH на 5.83.147.210 не подключается</b><a href="#">к серверу</a>
+      <p>Сервер закрывает соединение сразу после рукопожатия. 12 раз с 19:22. Остальные способы работают.</p></div>
+    <div class="seg"><span class="on">Всё<b>9</b></span><span>Проблемы<b class="bad">3</b></span><span>Серверы<b>4</b></span><span>Сайты<b>2</b></span></div>
+    <div class="find"><i class="gl">&#xE721;</i>Найти: сайт, сервер, программа…</div>
+    <div class="card list">
+      <div class="day">СЕГОДНЯ</div>
+      <div class="ev"><time>19:20</time><span class="dot ok"></span><div><div class="t">VPN включён</div><div class="s">ядро sing-box 1.13.4 · адаптер sovereign-tun</div></div></div>
+      <div class="ev"><time>19:20</time><span class="dot ok"></span><div><div class="t">Подключился к Германии</div><div class="s"><i>VLESS + REALITY</i> · 5.175.171.17 · 0,22 с</div></div></div>
+      <div class="ev"><time>19:20</time><span class="dot warn"></span><div><div class="t">DNS не ответил вовремя</div><div class="s"><i>api.telegram.org</i> · спросил ещё раз — ответил</div></div></div>
+      <div class="ev"><time>19:21</time><span class="dot"></span><div><div class="t">steam.exe идёт напрямую</div><div class="s">по твоему правилу «Программы мимо VPN»</div></div></div>
+      <div class="ev open"><time>19:22</time><span class="dot bad"></span><div><div class="t">AnyTLS + ECH: сервер закрыл соединение<span class="x">×12</span></div><div class="s"><i>5.83.147.210</i> · Германия · последний раз 19:31</div></div>
+        <div class="raw">19:22:40 ERROR outbound/anytls[AnyTLS-ECH]: use of closed network connection</div>
+        <div class="acts"><a href="#">Скопировать</a><a href="#">Показать сервер</a><a href="#">Только такие</a></div></div>
+      <div class="ev"><time>19:22</time><span class="dot"></span><div><div class="t">Авто выбрал VLESS + REALITY</div><div class="s">Германия · 5.175.171.17 · 45 мс, быстрее остальных</div></div></div>
+      <div class="ev"><time>19:24</time><span class="dot bad"></span><div><div class="t">instagram.com не открылся</div><div class="s">через <i>VLESS + REALITY</i> · сброс соединения</div></div></div>
+    </div>
+    <div class="pause"><span>Подробность: обычная</span><a href="#">подробнее — для отчёта</a></div>
+  </div>
+</div>
+</div>
+
+<!-- ================= Б ================= -->
+<div>
+<p class="cap"><b>Б. Строки ядра, целиком.</b> Текст как пишет sing-box, но переносится, а не режется. Сервер выделен плашкой, повторы склеены. Под ошибкой одна строка: что это значит.</p>
+<div class="win">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Журнал</span><span class="sp"></span>
+    <span class="k" title="Пауза">&#xE769;</span><span class="k" title="Скопировать всё">&#xE8C8;</span><span class="k" title="Ещё: сохранить в файл, подробность записи, очистить">&#xE712;</span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="seg"><span class="on">Всё<b>9</b></span><span>Ошибки<b class="bad">2</b></span><span>Предупреждения<b class="warn">1</b></span></div>
+    <div class="find"><i class="gl">&#xE721;</i>Найти в журнале…</div>
+    <div class="card list">
+      <div class="ln2"><span class="bar2"></span><time>19:20:01</time><span class="m">sing-box started (1.13.4)</span></div>
+      <div class="ln2"><span class="bar2"></span><time>19:20:01</time><span class="m"><span class="src">inbound/tun</span> started at sovereign-tun</span></div>
+      <div class="ln2"><span class="bar2"></span><time>19:20:02</time><span class="m"><span class="src">outbound/vless</span> <span class="who">REALITY · ewkereboss.xyz</span> connected</span></div>
+      <div class="ln2 warn"><span class="bar2"></span><time>19:20:05</time><span class="m"><span class="src">dns</span> <span class="e">exchange failed for api.telegram.org: context deadline exceeded</span></span></div>
+      <div class="ln2"><span class="bar2"></span><time>19:21:14</time><span class="m"><span class="src">router</span> match process_name=steam.exe =&gt; direct</span></div>
+      <div class="ln2 bad sel"><span class="bar2"></span><time>19:22:40</time><span class="m"><span class="src">outbound/anytls</span> <span class="who">AnyTLS-ECH</span> <span class="e">use of closed network connection</span><span class="rep">×12</span></span>
+        <div class="hint">Сервер 5.83.147.210 рвёт соединение сразу после рукопожатия. <span class="dim">Остальные способы работают.</span></div></div>
+      <div class="ln2"><span class="bar2"></span><time>19:22:41</time><span class="m"><span class="src">urltest/auto</span> best <span class="who">REALITY · ewkereboss.xyz</span> (45 ms)</span></div>
+      <div class="ln2 bad"><span class="bar2"></span><time>19:24:03</time><span class="m"><span class="src">outbound/vless</span> <span class="who">REALITY · ewkereboss.xyz</span> <span class="e">instagram.com:443: connection reset by peer</span></span></div>
+    </div>
+    <div class="pause"><span>Подробность: обычная</span><a href="#">подробнее — для отчёта</a></div>
+  </div>
+</div>
+</div>
+
+</div>
+
+<div class="notes">
+  <div><b>Общее у А и Б</b><ul>
+    <li>Строки не режутся: переносятся.</li>
+    <li>Повторы склеены в одну строку «×12».</li>
+    <li>Поиск: по сайту, серверу, программе.</li>
+    <li>Фильтр — переключатель, а не четыре кнопки. «Отладка 0» убрана.</li>
+    <li>«Запись: авто», «Сохранить в файл» и «Очистить» спрятаны в «⋯». «Скопировать всё» на виду: так журнал чаще всего и отправляют.</li></ul></div>
+  <div><b>Только в А</b><ul>
+    <li>Сверху то, что сломано сейчас, со ссылкой на сервер.</li>
+    <li>События по-русски: какой сервер, способ, сайт, программа.</li>
+    <li>Фильтры по смыслу: проблемы, серверы, сайты и программы.</li>
+    <li>Строку, которую не удалось перевести, показываю как есть.</li></ul></div>
+  <div><b>Только в Б</b><ul>
+    <li>Ближе к тому, что видят в любом VPN-клиенте, и проще в коде.</li>
+    <li>Понятно, если читаешь английские ошибки.</li>
+    <li>Пояснение по-русски только под ошибками и предупреждениями.</li></ul></div>
+</div>
+</main>
+</body>
+</html>

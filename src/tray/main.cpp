@@ -242,7 +242,7 @@ std::string Narrow(const std::wstring& wide) {
 std::wstring FreshTime(std::int64_t unixSeconds) {
   const auto t = static_cast<std::time_t>(unixSeconds);
   const std::time_t now = std::time(nullptr);
-  const std::time_t yesterday = now - 24 * 60 * 60;
+  const std::time_t yesterday = now - (std::time_t{24} * 60 * 60);
   std::tm tm{};
   std::tm today{};
   std::tm before{};

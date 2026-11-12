@@ -161,10 +161,8 @@ std::vector<std::wstring> SampleLogs() {
       L"19:20:05  INFO   [14 0ms] router: match[4] rule_set=sov-ads => reject",
       L"19:20:09  INFO   ads: blocked mc.yandex.ru",
       L"19:21:30  ERROR  dns: exchange failed for telemetry.example. IN A: context deadline exceeded",
-      L"19:22:40  ERROR  outbound/anytls[AnyTLS · Финляндия]: open connection to youtube.com:443: dial tcp "
-      L"203.0.113.7:443: i/o timeout",
-      L"19:22:52  ERROR  outbound/anytls[AnyTLS · Финляндия]: open connection to youtube.com:443: dial tcp "
-      L"203.0.113.7:443: i/o timeout",
+      L"19:22:40  ERROR  outbound/anytls[AnyTLS · Финляндия]: open connection to youtube.com:443: dial tcp 203.0.113.7:443: i/o timeout",
+      L"19:22:52  ERROR  outbound/anytls[AnyTLS · Финляндия]: open connection to youtube.com:443: dial tcp 203.0.113.7:443: i/o timeout",
       L"19:23:05  INFO   [15 0ms] outbound/anytls[AnyTLS · Нидерланды]: outbound connection to discord.com:443",
   };
 }

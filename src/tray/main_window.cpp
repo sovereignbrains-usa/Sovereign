@@ -7777,7 +7777,7 @@ struct MainWindow::Impl {
           SetLogSearch(text);
           return 0;
         }
-        break;
+        return DefWindowProcW(w, message, wParam, lParam);
       case kEndEditMessage:
         if (edit.box && GetFocus() != edit.box.get()) {
           EndEdit(true);

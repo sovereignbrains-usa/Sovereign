@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.16 — 13.11.2026
+
+- **Gemini sent its own way (through WARP, directly…) takes Google's sign-in with it**: google.com, googleapis.com, gstatic.com and googleusercontent.com go the same way. Before, Gemini went through WARP and the Google account through the VPN — one session from two addresses, and Google answered "Мы зарегистрировали подозрительный трафик". Not when Gemini is blocked, and not when Google itself is sent a way of its own.
+
 ## 0.6.15 — 13.11.2026
 
 - **The lines "сейчас: …" on the "Маршруты" page name the site, not its host**: "datadoghq.com" instead of a cut "http-intake.logs.us5.data…", "gstatic.com" instead of "www.gstatic.com"; a site's hosts count once.

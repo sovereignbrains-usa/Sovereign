@@ -104,6 +104,9 @@ struct ServiceInfo {
 std::vector<std::string> ServiceApps(const ServiceInfo& service);
 // The services that can be sent their own way, in the order offered.
 std::span<const ServiceInfo> ServiceCatalog();
+// The names a service signs in through, sent its way with it (Gemini: google.com and the rest).
+// Empty: none.
+std::span<const std::string_view> ServiceCompanions(std::string_view id);
 const ServiceInfo* FindService(std::string_view id);
 // The service a program is the app of, by its exe's name: one of its apps
 // ("EpicGamesLauncher.exe"), or named as it ("Telegram.exe"); nullptr: none.

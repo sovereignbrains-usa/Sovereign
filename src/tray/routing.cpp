@@ -63,6 +63,12 @@ constexpr std::string_view kServicePrefix = "sov-svc-";  // a service's list: so
 // A service's addresses' list (ServiceInfo::geoip): sov-svc-<id>-ip.
 std::string ServiceIpsTag(std::string_view id) { return std::string(kServicePrefix) + std::string(id) + "-ip"; }
 
+// The names a service signs in through, sent its way with it: its own list leaves them out
+// (geosite-google-gemini has gemini.google.com, not accounts.google.com), and a session seen
+// from two addresses is shut.
+constexpr std::array<std::string_view, 4> kGeminiCompanions = {"google.com", "googleapis.com", "gstatic.com",
+                                                               "googleusercontent.com"};
+
 // What people want sent elsewhere: shut to a VPS's country (video, AI) or
 // wanted apart, or wanted directly (games, the system's updates). Each list
 // checked to exist in sing-geosite (06.10.2026, the second half 08.10.2026).
@@ -1113,6 +1119,13 @@ std::string CleanRuleName(std::string_view name) {
 
 std::span<const ServiceInfo> ServiceCatalog() { return kServices; }
 
+std::span<const std::string_view> ServiceCompanions(std::string_view id) {
+  if (id == "gemini") {
+    return kGeminiCompanions;
+  }
+  return {};
+}
+
 std::string ServiceOutboundTag(std::string_view id) { return "sov-out-" + std::string(id); }
 
 bool IsCountryCode(std::string_view code) {
@@ -1948,6 +1961,19 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     if (!sets.empty()) {
       Json rule = Json::object();
       rule["rule_set"] = sets.size() == 1 ? sets[0] : sets;
+      rule.update(to);
+      rules.push_back(std::move(rule));
+    }
+    // What it signs in through goes with it: Gemini through WARP and google.com through the VPN
+    // were one session from two addresses, and Google shut it ("подозрительный трафик",
+    // 13.11.2026). Not when blocked (closing Gemini isn't closing Google), nor when Google
+    // itself is sent a way of its own.
+    const std::span<const std::string_view> with = ServiceCompanions(s.id);
+    const bool googleApart = std::any_of(settings.services.begin(), settings.services.end(),
+                                         [](const ServiceRoute& o) { return o.id == "google"; });
+    if (!with.empty() && s.way != ServiceRoute::Way::Block && !googleApart) {
+      Json rule = Json::object();
+      rule["domain_suffix"] = std::vector<std::string>(with.begin(), with.end());
       rule.update(to);
       rules.push_back(std::move(rule));
     }

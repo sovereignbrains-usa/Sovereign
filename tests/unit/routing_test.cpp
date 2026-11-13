@@ -995,6 +995,10 @@ void TestServices() {
   CHECK(ServiceOfProgram("Telegram") == nullptr);
   CHECK(ServiceOfProgram("TelegramDesktop.exe") == nullptr);
   CHECK(ServiceOfProgram("chrome.exe") == nullptr);
+  // Gemini takes Google's sign-in its way; the others nothing.
+  CHECK(std::find(ServiceCompanions("gemini").begin(), ServiceCompanions("gemini").end(), "google.com") !=
+        ServiceCompanions("gemini").end());
+  CHECK(ServiceCompanions("netflix").empty() && ServiceCompanions("google").empty());
 
   WarpAccount account;
   account.privateKey = "YJ9Lx3UFbVd6R+1QpYx0K5nV5+OYn5cB4m3Hk4qH0lI=";

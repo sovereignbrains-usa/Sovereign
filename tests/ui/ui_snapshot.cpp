@@ -63,6 +63,12 @@ std::vector<sovereign::tray::UiChip> SampleBoard() {
     {.kind = UiChip::Kind::Trackers, .index = 0, .bucket = 2, .text = L"Трекеры", .detail = L"3 071", .icon = {}, .logo = "trackers"},
     {.kind = UiChip::Kind::Malware, .index = 0, .bucket = 2, .text = L"Вредоносные сайты", .detail = L"2", .icon = {}, .logo = "malware"},
     {.kind = UiChip::Kind::Rule, .index = 2, .bucket = 2, .text = L"~tracker", .detail = {}, .icon = {}, .logo = {}},
+  {.kind = UiChip::Kind::Pass, .index = 5, .bucket = 2, .text = L"Microsoft", .detail = {}, .icon = {}, .logo = "microsoft",
+   .idle = false, .program = -1, .sites = L"login.live.com, config.edge.skype.com"},
+  {.kind = UiChip::Kind::Pass, .index = 6, .bucket = 2, .text = L"Google", .detail = {}, .icon = {}, .logo = "google",
+   .idle = false, .program = -1, .sites = L"fonts.gstatic.com"},
+  {.kind = UiChip::Kind::Pass, .index = 7, .bucket = 2, .text = L"Brave", .detail = {}, .icon = {}, .logo = {},
+   .idle = false, .program = -1, .sites = L"usage-ping.brave.com"},
       {.kind = UiChip::Kind::Rule, .index = 3, .bucket = 3, .text = L"chatgpt.com", .detail = {}, .icon = {}, .logo = {}},
       {.kind = UiChip::Kind::Rule, .index = 4, .bucket = 0,
        .text = L"очень-длинный-поддомен.какой-то-банк-с-длинным-именем.example.ru", .detail = {}, .icon = {}, .logo = {}},
@@ -196,7 +202,7 @@ std::vector<sovereign::tray::UiCheck> SampleChecks() {
       {L"Выход через VPN", L"5.83.147.210 · DE", L"Этот адрес видят зарубежные сайты.", Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None, {}, -1},
       {L"Утечки", L"есть: IPv6", L"DNS: CloudFlare Inc (DE) — нет\nWebRTC: 5.83.147.210 — нет\nIPv6: 2a01:db8::1 · RU — уходит мимо VPN",
        Check::Status::Fail, L"Что проверяет и как.", Check::Fix::KillSwitch, {}, -1},
-      {L"Не открывается сайт?", L"vk.com: напрямую", L"Ни одно из твоих правил не подошло — решили списки.",
+      {L"Куда пойдёт сайт?", L"vk.com: напрямую", L"Ни одно из твоих правил не подошло — решили списки.",
        Check::Status::Ok, L"Что проверяет и как.", Check::Fix::None, {}, -1},
       {L"Виден в сети", L"работает: общий доступ к файлам", L"Компьютер отвечает соседям по сети.",
        Check::Status::Warn, L"Что проверяет и как.", Check::Fix::LocalNetwork, {}, -1}};
@@ -263,7 +269,11 @@ int Snapshots(const std::wstring& dir) {
                             {L"chatgpt.com", L"через WARP", true}};
     routed.routing.warp = true;
     routed.routing.warpRegistered = true;
-      routed.routing.warpState = L"поверх «4G | Whitelist №1»";
+    routed.routing.warpState = L"поверх VPN, работает";
+    routed.routing.warpTone = 1;
+    routed.blockedTotal = 15481;
+    routed.routeNow = {{{L"ya.ru", L"vk.com", L"sberbank.ru"}, {L"youtube.com", L"telegram.org", L"github.com"}, {L"mc.yandex.ru", L"doubleclick.net"}, {L"gemini.google.com"}}};
+    routed.routeNowMore = {9, 14, 6, 0};
     routed.routing.services = {{.name = L"Netflix", .way = L"через WARP"}, {.name = L"ChatGPT", .way = L"через WARP"}};
     routed.routing.board = SampleBoard();
     routed.routing.lists = L"Списки правил на месте, обновлены 01.10 14:00; обновляются раз в сутки.";
@@ -280,7 +290,8 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\routing-block-empty.png");
     // His narrow window (350, 31.10.2026): WARP's note - a long server's name - on a line under the
     // name, not cut to "…".
-    routed.routing.warpState = L"поверх «AnyTLS-Reality | Frankfurt №1»";
+    routed.routing.warpState = L"напрямую: через VPN не прошёл, пробуем «AnyTLS-Reality | Frankfurt №1»";
+    routed.routing.warpTone = -1;
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-narrow.png");
     // The mode's menu dropped from the sentence's pill, over the scheme.
@@ -519,7 +530,8 @@ int Snapshots(const std::wstring& dir) {
   variant([&](UiContent& routed) {
     routed.routing.warp = true;
     routed.routing.warpRegistered = true;
-    routed.routing.warpState = L"поверх «4G | Whitelist №1»";
+    routed.routing.warpState = L"не отвечает";
+    routed.routing.warpTone = -1;
     routed.routing.board = SampleBoard();
     // A way's name pointed at: its paragraphs, its route lit and the others back; a chip: what it
     // does, its way lit.

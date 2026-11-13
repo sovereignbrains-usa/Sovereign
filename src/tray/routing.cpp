@@ -637,6 +637,9 @@ nlohmann::json RoutingToJson(const RoutingSettings& s) {
     if (!r.name.empty()) {
       rule["name"] = r.name;
     }
+    if (r.pass) {
+      rule["pass"] = true;
+    }
     rules.push_back(std::move(rule));
   }
   nlohmann::json services = nlohmann::json::array();
@@ -675,6 +678,7 @@ nlohmann::json RoutingToJson(const RoutingSettings& s) {
           {"localDnsCustom", s.localDnsCustom},
           {"ipv4Only", s.ipv4Only},
           {"rules", std::move(rules)},
+          {"passMarked", true},  // the rules carry "pass" (0.6.14): none to guess at reading
           {"services", std::move(services)},
           {"warp", s.warp},
               {"warpAccount", s.warpAccount ? WarpToJson(*s.warpAccount) : nlohmann::json()}};
@@ -805,8 +809,24 @@ RoutingSettings RoutingFromJson(const nlohmann::json& json) {
         if (const auto name = entry.find("name"); name != entry.end() && name->is_string()) {
           rule->name = CleanRuleName(name->get<std::string>());
         }
+        if (const auto pass = entry.find("pass"); pass != entry.end() && pass->is_boolean()) {
+          rule->pass = pass->get<bool>();
+        }
         s.rules.push_back(*rule);
       }
+    }
+  }
+  // Kept before 0.6.14, the sites let through the blocks had no mark: a rule with no name, of sites
+  // alone, where everything else goes, each a host under a domain ("usage-ping.brave.com") - what
+  // "Пропустить" made; a site the user sent there is a domain ("youtube.com"), or named.
+  if (const auto marked = json.find("passMarked"); marked == json.end() || !marked->is_boolean() || !marked->get<bool>()) {
+    const RouteRule::Action rest = s.finalDirect ? RouteRule::Action::Direct : RouteRule::Action::Proxy;
+    for (RouteRule& rule : s.rules) {
+      const bool hosts = std::all_of(rule.domains.begin(), rule.domains.end(), [](const std::string& d) {
+        return std::count(d.begin(), d.end(), '.') >= 2;
+      });
+      rule.pass = rule.action == rest && rule.name.empty() && !rule.domains.empty() && hosts && rule.keywords.empty() &&
+                  rule.ips.empty() && rule.processes.empty();
     }
   }
   return s;
@@ -1198,6 +1218,90 @@ const ServiceInfo* ServiceOfProgram(std::string_view exe) {
   const auto it = std::find_if(kServices.begin(), kServices.end(),
                                [&](const ServiceInfo& s) { return name == s.id || name == plain(s.name); });
   return it == kServices.end() ? nullptr : &*it;
+}
+
+namespace {
+
+// A name's registered label: "cdn.brave.com" - "brave", "a.example.co.uk" - "example" (a zone of
+// two parts, co.uk or com.ru, counts as one). Empty: an address, or no dot in it.
+std::string RegisteredLabel(std::string_view domain) {
+  std::string name = Lower(domain);
+  while (!name.empty() && name.back() == '.') {
+    name.pop_back();
+  }
+  std::vector<std::string> labels;
+  for (std::string_view rest = name; !rest.empty();) {
+    const std::size_t dot = std::min(rest.find('.'), rest.size());
+    labels.emplace_back(rest.substr(0, dot));
+    rest.remove_prefix(std::min(dot + 1, rest.size()));
+  }
+  const bool address = !labels.empty() && std::all_of(labels.back().begin(), labels.back().end(),
+                                                      [](char c) { return c >= '0' && c <= '9'; });
+  if (labels.size() < 2 || address || name.find(':') != std::string::npos) {
+    return {};
+  }
+  static constexpr std::array<std::string_view, 9> kZones = {"co", "com", "net", "org", "gov", "edu", "ac", "msk", "spb"};
+  std::size_t at = labels.size() - 2;
+  if (at > 0 && labels.back().size() == 2 && std::find(kZones.begin(), kZones.end(), labels[at]) != kZones.end()) {
+    --at;
+  }
+  return labels[at];
+}
+
+// The services' other registered names - their CDNs, their ads and their own other sites.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 60> kSiteServices = {{
+    {"live", "microsoft"},          {"bing", "microsoft"},           {"msn", "microsoft"},
+    {"skype", "microsoft"},         {"office", "microsoft"},         {"office365", "microsoft"},
+    {"windows", "microsoft"},       {"windowsupdate", "microsoft"},  {"azure", "microsoft"},
+    {"microsoftonline", "microsoft"}, {"msftconnecttest", "microsoft"}, {"xbox", "microsoft"},
+    {"onedrive", "microsoft"},      {"sharepoint", "microsoft"},     {"clarity", "microsoft"},
+    {"visualstudio", "microsoft"},  {"msedge", "microsoft"},         {"googleapis", "google"},
+    {"gstatic", "google"},          {"doubleclick", "google"},       {"googlesyndication", "google"},
+    {"google-analytics", "google"}, {"googletagmanager", "google"},  {"googleadservices", "google"},
+    {"googleusercontent", "google"}, {"gvt1", "google"},             {"gvt2", "google"},
+    {"app-measurement", "google"},  {"ytimg", "youtube"},            {"googlevideo", "youtube"},
+    {"youtu", "youtube"},           {"ya", "yandex"},                {"yastatic", "yandex"},
+    {"yandexadexchange", "yandex"}, {"adfox", "yandex"},             {"fbcdn", "facebook"},
+    {"fb", "facebook"},             {"cdninstagram", "instagram"},   {"twimg", "x"},
+    {"twitter", "x"},               {"openai", "chatgpt"},           {"oaistatic", "chatgpt"},
+    {"oaiusercontent", "chatgpt"},  {"anthropic", "claude"},         {"discordapp", "discord"},
+    {"spotifycdn", "spotify"},      {"scdn", "spotify"},             {"githubusercontent", "github"},
+    {"githubassets", "github"},     {"redd", "reddit"},              {"redditstatic", "reddit"},
+    {"licdn", "linkedin"},          {"steampowered", "steam"},       {"steamcommunity", "steam"},
+    {"steamstatic", "steam"},       {"icloud", "apple"},             {"mzstatic", "apple"},
+    {"nflxvideo", "netflix"},       {"ttvnw", "twitch"},             {"sndcdn", "soundcloud"},
+}};
+
+}  // namespace
+
+const ServiceInfo* ServiceOfSite(std::string_view domain) {
+  const std::string label = RegisteredLabel(domain);
+  if (label.empty()) {
+    return nullptr;
+  }
+  for (const auto& [name, id] : kSiteServices) {
+    if (name == label) {
+      return FindService(id);
+    }
+  }
+  const auto it = std::find_if(kServices.begin(), kServices.end(), [&](const ServiceInfo& s) {
+    return !s.geosite.empty() && (s.id == label || s.geosite == label);
+  });
+  return it == kServices.end() ? nullptr : &*it;
+}
+
+std::string SiteName(std::string_view domain) {
+  if (const ServiceInfo* service = ServiceOfSite(domain)) {
+    return std::string(service->name);
+  }
+  std::string label = RegisteredLabel(domain);
+  if (label.empty()) {
+    return std::string(domain);
+  }
+  if (label.front() >= 'a' && label.front() <= 'z' && !label.starts_with("xn--")) {
+    label.front() = static_cast<char>(label.front() - 'a' + 'A');
+  }
+  return label;
 }
 
 std::optional<std::string> AdGuardRuleSet(std::string_view filter) {

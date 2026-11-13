@@ -43,6 +43,10 @@ struct RouteRule {
   // service of their own; empty: none, the board says what's in it.
   // Sites and programs of a rule match either, not both (ApplyRouting).
   std::string name;
+  // Sites let through the block lists ("Сломалось только что?", "Заблокировано
+  // недавно"): routed as any rule - where everything else goes - but shown
+  // under the block as "Не закрывать" (12.11.2026), not as a site of their own.
+  bool pass = false;
 };
 
 // A whole service sent its own way: Netflix through WARP (from a VPS's
@@ -104,6 +108,13 @@ const ServiceInfo* FindService(std::string_view id);
 // The service a program is the app of, by its exe's name: one of its apps
 // ("EpicGamesLauncher.exe"), or named as it ("Telegram.exe"); nullptr: none.
 const ServiceInfo* ServiceOfProgram(std::string_view exe);
+// The service a site's name belongs to, by its registered name and the
+// service's other domains ("login.live.com", "fonts.gstatic.com" - Microsoft,
+// Google); nullptr: none known.
+const ServiceInfo* ServiceOfSite(std::string_view domain);
+// What people call a site: its service's name, else its registered name,
+// capitalised ("cdn.brave.com" - "Brave", "a.b.example.co.uk" - "Example").
+std::string SiteName(std::string_view domain);
 
 struct RoutingSettings {
   // Auto: Cloudflare (through the VPN which one hardly matters: the provider

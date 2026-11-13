@@ -465,6 +465,7 @@ struct RoutingChange {
     AddRule,        // text: what was typed; value: RouteRule::Action (WARP: turned on); path: a program's exe
     PassNames,      // as AddRule, the names "Пропустить" let through: remembered for LetBack
     LetBack,        // what PassNames let through lately closed again: out of the rules
+    Unpass,         // text: names ","-separated - out of the rules that let them through ("Не закрывать")
     SetRuleAction,  // index; value: RouteRule::Action (WARP: turned on)
     RemoveRule,     // index
     EditRule,       // index; text: its sites and programs anew (routing.h EditRule)
@@ -1388,6 +1389,29 @@ class Worker {
         passedAt_.reset();
         break;
       }
+      case RoutingChange::What::Unpass: {
+        // Closed again for good: out of the rules that let them through, a rule left empty goes.
+        std::vector<std::string> names;
+        for (std::string_view rest = change.text; !rest.empty();) {
+          const std::size_t comma = std::min(rest.find(','), rest.size());
+          if (comma > 0) {
+            names.emplace_back(rest.substr(0, comma));
+          }
+          rest.remove_prefix(std::min(comma + 1, rest.size()));
+        }
+        for (RouteRule& rule : r.rules) {
+          if (rule.pass) {
+            std::erase_if(rule.domains, [&](const std::string& d) {
+              return std::find(names.begin(), names.end(), d) != names.end();
+            });
+          }
+        }
+        std::erase_if(r.rules, [](const RouteRule& rule) {
+          return rule.pass && rule.domains.empty() && rule.keywords.empty() && rule.ips.empty() && rule.processes.empty();
+        });
+        std::erase_if(passed_, [&](const std::string& d) { return std::find(names.begin(), names.end(), d) != names.end(); });
+        break;
+      }
       case RoutingChange::What::PassNames:
       case RoutingChange::What::AddRule: {
         const auto action = static_cast<RouteRule::Action>(std::clamp(change.value, 0, 3));
@@ -1400,6 +1424,7 @@ class Worker {
         if (!change.path.empty() && rule->processes.size() == 1) {  // a program picked: its icon
           sovereign::tray::SetAppPath(settings_, rule->processes.front(), change.path);
         }
+        rule->pass = change.what == RoutingChange::What::PassNames;  // shown under the block (routing.h)
         sovereign::tray::AddRule(r.rules, *rule);  // already elsewhere: moved here
         const auto letThrough = [&](const std::string& name) {
           return std::any_of(rule->domains.begin(), rule->domains.end(), [&](const std::string& d) {
@@ -4735,6 +4760,9 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
   }
   for (std::size_t n = 0; n < r.rules.size(); ++n) {
     const sovereign::tray::RouteRule& rule = r.rules[n];
+    if (rule.pass) {  // under the block, by service (below)
+      continue;
+    }
     UiChip chip{.kind = UiChip::Kind::Rule, .index = static_cast<int>(n), .bucket = static_cast<int>(rule.action),
                 .text = Widen(rule.name.empty() ? sovereign::tray::RuleText(rule) : rule.name), .detail = {},
                 .icon = {}, .logo = {}};
@@ -4746,6 +4774,28 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
       }
     }
     board.push_back(std::move(chip));
+  }
+  // What's let through the block lists: a chip a service (or a site's own name), whichever rule
+  // and however many times each came in (they piled up, 12.11.2026), its service's logo.
+  for (const sovereign::tray::RouteRule& rule : r.rules) {
+    if (!rule.pass) {
+      continue;
+    }
+    for (const std::string& domain : rule.domains) {
+      const std::wstring name = Widen(sovereign::tray::SiteName(domain));
+      auto chip = std::find_if(board.begin(), board.end(),
+                               [&](const UiChip& c) { return c.kind == UiChip::Kind::Pass && c.text == name; });
+      if (chip == board.end()) {
+        const auto* service = sovereign::tray::ServiceOfSite(domain);
+        board.push_back({.kind = UiChip::Kind::Pass, .index = 0, .bucket = sovereign::tray::kBucketBlock, .text = name,
+                         .detail = {}, .icon = {}, .logo = service != nullptr ? std::string(service->id) : std::string()});
+        chip = board.end() - 1;
+      }
+      const std::wstring site = Widen(domain);
+      if ((L", " + chip->sites + L", ").find(L", " + site + L", ") == std::wstring::npos) {
+        chip->sites += (chip->sites.empty() ? L"" : L", ") + site;
+      }
+    }
   }
   // A service's own app with a rule of its own in the same bucket (Telegram.exe
   // by Telegram, from before a service took its app in): nothing apart -
@@ -5411,7 +5461,7 @@ UiContent ContentFrom(const View& v) {
                           L"Какой адрес и страну видят сайты, которые идут через VPN. Должен быть адрес сервера, а "
                           L"не твой."));
   c.checks.push_back(LeaksLine(v));
-  c.checks.push_back(line(CheckId::Route, L"Не открывается сайт?",
+  c.checks.push_back(line(CheckId::Route, L"Куда пойдёт сайт?",
                           L"Введи адрес — клиент откроет его и спросит ядро, как он пошёл: напрямую, через VPN, через "
                           L"WARP или заблокирован, и по какому правилу."));
   c.checks.push_back(line(CheckId::Exposure, L"Виден ли компьютер в сети",
@@ -5461,10 +5511,14 @@ UiContent ContentFrom(const View& v) {
   // nothing through - directly, by itself (WatchWarp); there's no pick of the
   // way (30.10.2026, his: "хз у кого прямо он работать будет").
   if (r.warp) {
-    c.routing.warpState = v.warpDirect                         ? L"напрямую: через VPN не прошёл"
-                          : v.warpAnswers && !*v.warpAnswers   ? L"поверх VPN · не отвечает"
-                          : !v.warpServer.empty()              ? L"поверх «" + Widen(v.serverTitles.contains(v.warpServer) ? v.serverTitles.at(v.warpServer).title : v.warpServer) + L"»"
-                                                               : L"поверх VPN";
+    // Not the server's name (12.11.2026: "поверх «VLESS + Vision + REALITY»" said nothing): whether it works.
+    const bool answers = v.warpAnswers && *v.warpAnswers;
+    const bool silent = v.warpAnswers && !*v.warpAnswers;
+    c.routing.warpState = v.warpDirect ? L"напрямую: через VPN не прошёл"
+                          : silent     ? L"не отвечает"
+                          : answers    ? L"поверх VPN, работает"
+                                       : L"поверх VPN";
+    c.routing.warpTone = (silent || v.warpDirect) ? -1 : (answers ? 1 : 0);
   }
   // The DNS rows: auto says what it is on now; a typed one its server's name
   // (the rest - scheme, port, path - is seen when it's edited; the row is narrow).
@@ -6109,7 +6163,7 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, captions);
       const int way = r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy;
       if (picked && *picked >= first && *picked - first < view.blockedAds.size()) {
-        send(What::AddRule, false, way, 0, view.blockedAds[*picked - first]);
+        send(What::PassNames, false, way, 0, view.blockedAds[*picked - first]);
       }
       break;
     }
@@ -6219,7 +6273,7 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
         ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr, SW_SHOWNORMAL);
       } else if (choice && names > 0 && *choice >= names && *choice - names < program.names.size()) {
         const int way = r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy;
-        send(What::AddRule, false, way, 0, program.names[*choice - names]);
+        send(What::PassNames, false, way, 0, program.names[*choice - names]);
       }
       break;
     }
@@ -6506,6 +6560,17 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
                : chip.kind == Kind::Cookies  ? What::CookieWindows
                                              : What::Malware,
                false);
+        }
+        break;
+      }
+      if (chip.kind == UiChip::Kind::Pass) {
+        // Let through the blocks: only to close again, its sites said first.
+        const std::vector<std::wstring> items = {chip.sites, L"", L"Снова закрывать"};
+        if (const auto picked = PickFromMenu(owner, cursor, items, -1, {}, std::vector<std::size_t>{0});
+            picked && *picked == 2) {
+          std::string names = Narrow(chip.sites);
+          std::erase(names, ' ');
+          send(What::Unpass, false, 0, 0, std::move(names));
         }
         break;
       }

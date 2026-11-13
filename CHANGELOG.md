@@ -4,6 +4,15 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.14 — 13.11.2026
+
+**The "Маршруты" page says what its numbers and lines mean, and shows what goes where right now.**
+- **Sites let through the block ("Сломалось только что?", "Заблокировано недавно") are one row under the block, "Не закрывать:"**, instead of grey address lines under "Через VPN" (one per press, hence the repeats). Each service appears once, by its name and logo (Microsoft, Google, Brave…); the full addresses are in the tip. A click on one: "Снова закрывать" puts its sites back under the block. Sites you had let through before are found and moved there on the first start.
+- **Under each way a grey line "сейчас: ya.ru, vk.com, sberbank.ru и ещё 9"** — the sites that went that way in the last ten minutes, from the log ("сейчас закрыто: …" for the block). "ещё N" opens the log with only that way's sites, and "← Все записи" brings the rest back.
+- **The block says "закрыто с подключения: N"**, and the tips of "Реклама", "Трекеры" and the others tell what their numbers are.
+- **WARP says "поверх VPN, работает"** with a green dot, or "не отвечает" with an amber one, instead of naming the server it goes over.
+- **The bottom way reads "Через VPN — всё остальное"**.
+- **The route check is a field on the page**: "Куда пойдёт сайт?", the address typed in it, then "Проверить".
 ## 0.6.13 — 12.11.2026
 
 - **The empty "Мои серверы" tab says it once**: "Своих серверов пока нет.", and under "Добавить свой VPS" what it needs and how a subscription from your own server moves there.

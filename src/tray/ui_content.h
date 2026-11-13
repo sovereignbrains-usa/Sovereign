@@ -168,7 +168,9 @@ struct UiService {
 struct UiChip {
   // Ads and Cookies: the block's own two lists (the settings' switches, shown here while on again
   // since 03.11.2026, his: "давай возвращать рекламу и куки сюда в блок").
-  enum class Kind : std::uint8_t { Service, Rule, Russia, Ads, Cookies, Trackers, Malware };
+  // Pass: sites let through the block lists, by their service's name ("Microsoft"), under the
+  // block as "Не закрывать" (12.11.2026) - its sites in `sites`.
+  enum class Kind : std::uint8_t { Service, Rule, Russia, Ads, Cookies, Trackers, Malware, Pass };
   Kind kind = Kind::Rule;
   int index = 0;        // Service: into the routing's services; Rule: into its rules
   int bucket = 1;
@@ -186,6 +188,7 @@ struct UiChip {
   // Telegram), folded into it - one thing on the board, its menu moves and
   // removes both; -1: none.
   int program = -1;
+  std::wstring sites;  // Pass: the names let through, ", "-separated ("login.live.com, config.edge.skype.com")
 };
 inline constexpr int kBucketDirect = 0;
 inline constexpr int kBucketProxy = 1;
@@ -217,9 +220,10 @@ struct UiRouting {
   // Cloudflare WARP (warp.h).
   bool warp = false;          // on (registered, or being registered)
   bool warpRegistered = false;
-  // How its tunnel is (main.cpp WatchWarp): "поверх «NL»", "поверх VPN · не отвечает",
-  // "напрямую: через VPN не прошёл"; empty: not checked yet.
+  // How its tunnel is (main.cpp WatchWarp): "поверх VPN, работает", "не отвечает",
+  // "напрямую: через VPN не прошёл"; empty: off. Its tone: 1 green (answers), -1 amber, 0 grey.
   std::wstring warpState;
+  int warpTone = 0;
   std::vector<UiService> services;  // sent their own way, in order
   std::vector<UiChip> board;        // everything sent somewhere, as the board shows it
 };
@@ -246,7 +250,7 @@ struct UiCheck {
 // UiContent::checks, always all four (main.cpp ContentFrom), by place.
 inline constexpr std::size_t kCheckExit = 0;      // what the internet sees: the overview
 inline constexpr std::size_t kCheckLeaks = 1;     // DNS, WebRTC, IPv6 as one: the overview
-inline constexpr std::size_t kCheckRoute = 2;     // "Не открывается сайт?": the routing page
+inline constexpr std::size_t kCheckRoute = 2;     // "Куда пойдёт сайт?": the routing page
 inline constexpr std::size_t kCheckExposure = 3;  // seen in the network: the settings
 
 // The date a calendar on a question's card holds (UiQuestion::calendar).
@@ -384,6 +388,10 @@ struct UiContent {
   bool settingsMore = false;            // the configurations' relay fold open (the window's own)
   int profileTab = 0;                   // the configurations' tab: 0 subscriptions, 1 own servers (the window's own)
   bool routeMenu = false;               // the routing mode's menu dropped (the window's own)
+  // What went each way of the routing in the last minutes, read off the log (the window's own):
+  // by bucket (kBucket*), the newest sites first, and how many more there were.
+  std::array<std::vector<std::wstring>, 4> routeNow;
+  std::array<std::size_t, 4> routeNowMore{};
   // How open each fold is while it moves (0 folded .. 1 open; the window's own, law.md --d-fold); -1: at rest,
   // as the flag above says.
   float routingFold = -1;               // the fine settings'

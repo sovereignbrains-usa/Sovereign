@@ -278,6 +278,9 @@ constexpr int kRouteSpine = 0;    // rect.top: the mode's node, rect.bottom: whe
 constexpr int kRouteStation = 1;  // a branch, the station on the middle of its rect
 constexpr int kRouteEnd = 2;      // a branch ending in a bar: the block
 
+// A Muted line with a lamp (Item::lamp): the dot's room before the text.
+constexpr float kMutedLamp = 13;
+
 // EditName: the configuration `index`'s name, typed over the page's title.
 // Hint: nothing on a click - it's there to be pointed at.
 enum class ItemAction : std::uint8_t {
@@ -293,6 +296,7 @@ enum class ItemAction : std::uint8_t {
   LogMore,     // the log's "⋯": save, how much the core writes, clear
   FindLog,     // the log's search box: typed in
   LogOnly,     // the selected row's lines one by one, nothing else; or back to all
+  RouteLog,    // the routing board's "ещё N": the log of the sites that went that way (index: bucket)
   LogServer,   // the servers' page, for the selected row's server
   ToggleMore,  // the configurations' relay fold, folded or not (the window's own)
   ProfileTab,  // the configurations' tab (index: 0 subscriptions, 1 own servers; the window's own)
@@ -506,6 +510,7 @@ struct LogView {
   int filter = 0;               // kLogFilterNames
   std::wstring only;            // a kind's key: its lines one by one, nothing else; empty: all
   std::wstring onlyTitle;       // what that kind is
+  LogRoute route = LogRoute::None;  // only the sites that went this way (the routing board's "ещё N"); None: all
   std::wstring search;          // only the rows with it in their words or lines
   std::array<int, kLogFilters> counts{};  // kinds of event per filter
   bool paused = false;
@@ -600,6 +605,9 @@ struct LogView {
           ++counts[f];
         }
       }
+      if (route != LogRoute::None && event.route != route) {
+        continue;
+      }
       if (merge ? !InLogFilter(event, filter) : event.key != only) {
         continue;
       }
@@ -663,6 +671,7 @@ struct LogState {
   std::wstring search;
   bool only = false;       // a kind's lines one by one (LogView::only)
   std::wstring onlyTitle;  // that kind
+  std::wstring route;      // the sites of one way only (LogView::route): which, in words; empty: all
   bool selected = false;   // a row is: its card under the list
   std::wstring detail;     // the selected row's line as the core wrote it
   bool server = false;     // it's about one of the servers' ways: "Показать сервер"
@@ -1675,7 +1684,7 @@ class Painter {
         case Kind::Muted:  // a line of its own; a taller one wraps
           if (it.rect.bottom - it.rect.top <= 24 && it.text.find(L'\n') == std::wstring::npos) {
             room = w;
-            need = TextWidth(it.text, caption_.get());
+            need = TextWidth(it.text, caption_.get()) + (it.lamp > 0 ? kMutedLamp : 0.0f);
           }
           break;
         default: break;
@@ -2198,7 +2207,8 @@ class Painter {
         {L"Блок", L"заблокирован",
          L"Сайт или программа останутся без сети: не откроются ни через VPN, ни напрямую. Например, сайт, который не "
          L"хочешь открывать, или назойливый апдейтер.\n\nРеклама, трекеры, баннеры cookie и вредоносные сайты тоже здесь: их включают в «+» "
-         L"или в настройках.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
+         L"или в настройках.\n\nСайты, которые пропустил кнопкой «Сломалось только что?», стоят в строке «Не закрывать»: "
+         L"нажми на значок — и они снова закрыты.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
         {L"Через WARP", L"идёт через WARP",
          L"Через Cloudflare WARP поверх VPN. Для сайтов, которые не пускают с адреса VPN: сайт видит адрес "
          L"Cloudflare.\n\nGoogle его адреса не любит: Gemini и поиск через WARP упрутся в капчу. Не проходит поверх "
@@ -2224,14 +2234,21 @@ class Painter {
       float top = y + 28;
       // What's said by the name: the rest's "всё, что не попало выше", how WARP goes. Beside it while
       // it fits whole, else a line of its own under it.
-      const std::wstring aside = rest && r.smart ? std::wstring(L"всё, что не попало выше; заблокированное — через VPN")
-                                 : rest           ? std::wstring(L"всё, что не попало выше")
+      const std::wstring aside = rest && r.smart ? std::wstring(L"всё остальное; заблокированное — через VPN")
+                                 : rest           ? std::wstring(L"всё остальное")
                                  : id == kBucketWarp ? r.warpState
-                                                     : std::wstring();
+                                 : id == kBucketBlock && c.blockedTotal > 0
+                                     ? L"закрыто с подключения: " + Grouped(c.blockedTotal)
+                                     : std::wstring();
       if (!aside.empty()) {
         const float asideLeft = left + nameWidth + 8;
-        if (asideLeft + std::ceil(TextWidth(aside, caption_.get())) + 4 <= x1) {
-          l.items.push_back(Make(Kind::Muted, {asideLeft, y, x1, y + 28}, aside));
+        // WARP's state has a lamp: green while it answers, amber while it doesn't.
+        const int lamp = id == kBucketWarp ? (r.warpTone > 0 ? 1 : r.warpTone < 0 ? 2 : 0) : 0;
+        const float lampRoom = lamp > 0 ? kMutedLamp : 0.0f;
+        if (asideLeft + std::ceil(TextWidth(aside, caption_.get())) + lampRoom + 4 <= x1) {
+          Item note = Make(Kind::Muted, {asideLeft, y, x1, y + 28}, aside);
+          note.lamp = lamp;
+          l.items.push_back(std::move(note));
         } else {
           const float h = TextHeight(aside, captionWrap_.get(), x1 - left);
           l.items.push_back(Make(Kind::Caption, {left, top, x1, top + h}, aside));
@@ -2256,7 +2273,8 @@ class Painter {
       };
       for (std::size_t n = 0; n < r.board.size(); ++n) {
         const UiChip& chip = r.board[n];
-        if (chip.bucket != id || (rest && chip.idle)) {  // (what only goes here anyway: no word of it, the line ends here)
+        if (chip.bucket != id || (rest && chip.idle) ||
+            chip.kind == UiChip::Kind::Pass) {  // (what only goes here anyway: no word of it, the line ends here; a pass: its own row)
           continue;
         }
         // Whole pixels up: a chip as wide as its text to the last float got its
@@ -2285,6 +2303,12 @@ class Painter {
           tag.tip = L"Трекеры блокируются: серверы слежки и аналитики, по которым сайты узнают тебя.";
         } else if (chip.kind == UiChip::Kind::Malware) {
           tag.tip = L"Вредоносные сайты блокируются: вирусы, фишинг и мошенничество по спискам.";
+        }
+        // The number after a list's name: how many it has shut since the connection came up.
+        if ((chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies ||
+             chip.kind == UiChip::Kind::Trackers || chip.kind == UiChip::Kind::Malware) &&
+            !chip.detail.empty()) {
+          tag.tip += L"\nЦифра рядом: сколько обращений закрыто с подключения — " + chip.detail + L".";
         }
         tag.detail = chip.detail;
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
@@ -2322,6 +2346,79 @@ class Painter {
         add.tip = label.empty() ? std::wstring(L"Добавить сайт, сервис или программу") : std::wstring();
         l.items.push_back(std::move(add));
       }
+      float foot = bare ? top : rowTop + rowHeight;  // the last line's bottom: what comes under goes from here
+      // Under the block: the sites let through its lists, by their service's name, small - a click
+      // gives them back to the block (ChipMenu).
+      if (id == kBucketBlock) {
+        constexpr float kSmall = 28;
+        const std::wstring label = L"Не закрывать:";
+        const float labelWidth = std::ceil(TextWidth(label, caption_.get())) + 4;
+        float px = left;
+        float py = foot + 10;
+        bool any = false;
+        for (std::size_t n = 0; n < r.board.size(); ++n) {
+          const UiChip& chip = r.board[n];
+          if (chip.kind != UiChip::Kind::Pass) {
+            continue;
+          }
+          if (!any) {
+            l.items.push_back(Make(Kind::Muted, {left, py, left + labelWidth, py + kSmall}, label));
+            px = left + labelWidth + 8;
+            any = true;
+          }
+          const float w = std::min(x1 - left, 32 + std::ceil(TextWidth(chip.text, body_.get())) + 12);
+          if (px > left && px + w > x1) {
+            px = left;
+            py += kSmall + 8;
+          }
+          Item tag = CommandItem(Kind::Tag, {px, py, px + w, py + kSmall}, chip.text, nullptr, UiCommand::ChipMenu,
+                                 static_cast<int>(n));
+          tag.tip = L"Не закрывается: " + chip.sites + L"\nНажми, чтобы закрывать снова.";
+          tag.logo = chip.logo;
+          tag.rail = id;
+          l.items.push_back(std::move(tag));
+          px += w + 8;
+        }
+        if (any) {
+          foot = py + kSmall;
+        }
+      }
+      // What goes this way just now, off the log: a few sites, the rest counted; "ещё N" opens the log of them.
+      const auto& now = c.routeNow.at(static_cast<std::size_t>(id));
+      if (!now.empty()) {
+        const std::wstring prefix = id == kBucketBlock ? L"сейчас закрыто: " : L"сейчас: ";
+        const std::size_t total = now.size() + c.routeNowMore.at(static_cast<std::size_t>(id));
+        std::size_t shown = now.size();
+        std::wstring text;
+        std::wstring more;
+        for (; shown >= 1; --shown) {  // as many as the line holds, one at least
+          text = prefix;
+          for (std::size_t i = 0; i < shown; ++i) {
+            text += (i > 0 ? L", " : L"") + now[i];
+          }
+          more = total > shown ? std::format(L"ещё {}", total - shown) : std::wstring();
+          if (!more.empty()) {
+            text += L" и";
+          }
+          const float used = std::ceil(TextWidth(text, caption_.get())) + 4 +
+                             (more.empty() ? 0.0f : std::ceil(TextWidth(more, trailing_.get())));
+          if (used <= x1 - left || shown == 1) {
+            break;
+          }
+        }
+        const float ly = foot + 6;
+        const float textWidth = std::ceil(TextWidth(text, caption_.get())) + 4;
+        l.items.push_back(Make(Kind::Muted, {left, ly, std::min(x1, left + textWidth), ly + 22}, text));
+        if (!more.empty()) {
+          const float linkWidth = std::ceil(TextWidth(more, trailing_.get())) + 2;
+          Item link = Make(Kind::Link, {left + textWidth, ly, left + textWidth + linkWidth, ly + 22}, more);
+          link.action = ItemAction::RouteLog;
+          link.index = id;
+          link.tip = L"Открыть журнал: только такие сайты";
+          l.items.push_back(std::move(link));
+        }
+        foot = ly + 22;
+      }
       Item route = Make(Kind::Route, {x0, cy - kLineTurn, x0 + kSchemeIndent - 4, cy + kLineTurn});
       route.rail = id;
       route.sub = id == kBucketBlock ? kRouteEnd : kRouteStation;
@@ -2330,7 +2427,7 @@ class Painter {
       } else {
         routes.push_back(std::move(route));
       }
-      y = bare ? top + 20 : rowTop + rowHeight + 20;
+      y = foot + 20;
     }
     // What the client worked out itself in «в обход блокировок»: the sites its first way
     // couldn't open and where they go now - a line each, under the board.
@@ -3903,7 +4000,20 @@ class Painter {
       run.enabled = !c.checksRunning;
       run.tip = route ? L"Ввести сайт и узнать, каким путём он пойдёт"
                       : L"Проверить ещё раз, что видно этот компьютер в локальной сети";
+      const float runLeft = run.rect.left;
       l.items.push_back(std::move(run));
+      // The route's address is typed here, in a well of its own (a click anywhere on it, as on the button),
+      // while the room after the title holds one.
+      if (route && word) {
+        const float wellLeft = x0 + 4 + 30 + std::ceil(TextWidth(check.title, body_.get())) + kHint + 16;
+        if (runLeft - 8 - wellLeft >= 120) {
+          Item well = CommandItem(Kind::Find, {wellLeft, top + 5, runLeft - 8, top + kCheckRow - 5}, L"", nullptr,
+                                  command, index);
+          well.text2 = L"например, youtube.com";
+          well.enabled = !c.checksRunning;
+          l.items.push_back(std::move(well));
+        }
+      }
     }
     return grown;
   }
@@ -4105,14 +4215,16 @@ class Painter {
     }
 
     // Which events are shown, with how many kinds of each; one kind one by one: the way back, and which.
-    if (s.only) {
+    if (s.only || !s.route.empty()) {
       constexpr float kBack = 120;
       Item back = Make(Kind::Chip, {x0, y, x0 + kBack, y + 30}, L"← Все записи");
       back.action = ItemAction::LogOnly;
+      back.index = 1;
       back.checked = true;
       back.tip = L"Снова все записи";
       l.items.push_back(std::move(back));
-      l.items.push_back(Make(Kind::Caption, {x0 + kBack + 10, y, x1, y + 30}, L"только: " + s.onlyTitle));
+      l.items.push_back(
+          Make(Kind::Caption, {x0 + kBack + 10, y, x1, y + 30}, L"только: " + (s.only ? s.onlyTitle : s.route)));
     } else {
       std::array<std::wstring, kLogFilters> labels;
       float used = 0;
@@ -4914,11 +5026,18 @@ class Painter {
         break;
       }
       case Kind::Text: k.Text(it.text, body_.get(), r, it.warn ? FromColorRef(ui::kDanger) : primary); break;
-      case Kind::Muted:  // one that picks something (a Command): brighter under the mouse
-        k.Text(it.engraved ? Spaced(it.text) : it.text, it.engraved ? engraved_.get() : caption_.get(), r,
+      case Kind::Muted: {  // one that picks something (a Command): brighter under the mouse
+        D2D1_RECT_F at = r;
+        if (it.lamp > 0) {  // a dot before it (WARP: works, or doesn't answer)
+          const COLORREF tone = it.lamp >= 3 ? ui::kDanger : it.lamp == 2 ? ui::kWarning : ui::kUpload;
+          k.t->FillEllipse(D2D1::Ellipse({r.left + 3.5f, (r.top + r.bottom) / 2}, 3.5f, 3.5f), k.Color(FromColorRef(tone)));
+          at.left += kMutedLamp;
+        }
+        k.Text(it.engraved ? Spaced(it.text) : it.text, it.engraved ? engraved_.get() : caption_.get(), at,
                it.warn ? FromColorRef(ui::kDanger)
                        : (hovered && it.action == ItemAction::Command ? primary : secondary));
         break;
+      }
       case Kind::Meter: {
         // A thin track and how much of it is used: amber from three
         // quarters, red from nine tenths.
@@ -5329,7 +5448,9 @@ class Painter {
         k.Outline(r, 6, Rgb(255, 255, 255, it.text.empty() ? 0.08f : 0.22f));
         const float cy = (r.top + r.bottom) / 2;
         k.Text(kGlyphSearch, glyph_.get(), {r.left + 6, cy - 10, r.left + 30, cy + 10}, secondary);
-        k.Text(it.text.empty() ? std::wstring_view(L"Поиск: сайт, сервер, ошибка") : std::wstring_view(it.text),
+        // (text2: what to seek in, where it isn't the log - the routing page's address)
+        const std::wstring_view placeholder = it.text2.empty() ? std::wstring_view(L"Поиск: сайт, сервер, ошибка") : std::wstring_view(it.text2);
+        k.Text(it.text.empty() ? placeholder : std::wstring_view(it.text),
                body_.get(), {r.left + 36, cy - 10, r.right - 8, cy + 10}, it.text.empty() ? secondary : primary);
         break;
       }
@@ -6666,6 +6787,55 @@ struct MainWindow::Impl {
     }
   }
 
+  // The routing board's "сейчас: …" (UiContent::routeNow), off the log's lines of the last ten
+  // minutes: the sites that went each way, the newest first, a few by name and the rest counted.
+  // A line has its time as "HH:MM" only: read against the local clock, round midnight too.
+  void NoteRouteNow() {
+    constexpr std::size_t kNamed = 3;
+    constexpr int kRecent = 10;       // minutes
+    constexpr std::size_t kName = 26;  // a longer host is cut
+    for (std::vector<std::wstring>& way : content.routeNow) {
+      way.clear();
+    }
+    content.routeNowMore.fill(0);
+    SYSTEMTIME local{};
+    GetLocalTime(&local);
+    const int minutes = local.wHour * 60 + local.wMinute;
+    std::array<std::unordered_set<std::wstring>, 4> seen;
+    for (std::size_t i = log.events.size(); i-- > 0;) {
+      const LogEvent& event = log.events[i];
+      if (event.hidden || event.route == LogRoute::None) {
+        continue;
+      }
+      const std::wstring& stamp = event.time;
+      if (stamp.size() != 5 || stamp[2] != L':') {
+        continue;
+      }
+      const int at = (stamp[0] - L'0') * 600 + (stamp[1] - L'0') * 60 + (stamp[3] - L'0') * 10 + (stamp[4] - L'0');
+      if ((minutes - at + 24 * 60) % (24 * 60) > kRecent) {
+        break;  // the lines run in time: the rest is older
+      }
+      const std::wstring& host = event.title;
+      // An address of numbers says nothing at a glance.
+      const bool numbers = std::all_of(host.begin(), host.end(), [](wchar_t ch) { return (ch >= L'0' && ch <= L'9') || ch == L'.'; });
+      if (host.empty() || numbers || host.find(L':') != std::wstring::npos) {
+        continue;
+      }
+      const std::size_t way = event.route == LogRoute::Direct  ? 0
+                              : event.route == LogRoute::Proxy ? 1
+                              : event.route == LogRoute::Block ? 2
+                                                               : 3;
+      if (!seen[way].insert(host).second) {
+        continue;
+      }
+      if (content.routeNow[way].size() < kNamed) {
+        content.routeNow[way].push_back(host.size() > kName ? host.substr(0, kName - 1) + L"…" : host);
+      } else {
+        ++content.routeNowMore[way];
+      }
+    }
+  }
+
   void Relayout() {
     const D2D1_SIZE_F size = ClientDip();
     LogState state;
@@ -6676,6 +6846,14 @@ struct MainWindow::Impl {
     state.search = log.search;
     state.only = !log.only.empty();
     state.onlyTitle = log.onlyTitle;
+    state.route = log.route == LogRoute::Direct  ? L"сайты напрямую"
+                  : log.route == LogRoute::Proxy ? L"сайты через VPN"
+                  : log.route == LogRoute::Block ? L"заблокированные сайты"
+                  : log.route == LogRoute::Warp  ? L"сайты через WARP"
+                                                 : L"";
+    if (page == UiPage::Routing) {
+      NoteRouteNow();
+    }
     if (log.HasSelection()) {
       state.selected = true;
       state.detail = log.Line(log.caret);
@@ -7124,10 +7302,27 @@ struct MainWindow::Impl {
                   -1, log.search, false);
         edit.search = true;
         return;
+      case ItemAction::RouteLog:  // the routing board's "ещё N": the log, the sites of that way only
+        log.route = item.index == kBucketDirect  ? LogRoute::Direct
+                    : item.index == kBucketBlock ? LogRoute::Block
+                    : item.index == kBucketWarp  ? LogRoute::Warp
+                                                 : LogRoute::Proxy;
+        log.only.clear();
+        log.onlyTitle.clear();
+        log.search.clear();
+        log.filter = 0;
+        log.anchor = log.caret = -1;
+        log.follow = true;
+        log.Rebuild();
+        ClampLog();
+        Go(UiPage::Logs);
+        return;
       case ItemAction::LogOnly:
-        if (!log.only.empty()) {
+        if (!log.only.empty() || item.index == 1) {  // (index 1: the header's way back, with a way's sites too)
           log.only.clear();
           log.onlyTitle.clear();
+          log.route = LogRoute::None;
+          log.follow = true;
         } else if (log.HasSelection()) {
           const LogEvent& event = log.Event(log.caret);
           log.only = event.key;

@@ -2,311 +2,233 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Sovereign · Маршруты — концепт</title>
+<title>Sovereign — маршруты: понятнее</title>
 <style>
-/* Палитра — из src/tray/ui_style.h; новые только цвета выходов (--warp, --direct). */
-:root{
-  --bg:#0e0e0f; --panel:#121213; --card:#181819; --card2:#1e1e20; --chip:#232326;
-  --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
-  --ink:#f2f4f8; --ink2:#9c9ea4; --ink3:#66686e;
-  --vpn:#6e9bd6; --direct:#a3a6ad; --warp:#c9985c; --block:#c97474; --ok:#6bae90;
-  --sans:Geist,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
-  --mono:"Geist Mono",Consolas,"Cascadia Mono",monospace;
+/* Страница «Маршруты» (12.11.2026, его: «тут че придумаем?»): схема-метро остаётся, убирается
+   непонятное - строки адресов внизу, голые цифры, «поверх «VLESS + Vision + REALITY»».
+   Цвета - из ui_style.h (kVpn, kWarp, kDirect, kBlock). */
+@font-face { font-family: "Geist"; src: url("../../assets/fonts/Geist.ttf") format("truetype"); font-weight: 100 900; }
+:root {
+  color-scheme: dark;
+  --window: rgb(14 14 15); --card: rgb(24 24 26); --raised: rgb(44 44 49);
+  --ink-1: rgb(242 244 248); --ink-2: rgb(156 158 164);
+  --vpn: 76 146 255; --warp: 232 134 66; --direct: 160 165 176; --block: 240 96 96; --ok: 64 196 140; --warn: 240 196 64;
+  --hair: rgb(255 255 255 / .08); --desk: rgb(29 32 38);
+  --font: "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --icons: "Segoe Fluent Icons", "Segoe MDL2 Assets";
 }
-*{box-sizing:border-box;margin:0}
-html,body{height:100%}
-body{background:#080809;display:flex;justify-content:center;padding:24px 12px;font:13px/1.35 var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased}
-button,input{font:inherit;color:inherit}
-button{background:none;border:0;cursor:pointer}
+* { box-sizing: border-box; }
+body { margin: 0; background: #070708; color: var(--ink-1); font: 14px/1.4 var(--font); }
+main { max-width: 1560px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+.lede { color: var(--ink-2); max-width: 980px; margin: 0 0 24px; }
+.lede b { color: var(--ink-1); }
+.row { background: var(--desk); border-radius: 8px; padding: 28px; display: grid; grid-template-columns: repeat(3, 460px); gap: 32px; justify-content: center; align-items: start; }
+.cap { color: var(--ink-2); font-size: 12.5px; margin: 0 0 10px; min-height: 54px; }
+.cap b { color: var(--ink-1); font-weight: 600; }
+.gl { font-family: var(--icons); font-style: normal; }
 
-.win{position:relative;width:408px;min-height:560px;background:var(--bg);border:1px solid var(--line2);border-radius:10px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.6);align-self:flex-start}
-.cap{height:38px;background:var(--panel);display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--ink2);font-size:12px}
-.cap .sp{flex:1}.cap b{color:var(--ink);font-weight:500}
-.cap .logo{width:14px;height:14px;border-radius:4px;background:linear-gradient(135deg,#6a6c74,#2c2d31);box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
-main{padding:12px 18px 20px}
+.win { width: 460px; height: 700px; background: var(--window); border: 1px solid rgb(var(--vpn)); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+.bar { height: 40px; display: flex; align-items: center; flex: none; }
+.bar .k { width: 36px; height: 36px; display: grid; place-items: center; font-family: var(--icons); font-size: 13px; color: var(--ink-2); }
+.bar .title { font-weight: 600; font-size: 17.75px; margin-left: 2px; }
+.bar .q { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--ink-2); color: var(--ink-2); font-size: 11px; display: grid; place-items: center; margin-left: 8px; }
+.bar .sp { flex: 1; }
+.body { padding: 8px 16px 16px; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.card { background: var(--card); border-radius: 8px; outline: 1px solid var(--hair); outline-offset: -1px; }
 
-/* заголовок */
-.title{display:flex;align-items:center;gap:12px;margin:0 0 12px}
-.title h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
-.ico{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.back{color:var(--ink2);display:grid;place-items:center;width:32px;height:32px;border-radius:8px;margin-left:-6px}
-.back:hover{background:var(--card2);color:var(--ink)}
-.q{width:16px;height:16px;border-radius:50%;border:1px solid var(--ink3);color:var(--ink2);font-size:10px;line-height:14px;text-align:center;flex:none;cursor:help}
-.q:hover{border-color:var(--ink2);color:var(--ink)}
+/* схема-метро */
+.board { position: relative; padding-left: 34px; }
+.spine { position: absolute; left: 9px; top: 14px; width: 3px; border-radius: 2px; background: rgb(var(--vpn)); }
+.lead { display: flex; align-items: center; gap: 10px; height: 30px; position: relative; }
+.lead::before { content: ""; position: absolute; left: -31px; top: 7px; width: 16px; height: 16px; border-radius: 50%; background: var(--window); border: 3px solid rgb(var(--vpn)); box-sizing: border-box; }
+.lead b { font-size: 17px; font-weight: 600; }
+.pill { height: 30px; padding: 0 12px; border-radius: 15px; background: var(--raised); display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 16px; }
+.pill .gl { font-size: 10px; color: var(--ink-2); }
+.way { position: relative; margin-top: 18px; }
+.way h3 { margin: 0; height: 26px; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.way h3 small { font-weight: 400; font-size: 12px; color: var(--ink-2); }
+.way h3 small.ok::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--ok)); margin-right: 6px; vertical-align: 1px; }
+.way::before { content: ""; position: absolute; left: -23px; top: 3px; width: 14px; height: 10px; border-left: 2px solid; border-bottom: 2px solid; border-bottom-left-radius: 8px; border-color: var(--c); }
+.way::after { content: ""; position: absolute; left: -11px; top: 8px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--c); background: var(--window); box-sizing: border-box; }
+.way.direct { --c: rgb(var(--direct)); } .way.warp { --c: rgb(var(--warp)); } .way.block { --c: rgb(var(--block)); }
+.way.vpn { --c: rgb(var(--vpn)); }
+.way.vpn::before { display: none; }
+.way.vpn::after { left: -29px; width: 13px; height: 13px; top: 7px; border-width: 3px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.chip { height: 32px; padding: 0 12px 0 10px; border-radius: 7px; background: var(--card); outline: 1px solid var(--hair); outline-offset: -1px; display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; white-space: nowrap; }
+.chip em { font-style: normal; color: var(--ink-2); font-size: 12px; }
+.chip.wide { height: auto; min-height: 32px; white-space: normal; padding: 6px 12px 6px 10px; align-items: flex-start; }
+.chip.small { height: 26px; font-size: 12.5px; padding: 0 9px 0 7px; gap: 6px; }
+.chip.small .x { font-family: var(--icons); font-size: 8px; color: var(--ink-2); margin-left: 2px; }
+.add { width: 32px; height: 32px; border-radius: 7px; border: 1.5px dashed rgb(255 255 255 / .22); display: grid; place-items: center; color: var(--ink-2); font-size: 18px; }
+.sub { margin-top: 10px; font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sub b { color: var(--ink-1); font-weight: 500; }
+.live { margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+.live i { font-style: normal; color: var(--ink-1); }
+.live a, .sub a { color: rgb(var(--vpn)); text-decoration: none; }
+.end { margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
+.check { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; }
+.check .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-2); opacity: .6; }
+.check .t { flex: 1; font-size: 13.5px; }
+.btn { flex: none; height: 32px; padding: 0 14px; border-radius: 6px; background: var(--raised); display: inline-flex; align-items: center; font-size: 13px; }
+.field { flex: 1; height: 32px; border-radius: 6px; background: rgb(255 255 255 / .05); display: flex; align-items: center; padding: 0 10px; color: var(--ink-2); font-size: 13px; }
+.answer { padding: 0 16px 12px; font-size: 12.5px; color: var(--ink-2); }
+.answer b { color: var(--ink-1); font-weight: 500; }
 
-/* гравировка: подпись раздела с волосяной линией */
-.eyebrow{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin:14px 2px 6px}
-.eyebrow::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line2),transparent)}
-.eyebrow .cnt{order:2;font-family:var(--mono);letter-spacing:0;color:var(--ink2)}
-.eyebrow:first-child{margin-top:0}
+/* значки */
+.lg { width: 16px; height: 16px; border-radius: 4px; display: inline-grid; place-items: center; flex: none; font-size: 10px; font-weight: 700; color: #fff; }
+.small .lg { width: 14px; height: 14px; font-size: 9px; }
+.ru { background: linear-gradient(#fff 0 33%, #2a5bd7 33% 66%, #d52b1e 66%); border-radius: 3px; }
+.gem { background: none; color: rgb(140 150 255); font-size: 15px; }
+.ads { background: rgb(var(--block)); border-radius: 4px 4px 8px 8px; }
+.trk { background: rgb(150 110 240); border-radius: 50%; }
+.ck { background: rgb(176 120 70); border-radius: 50%; }
+.mal { background: rgb(214 140 60); border-radius: 4px 4px 8px 8px; }
+.ms { background: none; display: inline-grid; grid-template-columns: 1fr 1fr; gap: 1px; padding: 1px; }
+.ms i { display: block; width: 100%; height: 100%; }
+.goo { background: #fff; color: #4285f4; border-radius: 50%; }
+.brv { background: rgb(251 84 43); border-radius: 4px 4px 7px 7px; }
+.sky { background: rgb(0 120 212); border-radius: 50%; }
+.dd { background: rgb(99 44 166); }
+.globe { background: none; font-family: var(--icons); color: var(--ink-2); font-weight: 400; font-size: 13px; }
 
-/* режим: карточка-ствол */
-.trunk{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px;position:relative}
-.seg{position:relative;display:grid;grid-template-columns:1fr 1fr;height:32px;padding:3px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 1px 3px rgba(0,0,0,.7),0 0 0 1px var(--line)}
-.seg .thumb{position:absolute;top:3px;bottom:3px;left:3px;width:calc(50% - 3px);border-radius:7px;background:rgba(110,155,214,.14);box-shadow:inset 0 0 0 1px rgba(110,155,214,.45);transition:transform .28s cubic-bezier(.3,.9,.3,1)}
-.seg.r .thumb{transform:translateX(100%)}
-.seg button{position:relative;z-index:1;color:var(--ink2);border-radius:7px;transition:color .2s}
-.seg button.on{color:var(--ink);font-weight:500}
-.rest{display:flex;align-items:center;gap:8px;margin:8px 2px 0;color:var(--ink2);font-size:12.5px}
-.rest .arrow{color:var(--ink3);font-family:var(--mono)}
-.tag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px 0 7px;border-radius:11px;background:color-mix(in srgb,var(--c) 13%,transparent);color:var(--ink);font-size:12px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 40%,transparent)}
-.tag i,.dot{width:6px;height:6px;border-radius:50%;background:var(--c);display:inline-block}
-.rest .hid{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink3)}
-
-/* счётчик потока */
-.meter{margin-top:9px;padding-top:8px;border-top:1px dashed var(--line2)}
-.meter .bar{display:flex;gap:2px;height:6px;border-radius:3px;overflow:hidden;background:#0b0b0c}
-.meter .bar span{display:block;background:var(--c);transition:flex-grow 1s ease;min-width:0;opacity:.9}
-.meter .leg{display:flex;justify-content:space-between;margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--ink2)}
-.meter .leg em{font-style:normal;color:var(--ink3)}
-.meter .leg span{display:inline-flex;align-items:center;gap:5px}
-.meter .cap2{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);margin-bottom:5px}
-
-/* выходы */
-.lanes{display:grid;gap:6px}
-.lane{position:relative;background:linear-gradient(90deg,color-mix(in srgb,var(--c) 4%,transparent),transparent 40%),var(--card);border:1px solid var(--line);border-radius:9px;padding:6px 10px 9px 15px;overflow:hidden}
-.lane::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--c);opacity:.85}
-.lane.pulse{animation:pulse .9s ease-out}
-@keyframes pulse{0%{box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 55%,transparent)}100%{box-shadow:0 0 0 1px transparent}}
-.lh{display:flex;align-items:center;gap:8px;min-height:26px}
-.lh .lg{color:var(--c);display:grid;place-items:center}
-.lh h3{font-size:14px;font-weight:600;letter-spacing:-.005em}
-.lh .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink2);background:#0f0f10;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
-.add{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;color:var(--ink2);margin-right:-4px;transition:.15s}
-.add:hover,.add.on{background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--ink)}
-.add.on svg{transform:rotate(45deg)}.add svg{transition:transform .2s}
-.ls{display:flex;align-items:center;gap:7px;margin:1px 0 0 25px;color:var(--ink2);font-size:12px}
-.ls .dot{--c:var(--ok);width:5px;height:5px}
-.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
-.chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px 0 5px;border-radius:7px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--line);font-size:13px;max-width:100%;transition:.15s}
-.chip:hover,.chip.sel{background:#2a2a2e;box-shadow:inset 0 0 0 1px var(--line2)}
-.chip .lo{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;font-size:10px;font-weight:600;background:#35353a;color:var(--ink2);flex:none}
-.chip .lo.ru{background:linear-gradient(#f2f4f8 0 33%,#2f6fe0 33% 66%,#e04848 66%);}
-.chip.in{animation:in .4s cubic-bezier(.3,1.4,.4,1)}
-@keyframes in{from{transform:scale(.85);opacity:0}}
-.chip small{color:var(--ink3);font-size:11px}
-/* пустой выход — тихая строка */
-.lane.quiet{padding:0 12px 0 17px;background:none;border:1px dashed var(--line2)}
-.lane.quiet::before{opacity:.35;box-shadow:none;top:8px;bottom:8px}
-.lane.quiet .lh{min-height:30px}
-.lane.quiet h3{font-weight:500;font-size:13.5px;color:var(--ink2)}
-.lane.quiet .lg{opacity:.7}
-.lane.quiet .add{margin-right:-6px}
-.lane.quiet .emp{margin-left:auto;font-size:12px;color:var(--ink3)}
-.lane.quiet .emp+.add{margin-left:0}
-/* добавление */
-.addrow{display:flex;flex-direction:column;gap:6px;margin-top:8px}
-.field{display:flex;gap:6px}
-.field input{flex:1;min-width:0;height:30px;border-radius:8px;border:0;outline:0;padding:0 11px;background:#0b0b0c;box-shadow:inset 0 0 0 1px var(--line2);font-family:var(--mono);font-size:12.5px}
-.field input:focus{box-shadow:inset 0 0 0 1px var(--c)}
-.field input::placeholder{color:var(--ink3)}
-.btn{height:30px;padding:0 14px;border-radius:8px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--line2);transition:.15s}
-.btn:hover{background:#28282c}
-.btn.acc{background:rgba(110,155,214,.14);box-shadow:inset 0 0 0 1px rgba(110,155,214,.45)}
-.kinds{display:flex;gap:4px}
-.kinds button{height:24px;padding:0 10px;border-radius:12px;font-size:12px;color:var(--ink2);box-shadow:inset 0 0 0 1px var(--line)}
-.kinds button.on{color:var(--ink);background:color-mix(in srgb,var(--c) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 45%,transparent)}
-
-/* меню фишки: куда перенести */
-.menu{position:absolute;z-index:20;width:232px;padding:6px;border-radius:12px;background:#1f1f22;box-shadow:0 0 0 1px var(--line2),0 16px 40px rgba(0,0,0,.65);animation:in .18s ease-out}
-.menu .cap3{font-size:11px;color:var(--ink3);padding:4px 8px 6px;letter-spacing:.06em;text-transform:uppercase}
-.menu button{display:flex;align-items:center;gap:9px;width:100%;height:32px;padding:0 8px;border-radius:7px;text-align:left}
-.menu button:hover{background:#2b2b2f}
-.menu button.cur{color:var(--ink3);cursor:default}.menu button.cur:hover{background:none}
-.menu .dot{--c:var(--k)}
-.menu hr{border:0;height:1px;background:var(--line);margin:5px 0}
-.menu .del{color:var(--block)}
-.menu kbd{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
-
-/* проверка маршрута — консоль */
-.probe{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:0 10px}
-.ph{display:flex;align-items:center;gap:8px;height:36px;cursor:pointer}
-.ph .dot{--c:var(--ink3);box-shadow:none}
-.ph b{font-weight:600;font-size:14px}
-.ph .chev{margin-left:auto;color:var(--ink2);transition:transform .2s}
-.probe.open .chev{transform:rotate(180deg)}
-.pb{display:none;padding:0 0 9px}.probe.open .pb{display:block}
-.pb .field input{--c:var(--vpn)}
-.trace{margin-top:8px;font-family:var(--mono);font-size:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 0 0 1px var(--line);padding:10px 12px;display:none}
-.trace.show{display:block}
-.trace .host{color:var(--ink);margin-bottom:6px}
-.trace .row{display:grid;grid-template-columns:62px 1fr;gap:8px;padding-left:2px;color:var(--ink2);position:relative;line-height:1.6}
-.trace .row b{font-weight:400;color:var(--ink3)}
-.trace .row span{color:var(--ink);display:flex;align-items:center;gap:7px}
-.trace .ok{color:var(--ok)}.trace .bad{color:var(--block)}
-.trace .host::before{content:"› ";color:var(--ink3)}
-.eg{margin-top:8px;font-size:11.5px;color:var(--ink3)}
-.eg button{font-family:var(--mono);color:var(--ink2);margin-right:8px;text-decoration:underline dotted;text-underline-offset:3px}
-.eg button:hover{color:var(--ink)}
-.lists{margin:6px 4px 0;font-size:11.5px;color:var(--ink3)}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.mark { outline: 2px solid rgb(var(--warn) / .8); outline-offset: 3px; border-radius: 8px; }
+.notes { display: grid; grid-template-columns: repeat(3, 460px); gap: 32px; justify-content: center; margin-top: 20px; font-size: 13px; color: var(--ink-2); }
+.notes b { color: var(--ink-1); display: block; margin-bottom: 2px; font-weight: 600; }
+.notes ul { margin: 6px 0 0; padding-left: 18px; }
+.notes li { margin: 4px 0; }
 </style>
 </head>
 <body>
-<div class="win" id="win">
-  <div class="cap"><span class="logo"></span><b>Sovereign</b><span class="sp"></span><span>—</span><span>×</span></div>
-  <main>
-    <div class="title">
-      <button class="back" title="Назад"><svg class="ico" viewBox="0 0 16 16"><path d="M13 8H3M7 4 3 8l4 4"/></svg></button>
-      <h1>Маршруты</h1>
-      <span class="q" title="Куда идёт трафик. Решает Sovereign: из подписок берутся только серверы.">?</span>
+<main>
+<h1>Маршруты: понятнее</h1>
+<p class="lede">Схема-метро остаётся. Убираем непонятное: <b>серые строки адресов внизу</b> (это сайты, которые ты пропускал кнопкой «Сломалось только что?», каждое нажатие — отдельная строка, отсюда повторы), <b>голые цифры 54 и 12</b> и <b>«поверх «VLESS + Vision + REALITY»»</b>. <b>А</b> — только это. <b>Б</b> — то же самое, плюс под каждой веткой видно, что по ней идёт прямо сейчас.</p>
+
+<div class="row">
+
+<!-- ======================= КАК СЕЙЧАС ======================= -->
+<div>
+<p class="cap"><b>Как сейчас.</b> Жёлтым обведено непонятное.</p>
+<div class="win">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Маршруты</span><span class="q">?</span><span class="sp"></span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="board">
+      <div class="spine" style="height: 452px"></div>
+      <div class="lead"><b>Всё идёт</b><span class="pill">через VPN <span class="gl">&#xE70D;</span></span></div>
+      <div class="way direct"><h3>Напрямую</h3>
+        <div class="chips"><span class="chip"><span class="lg ru"></span>Российские сайты</span><span class="add">+</span></div></div>
+      <div class="way warp"><h3>Через WARP <small class="mark">поверх «VLESS + Vision + REALITY»</small></h3>
+        <div class="chips"><span class="chip"><span class="lg gem">✦</span>Gemini</span><span class="add">+</span></div></div>
+      <div class="way block"><h3>Блок</h3>
+        <div class="chips"><span class="chip"><span class="lg ads"></span>Реклама <em class="mark">54</em></span><span class="chip"><span class="lg trk"></span>Трекеры <em class="mark">12</em></span><span class="chip"><span class="lg ck"></span>Баннеры cookie</span><span class="chip"><span class="lg mal"></span>Вредоносные сайты</span><span class="add">+</span></div></div>
+      <div class="way vpn"><h3>Через VPN <small>всё, что не попало выше</small></h3>
+        <div class="chips mark">
+          <span class="chip wide"><span class="lg globe">&#xE774;</span>http-intake.logs.us5.datadoghq.com, settings-win.data.microsoft.com, stun.l.google.com</span>
+          <span class="chip wide"><span class="lg globe">&#xE774;</span>usage-ping.brave.com, http-intake.logs.us5.datadoghq.com, settings-win.data.microsoft.com</span>
+          <span class="chip"><span class="lg globe">&#xE774;</span>config.edge.skype.com</span><span class="add">+</span>
+        </div></div>
     </div>
-
-    <div class="eyebrow">Через VPN идёт</div>
-    <section class="trunk">
-      <div class="seg" id="seg"><span class="thumb"></span>
-        <button class="on" data-m="0">всё</button><button data-m="1">только выбранное</button></div>
-      <div class="rest" id="rest"></div>
-      <div class="meter">
-        <div class="cap2"><span>Сейчас идёт · 60 с</span><span id="speed" style="font-family:var(--mono)">↓ 4,2 МБ/с</span></div>
-        <div class="bar" id="bar"></div>
-        <div class="leg" id="leg"></div>
-      </div>
-    </section>
-
-    <div class="eyebrow" id="exh">Идёт иначе</div>
-    <div class="lanes" id="lanes"></div>
-    <div class="lists">списки обновлены 30.10 14:00</div>
-
-    <div class="eyebrow">Диагностика</div>
-    <section class="probe open" id="probe">
-      <div class="ph" id="ph"><i class="dot"></i><b>Не открывается сайт?</b><span class="q" title="Введи адрес — покажу, по какому правилу и каким выходом он идёт, и откроется ли он.">?</span>
-        <svg class="ico chev" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg></div>
-      <div class="pb">
-        <form class="field" id="pf"><input id="pi" placeholder="адрес: chatgpt.com" autocomplete="off" spellcheck="false"><button class="btn acc">Проверить</button></form>
-        <div class="trace" id="trace"></div>
-        <div class="eg">например: <button data-e="chatgpt.com">chatgpt.com</button><button data-e="yandex.ru">yandex.ru</button><button data-e="youtube.com">youtube.com</button></div>
-      </div>
-    </section>
-  </main>
+    <div class="card check"><span class="dot"></span><span class="t">Не открывается сайт? <span class="q" style="display:inline-grid;width:16px;height:16px;border:1.5px solid var(--ink-2);border-radius:50%;font-size:10px;color:var(--ink-2);place-items:center">?</span></span><span class="btn">Проверить</span></div>
+  </div>
+</div>
 </div>
 
+<!-- ======================= А ======================= -->
+<div>
+<p class="cap"><b>А — навести порядок.</b> Пропущенные сайты переезжают в «Блок», в строку «Не закрывать», по одному, без повторов и со значками. Цифры подписаны, WARP сказан простыми словами, проверка сайта — сразу поле ввода.</p>
+<div class="win">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Маршруты</span><span class="q">?</span><span class="sp"></span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="board">
+      <div class="spine" style="height: 382px"></div>
+      <div class="lead"><b>Всё идёт</b><span class="pill">через VPN <span class="gl">&#xE70D;</span></span></div>
+      <div class="way direct"><h3>Напрямую</h3>
+        <div class="chips"><span class="chip"><span class="lg ru"></span>Российские сайты</span><span class="add">+</span></div></div>
+      <div class="way warp"><h3>Через WARP <small class="ok">поверх VPN, работает</small></h3>
+        <div class="chips"><span class="chip"><span class="lg gem">✦</span>Gemini</span><span class="add">+</span></div></div>
+      <div class="way block"><h3>Блок <small>закрыто с подключения: 66</small></h3>
+        <div class="chips"><span class="chip"><span class="lg ads"></span>Реклама <em>54</em></span><span class="chip"><span class="lg trk"></span>Трекеры <em>12</em></span><span class="chip"><span class="lg ck"></span>Баннеры cookie</span><span class="chip"><span class="lg mal"></span>Вредоносные сайты</span><span class="add">+</span></div>
+        <div class="sub"><b>Не закрывать:</b>
+          <span class="chip small"><span class="lg ms"><i style="background:#f25022"></i><i style="background:#7fba00"></i><i style="background:#00a4ef"></i><i style="background:#ffb900"></i></span>Microsoft<span class="x">&#xE711;</span></span>
+          <span class="chip small"><span class="lg goo">G</span>Google<span class="x">&#xE711;</span></span>
+          <span class="chip small"><span class="lg brv"></span>Brave<span class="x">&#xE711;</span></span>
+          <span class="chip small"><span class="lg sky">S</span>Skype<span class="x">&#xE711;</span></span>
+          <span class="chip small"><span class="lg dd"></span>Datadog<span class="x">&#xE711;</span></span>
+        </div></div>
+      <div class="way vpn"><h3>Через VPN <small>всё остальное</small></h3></div>
+    </div>
+    <div class="card">
+      <div class="check"><span style="flex:none;font-size:13.5px">Куда пойдёт сайт?</span><span class="field">youtube.com</span><span class="btn">Проверить</span></div>
+      <div class="answer">Клиент откроет сайт и скажет: <b>напрямую, через VPN, через WARP или закрыт</b> — и почему.</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ======================= Б ======================= -->
+<div>
+<p class="cap"><b>Б — живая схема.</b> Всё как в А, плюс под каждой веткой серым — какие сайты идут по ней прямо сейчас (из журнала). Нажмёшь «ещё 14» — откроется журнал только с этой веткой.</p>
+<div class="win">
+  <div class="bar"><span class="k">&#xE72B;</span><span class="title">Маршруты</span><span class="q">?</span><span class="sp"></span><span class="k">&#xE921;</span><span class="k">&#xE8BB;</span></div>
+  <div class="body">
+    <div class="board">
+      <div class="spine" style="height: 470px"></div>
+      <div class="lead"><b>Всё идёт</b><span class="pill">через VPN <span class="gl">&#xE70D;</span></span></div>
+      <div class="way direct"><h3>Напрямую</h3>
+        <div class="chips"><span class="chip"><span class="lg ru"></span>Российские сайты</span><span class="add">+</span></div>
+        <div class="live">сейчас: <i>ya.ru</i>, <i>vk.com</i>, <i>sberbank.ru</i> и <a href="#">ещё 9</a></div></div>
+      <div class="way warp"><h3>Через WARP <small class="ok">поверх VPN, работает</small></h3>
+        <div class="chips"><span class="chip"><span class="lg gem">✦</span>Gemini</span><span class="add">+</span></div>
+        <div class="live">сейчас: <i>gemini.google.com</i></div></div>
+      <div class="way block"><h3>Блок <small>закрыто с подключения: 66</small></h3>
+        <div class="chips"><span class="chip"><span class="lg ads"></span>Реклама <em>54</em></span><span class="chip"><span class="lg trk"></span>Трекеры <em>12</em></span><span class="chip"><span class="lg ck"></span>Баннеры cookie</span><span class="chip"><span class="lg mal"></span>Вредоносные сайты</span><span class="add">+</span></div>
+        <div class="sub"><b>Не закрывать:</b>
+          <span class="chip small"><span class="lg ms"><i style="background:#f25022"></i><i style="background:#7fba00"></i><i style="background:#00a4ef"></i><i style="background:#ffb900"></i></span>Microsoft</span>
+          <span class="chip small"><span class="lg goo">G</span>Google</span>
+          <span class="chip small"><span class="lg brv"></span>Brave</span>
+          <span class="chip small"><span class="lg sky">S</span>Skype</span>
+          <span class="chip small"><span class="lg dd"></span>Datadog</span>
+        </div>
+        <div class="live">сейчас закрыто: <i>mc.yandex.ru</i>, <i>doubleclick.net</i> и <a href="#">ещё 6</a></div></div>
+      <div class="way vpn"><h3>Через VPN <small>всё остальное</small></h3>
+        <div class="live">сейчас: <i>youtube.com</i>, <i>telegram.org</i>, <i>github.com</i> и <a href="#">ещё 14</a></div></div>
+    </div>
+    <div class="card">
+      <div class="check"><span style="flex:none;font-size:13.5px">Куда пойдёт сайт?</span><span class="field">youtube.com</span><span class="btn">Проверить</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+
+<div class="notes">
+  <div><b>Что непонятно сейчас</b><ul>
+    <li>Внизу три строки адресов — откуда они и зачем, не сказано. Адреса повторяются.</li>
+    <li>54 и 12 — непонятно, чего 54.</li>
+    <li>«поверх «VLESS + Vision + REALITY»» — имя сервера вместо простого «работает ли».</li>
+    <li>«Через VPN» стоит и наверху, и внизу.</li>
+  </ul></div>
+  <div><b>Что делает А</b><ul>
+    <li>Пропущенные сайты — в «Блок», строка «Не закрывать»: по одному, по названию сервиса, со значком. Крестик возвращает сайт под блок. Полный адрес — в подсказке.</li>
+    <li>У «Блока» подпись «закрыто с подключения: 66», и у каждой цифры подсказка.</li>
+    <li>WARP: «поверх VPN, работает» с зелёной точкой, «не отвечает» — с жёлтой.</li>
+    <li>Внизу ветка «Через VPN — всё остальное», без лишнего.</li>
+    <li>«Не открывается сайт?» → поле «Куда пойдёт сайт?» прямо на странице.</li>
+  </ul></div>
+  <div><b>Что добавляет Б</b><ul>
+    <li>Под каждой веткой — три последних сайта, которые по ней пошли, и «ещё N».</li>
+    <li>Видно, что правило реально работает: добавил сайт в «Напрямую» — он появляется под веткой.</li>
+    <li>«ещё N» открывает журнал с фильтром по этой ветке.</li>
+    <li>Работы больше, чем в А: схема берёт данные из журнала.</li>
+  </ul></div>
+</div>
+</main>
 <script>
-const $=(s,r=document)=>r.querySelector(s);
-const ic=p=>`<svg class="ico" viewBox="0 0 16 16">${p}</svg>`;
-const LANE={
-  proxy :{name:'Через VPN', c:'var(--vpn)',   icon:ic('<path d="M8 1.8 13 3.6v4c0 3-2.2 5.2-5 6.6-2.8-1.4-5-3.6-5-6.6v-4z"/>'),hint:'Идёт по туннелю до твоего сервера.'},
-  direct:{name:'Напрямую',  c:'var(--direct)',icon:ic('<path d="M2.5 8h10M9 4.5 12.5 8 9 11.5"/>'),hint:'Мимо VPN: сайт видит твой настоящий адрес.'},
-  warp  :{name:'Через WARP',c:'var(--warp)',  icon:ic('<path d="M4.6 12.2h6.4a2.7 2.7 0 0 0 .3-5.4A3.7 3.7 0 0 0 4.2 7.3 2.5 2.5 0 0 0 4.6 12.2z"/>'),hint:'Бесплатный выход через Cloudflare, поверх твоего VPN.'},
-  block :{name:'Блок',      c:'var(--block)', icon:ic('<circle cx="8" cy="8" r="5.6"/><path d="M4 4l8 8"/>'),hint:'Что сюда попадёт, не откроется.'},
-};
-const PLUS=ic('<path d="M8 3.5v9M3.5 8h9"/>');
-let finalDirect=false, adding=null, addKind='Сайт', menuFor=null, uid=100, flash=null;
-let chips=[
- {id:1,t:'Российские сайты',b:'direct',ru:1},
- {id:2,t:'Steam',b:'direct',l:'S'},
- {id:3,t:'qbittorrent.exe',b:'direct',l:'q'},
- {id:4,t:'ChatGPT',b:'warp',l:'G'},
- {id:5,t:'Netflix',b:'warp',l:'N'},
- {id:6,t:'Telegram',b:'proxy',l:'T'},
- {id:7,t:'YouTube',b:'proxy',l:'Y'},
-];
-const rest=()=>finalDirect?'direct':'proxy';
-const visible=b=>chips.filter(c=>c.b===b);
-
-function renderRest(){
-  const r=rest(), hid=visible(r).length;
-  $('#rest').innerHTML=`<span>всё остальное</span><span class="arrow">→</span><span class="tag" style="--c:${LANE[r].c}"><i></i>${LANE[r].name.replace('Через ','')}</span>`+
-    (hid?`<span class="hid" title="Это и так идёт сюда вместе со всем остальным — не удалено, вернётся при смене режима.">скрыто ${hid}</span>`:'');
-  $('#exh').textContent=finalDirect?'Выбранное':'Идёт иначе';
-  $('#seg').classList.toggle('r',finalDirect);
-  document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',(+b.dataset.m===1)===finalDirect));
-}
-function renderLanes(){
-  const order=['proxy','direct','warp','block'].filter(b=>b!==rest());
-  $('#lanes').innerHTML=order.map(b=>{
-    const L=LANE[b], list=visible(b), isAdd=adding===b, quiet=!list.length&&!isAdd;
-    const head=`<div class="lh"><span class="lg">${L.icon}</span><h3>${L.name}</h3><span class="q" title="${L.hint}">?</span>`+
-      (quiet?`<span class="emp">пусто</span>`:`<span class="n">${String(list.length).padStart(2,'0')}</span>`)+
-      `<button class="add${isAdd?' on':''}" data-add="${b}" title="Добавить в «${L.name}»: сервис, программу или сайт">${PLUS}</button></div>`;
-    if(quiet) return `<section class="lane quiet" data-lane="${b}" style="--c:${L.c}">${head}</section>`;
-    const st=b==='warp'?`<div class="ls"><i class="dot"></i>поверх VPN · через «AnyTLS + REALITY»</div>`:'';
-    const cs=list.map(c=>`<button class="chip${menuFor===c.id?' sel':''}${flash===c.id?' in':''}" data-chip="${c.id}" title="Перенести в другой выход или убрать"><span class="lo${c.ru?' ru':''}">${c.ru?'':(c.l||c.t[0].toUpperCase())}</span>${c.t}</button>`).join('');
-    const form=isAdd?`<form class="addrow" data-form="${b}"><div class="kinds">${['Сайт','Программа','Сервис'].map(k=>`<button type="button" data-kind="${k}" class="${k===addKind?'on':''}">${k}</button>`).join('')}</div>
-      <div class="field"><input placeholder="${addKind==='Сайт'?'example.com':addKind==='Программа'?'app.exe':'название сервиса'}" autocomplete="off" spellcheck="false"><button class="btn acc">Добавить</button></div></form>`:'';
-    return `<section class="lane${flash&&list.some(c=>c.id===flash)?' pulse':''}" data-lane="${b}" style="--c:${L.c}">${head}${st}<div class="chips">${cs}</div>${form}</section>`;
-  }).join('');
-  flash=null;
-  const inp=$('.addrow input'); if(inp) inp.focus();
-}
-function render(){renderRest();renderLanes();updateMeter()}
-
-/* поток: в макете цифры придуманы; в продукте — счётчики по выходам из ядра */
-const base={proxy:[70,18,8,4],direct:[16,78,5,1]};
-const order=['proxy','direct','warp','block'];
-let cur=[0,0,0,0];
-function updateMeter(jit=true){
-  const b=base[finalDirect?'direct':'proxy'];
-  cur=b.map(v=>Math.max(0,v+(jit?(Math.random()-.5)*4:0)));
-  const sum=cur.reduce((a,b)=>a+b,0);
-  const p=cur.map(v=>v/sum*100);
-  if(!$('#bar').children.length) $('#bar').innerHTML=order.map((k,i)=>`<span style="--c:${LANE[k].c}"></span>`).join('');
-  [...$('#bar').children].forEach((s,i)=>s.style.flexGrow=Math.max(p[i],.0001));
-  $('#leg').innerHTML=order.map((k,i)=>`<span style="--c:${LANE[k].c}"><i class="dot"></i>${Math.round(p[i])}<em>%</em></span>`).join('');
-}
-setInterval(()=>{updateMeter();$('#speed').textContent='↓ '+(3+Math.random()*3).toFixed(1).replace('.',',')+' МБ/с'},2200);
-
-/* события */
-document.addEventListener('click',e=>{
-  const t=e.target;
-  const m=t.closest('#seg button'); if(m){finalDirect=m.dataset.m==='1';adding=null;closeMenu();render();return}
-  const a=t.closest('[data-add]'); if(a){adding=adding===a.dataset.add?null:a.dataset.add;closeMenu();renderLanes();return}
-  const k=t.closest('[data-kind]'); if(k){addKind=k.dataset.kind;renderLanes();return}
-  const c=t.closest('[data-chip]'); if(c){e.stopPropagation();openMenu(+c.dataset.chip,c);return}
-  const mv=t.closest('[data-move]'); if(mv){move(menuFor,mv.dataset.move);return}
-  if(t.closest('[data-del]')){chips=chips.filter(x=>x.id!==menuFor);closeMenu();renderLanes();updateMeter(false);return}
-  if(t.closest('#ph')&&!t.closest('.q')){$('#probe').classList.toggle('open');return}
-  const eg=t.closest('[data-e]'); if(eg){$('#pi').value=eg.dataset.e;probe(eg.dataset.e);return}
-  if(!t.closest('.menu')) closeMenu();
-});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMenu();if(adding){adding=null;renderLanes()}}});
-document.addEventListener('submit',e=>{
-  e.preventDefault();
-  const f=e.target;
-  if(f.id==='pf'){probe($('#pi').value.trim());return}
-  const v=f.querySelector('input').value.trim(); if(!v) return;
-  const id=++uid; chips.push({id,t:v,b:f.dataset.form}); adding=null; flash=id; renderLanes();
-});
-function closeMenu(){menuFor=null;const m=$('.menu');if(m)m.remove();document.querySelectorAll('.chip.sel').forEach(x=>x.classList.remove('sel'))}
-function openMenu(id,el){
-  const was=menuFor===id; closeMenu(); if(was) return;
-  menuFor=id; el.classList.add('sel');
-  const chip=chips.find(x=>x.id===id), w=$('#win').getBoundingClientRect(), r=el.getBoundingClientRect();
-  const m=document.createElement('div'); m.className='menu';
-  m.innerHTML=`<div class="cap3">Куда идёт «${chip.t}»</div>`+
-    order.filter(b=>true).map((b,i)=>`<button class="${chip.b===b?'cur':''}" ${chip.b===b?'':`data-move="${b}"`} style="--k:${LANE[b].c}"><i class="dot"></i>${LANE[b].name}<kbd>${chip.b===b?'сейчас':i+1}</kbd></button>`).join('')+
-    `<hr><button class="del" data-del>Убрать с доски<kbd>Del</kbd></button>`;
-  $('#win').appendChild(m);
-  const left=Math.min(Math.max(8,r.left-w.left),w.width-240), top=r.bottom-w.top+6;
-  m.style.left=left+'px'; m.style.top=top+'px';
-}
-function move(id,to){
-  const c=chips.find(x=>x.id===id); c.b=to; flash=id; closeMenu(); renderLanes(); updateMeter(false);
-}
-
-/* проверка маршрута: в продукте — реальный запрос по тому же пути */
-const RULES=[[/chatgpt|openai/,4],[/netflix/,5],[/telegram|t\.me/,6],[/youtube|youtu\.be/,7],[/steam/,2],[/\.ru$|yandex|vk\.com/,1]];
-function probe(host){
-  if(!host) return;
-  host=host.replace(/^https?:\/\//,'').replace(/\/.*$/,'').toLowerCase();
-  const tr=$('#trace'); tr.classList.add('show');
-  tr.innerHTML=`<div class="host">${host}</div><div class="row"><b>правило</b><span>…</span></div>`;
-  setTimeout(()=>{
-    let chip=null;
-    for(const [re,id] of RULES) if(re.test(host)){chip=chips.find(x=>x.id===id);break}
-    if(!chip) chip=chips.find(x=>host.includes(x.t.toLowerCase().replace('.exe','')));
-    const b=chip?chip.b:rest();
-    const why=chip?(chip.ru?'Российские сайты':(chip.t.endsWith('.exe')?'программа ':'сервис ')+chip.t):'правил нет — «всё остальное»';
-    const L=LANE[b], blocked=b==='block';
-    const ms={proxy:[170,260],direct:[18,60],warp:[280,420]}[b]||[0,0];
-    const t=Math.round(ms[0]+Math.random()*(ms[1]-ms[0]));
-    tr.innerHTML=`<div class="host">${host}</div>
-      <div class="row"><b>правило</b><span>${why}</span></div>
-      <div class="row"><b>выход</b><span style="--c:${L.c}"><i class="dot"></i>${L.name}</span></div>
-      <div class="row"><b>ответ</b><span class="${blocked?'bad':'ok'}">${blocked?'заблокировано правилом «Блок»':'открывается · '+t+' мс'}</span></div>`;
-  },520);
-}
-render();
+// Три окна по 460 - во всю ширину превью: уже 1530 - мельче, как есть.
+const fit = () => { const k = Math.min(1, (innerWidth - 40) / 1530); for (const el of document.querySelectorAll('.row, .notes')) el.style.zoom = k; };
+addEventListener('resize', fit); fit();
 </script>
 </body>
 </html>

@@ -701,6 +701,45 @@ void TestOwn() {
 // A subscription's own routing and DNS (packetlab's: qwen.ai directly, its
 // "ads" list rejected, DNS over TLS through the proxy) never get in: from a
 // configuration only its servers - routing and DNS are the client's.
+// Sites let through the block lists (RouteRule::pass): kept in tray.json, found among the old rules
+// by their shape, shown under the block by their service's name.
+void TestPassSites() {
+  RoutingSettings s;
+  RouteRule pass = *ParseRule("login.live.com", RouteRule::Action::Proxy);
+  pass.pass = true;
+  s.rules.push_back(pass);
+  s.rules.push_back(*ParseRule("example.com", RouteRule::Action::Proxy));
+  const RoutingSettings back = RoutingFromJson(json::parse(RoutingToJson(s).dump()));
+  CHECK(back.rules.size() == 2 && back.rules[0].pass && !back.rules[1].pass);
+
+  // A tray.json from before the mark: the hosts nobody named, in the bucket the rest goes to, are passes;
+  // a domain, a named rule, another bucket are not.
+  const RoutingSettings old = RoutingFromJson(json::parse(R"({"rules":[
+      {"action":"proxy","domains":["login.live.com","usage-ping.brave.com"]},
+      {"action":"proxy","domains":["example.com"]},
+      {"action":"proxy","name":"Mine","domains":["a.b.example.com"]},
+      {"action":"direct","domains":["a.b.example.org"]}]})"));
+  CHECK(old.rules.size() == 4 && old.rules[0].pass && !old.rules[1].pass && !old.rules[2].pass && !old.rules[3].pass);
+  // With the mark nothing is guessed any more.
+  const RoutingSettings marked = RoutingFromJson(
+      json::parse(R"({"passMarked":true,"rules":[{"action":"proxy","domains":["a.b.example.com"]}]})"));
+  CHECK(marked.rules.size() == 1 && !marked.rules[0].pass);
+  // And what was saved is marked.
+  CHECK(RoutingToJson(s).value("passMarked", false));
+
+  // A host's service: its name, its logo's id.
+  const ServiceInfo* live = ServiceOfSite("login.live.com");
+  CHECK(live != nullptr && live->id == "microsoft");
+  CHECK(SiteName("login.live.com") == "Microsoft");
+  CHECK(SiteName("fonts.gstatic.com") == "Google");
+  // None known: the registered name, capitalized.
+  CHECK(SiteName("usage-ping.brave.com") == "Brave");
+  CHECK(SiteName("http-intake.logs.us5.datadoghq.com") == "Datadoghq");
+  CHECK(SiteName("a.b.example.co.uk") == "Example");
+  CHECK(ServiceOfSite("usage-ping.brave.com") == nullptr);
+  // An address stays as it is.
+  CHECK(SiteName("1.2.3.4") == "1.2.3.4");
+}
 void TestSubscriptionRulesDropped() {
   RoutingSettings s;
   s.rules.push_back(*ParseRule("my.example", RouteRule::Action::Direct));
@@ -1639,6 +1678,7 @@ int main(int argc, char** argv) {  // NOLINT(bugprone-exception-escape) - see th
     TestOwn();
     TestSubscriptionRulesDropped();
     TestTypos();
+    TestPassSites();
     TestServices();
     TestServiceCountry();
     TestAppsInRouting();

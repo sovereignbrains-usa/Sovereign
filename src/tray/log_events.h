@@ -23,6 +23,10 @@ enum class LogTone : std::uint8_t { Neutral, Ok, Warn, Bad };
 // What it is about, as the log page's filter sorts them.
 enum class LogTopic : std::uint8_t { Other, Server, Site };
 
+// The way of the routing a site went (the routing page's branches): around
+// the VPN, through a server, cut (an ads list's, a block's), through WARP.
+enum class LogRoute : std::uint8_t { None, Direct, Proxy, Block, Warp };
+
 // A line of the core's log as the log page shows it (logs-concept.html,
 // variant A, 12.11.2026): what happened, in Russian, and with what - a
 // server's way, a site, a program. A line it can't read is shown as it is.
@@ -34,6 +38,7 @@ struct LogEvent {
   std::wstring detail;  // under it: "5.83.147.210 · Германия · к youtube.com"; may be empty
   std::wstring key;     // the same key, the same thing again: one row with a count
   std::wstring way;     // the way's tag it is about; empty: none
+  LogRoute route = LogRoute::None;  // a site opened or cut: which way it went (title: the site)
   bool hidden = false;  // nothing of its own to say (a connection's other lines): only in the lines as they are
 };
 

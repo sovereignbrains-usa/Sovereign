@@ -356,6 +356,7 @@ LogEvent EventOf(std::wstring_view line, const std::vector<LogWay>& ways) {
     event.title = name;
     event.detail = L"заблокирован: реклама или слежка";
     event.key = Concat({L"blocked|", name});
+    event.route = LogRoute::Block;
     return event;
   }
   if (Has(message, L"missing default interface")) {
@@ -428,12 +429,17 @@ LogEvent EventOf(std::wstring_view line, const std::vector<LogWay>& ways) {
         event.topic = LogTopic::Site;
         event.title = host;
         event.way = std::wstring(who.tag);
+        // WARP's endpoint: "warp", or "warp 2" by a config's own "warp" (routing.cpp).
+        const bool warp = who.tag == L"warp" || (who.type == L"wireguard" && Starts(who.tag, L"warp"));
         if (name.direct) {
           event.detail = L"напрямую, мимо VPN";
+          event.route = LogRoute::Direct;
         } else if (!name.proxy) {
           event.detail = L"заблокирован";
+          event.route = LogRoute::Block;
         } else {
           event.detail = Concat({L"через ", name.title});
+          event.route = warp ? LogRoute::Warp : LogRoute::Proxy;
         }
         event.key = Concat({L"site|", host, L"|", who.tag});
         return event;

@@ -69,6 +69,15 @@ void TestADirectSite() {
       Of(L"19:22:40  INFO   [8 0ms] outbound/anytls[AnyTLS-ECH]: outbound connection to youtube.com:443");
   CHECK(proxied.detail == L"через AnyTLS + ECH");
   CHECK(proxied.key != event.key);
+  // Which branch of the routing page's each went by: its "сейчас:" line.
+  CHECK(event.route == LogRoute::Direct);
+  CHECK(proxied.route == LogRoute::Proxy);
+  const LogEvent warp =
+      Of(L"19:22:40  INFO   [9 0ms] endpoint/wireguard[warp]: outbound connection to gemini.google.com:443");
+  CHECK(warp.title == L"gemini.google.com");
+  CHECK(warp.route == LogRoute::Warp);
+  CHECK(Of(L"19:20:01  INFO   ads: blocked mc.yandex.ru").route == LogRoute::Block);
+  CHECK(Of(L"19:20:01  INFO   sing-box started (0.31s)").route == LogRoute::None);
 }
 
 void TestWhatSaysNothingOfItsOwn() {

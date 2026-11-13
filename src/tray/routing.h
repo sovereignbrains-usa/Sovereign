@@ -114,7 +114,7 @@ const ServiceInfo* ServiceOfProgram(std::string_view exe);
 const ServiceInfo* ServiceOfSite(std::string_view domain);
 // What people call a site: its service's name, else its registered name,
 // capitalised ("cdn.brave.com" - "Brave", "a.b.example.co.uk" - "Example").
-std::string SiteName(std::string_view domain);
+std::string PassName(std::string_view domain);
 
 struct RoutingSettings {
   // Auto: Cloudflare (through the VPN which one hardly matters: the provider

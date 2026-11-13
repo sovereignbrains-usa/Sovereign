@@ -1290,7 +1290,7 @@ const ServiceInfo* ServiceOfSite(std::string_view domain) {
   return it == kServices.end() ? nullptr : &*it;
 }
 
-std::string SiteName(std::string_view domain) {
+std::string PassName(std::string_view domain) {
   if (const ServiceInfo* service = ServiceOfSite(domain)) {
     return std::string(service->name);
   }

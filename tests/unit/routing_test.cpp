@@ -730,15 +730,15 @@ void TestPassSites() {
   // A host's service: its name, its logo's id.
   const ServiceInfo* live = ServiceOfSite("login.live.com");
   CHECK(live != nullptr && live->id == "microsoft");
-  CHECK(SiteName("login.live.com") == "Microsoft");
-  CHECK(SiteName("fonts.gstatic.com") == "Google");
+  CHECK(PassName("login.live.com") == "Microsoft");
+  CHECK(PassName("fonts.gstatic.com") == "Google");
   // None known: the registered name, capitalized.
-  CHECK(SiteName("usage-ping.brave.com") == "Brave");
-  CHECK(SiteName("http-intake.logs.us5.datadoghq.com") == "Datadoghq");
-  CHECK(SiteName("a.b.example.co.uk") == "Example");
+  CHECK(PassName("usage-ping.brave.com") == "Brave");
+  CHECK(PassName("http-intake.logs.us5.datadoghq.com") == "Datadoghq");
+  CHECK(PassName("a.b.example.co.uk") == "Example");
   CHECK(ServiceOfSite("usage-ping.brave.com") == nullptr);
   // An address stays as it is.
-  CHECK(SiteName("1.2.3.4") == "1.2.3.4");
+  CHECK(PassName("1.2.3.4") == "1.2.3.4");
 }
 void TestSubscriptionRulesDropped() {
   RoutingSettings s;

@@ -1393,11 +1393,12 @@ class Worker {
         // Closed again for good: out of the rules that let them through, a rule left empty goes.
         std::vector<std::string> names;
         for (std::string_view rest = change.text; !rest.empty();) {
-          const std::size_t comma = std::min(rest.find(','), rest.size());
+          const std::size_t found = rest.find(',');
+          const std::size_t comma = found == std::string_view::npos ? rest.size() : found;
           if (comma > 0) {
             names.emplace_back(rest.substr(0, comma));
           }
-          rest.remove_prefix(std::min(comma + 1, rest.size()));
+          rest.remove_prefix(comma < rest.size() ? comma + 1 : comma);
         }
         for (RouteRule& rule : r.rules) {
           if (rule.pass) {
@@ -4782,7 +4783,7 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
       continue;
     }
     for (const std::string& domain : rule.domains) {
-      const std::wstring name = Widen(sovereign::tray::SiteName(domain));
+      const std::wstring name = Widen(sovereign::tray::PassName(domain));
       auto chip = std::find_if(board.begin(), board.end(),
                                [&](const UiChip& c) { return c.kind == UiChip::Kind::Pass && c.text == name; });
       if (chip == board.end()) {

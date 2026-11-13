@@ -4009,7 +4009,7 @@ class Painter {
         if (runLeft - 8 - wellLeft >= 120) {
           Item well = CommandItem(Kind::Find, {wellLeft, top + 5, runLeft - 8, top + kCheckRow - 5}, L"", nullptr,
                                   command, index);
-          well.text2 = L"например, youtube.com";
+          well.text2 = L"youtube.com";
           well.enabled = !c.checksRunning;
           l.items.push_back(std::move(well));
         }
@@ -6821,15 +6821,32 @@ struct MainWindow::Impl {
       if (host.empty() || numbers || host.find(L':') != std::wstring::npos) {
         continue;
       }
+      // The site it's registered under says more at a glance than the host: "datadoghq.com", not
+      // "http-intake.logs.us5.datadoghq.com" (a zone of two parts, co.uk or com.ru, counts as one).
+      std::wstring name = host;
+      while (!name.empty() && name.back() == L'.') {
+        name.pop_back();
+      }
+      if (const std::size_t last = name.rfind(L'.'); last != std::wstring::npos && last > 0) {
+        static constexpr std::array<std::wstring_view, 9> kZones = {L"co", L"com", L"net", L"org", L"gov", L"edu", L"ac", L"msk", L"spb"};
+        std::size_t start = name.rfind(L'.', last - 1);
+        if (start != std::wstring::npos && start > 0 && name.size() - last == 3 &&
+            std::find(kZones.begin(), kZones.end(), std::wstring_view(name).substr(start + 1, last - start - 1)) != kZones.end()) {
+          start = name.rfind(L'.', start - 1);
+        }
+        if (start != std::wstring::npos) {
+          name.erase(0, start + 1);
+        }
+      }
       const std::size_t way = event.route == LogRoute::Direct  ? 0
                               : event.route == LogRoute::Proxy ? 1
                               : event.route == LogRoute::Block ? 2
                                                                : 3;
-      if (!seen[way].insert(host).second) {
+      if (!seen[way].insert(name).second) {
         continue;
       }
       if (content.routeNow[way].size() < kNamed) {
-        content.routeNow[way].push_back(host.size() > kName ? host.substr(0, kName - 1) + L"…" : host);
+        content.routeNow[way].push_back(name.size() > kName ? name.substr(0, kName - 1) + L"…" : name);
       } else {
         ++content.routeNowMore[way];
       }

@@ -4,6 +4,11 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.15 — 13.11.2026
+
+- **The lines "сейчас: …" on the "Маршруты" page name the site, not its host**: "datadoghq.com" instead of a cut "http-intake.logs.us5.data…", "gstatic.com" instead of "www.gstatic.com"; a site's hosts count once.
+- **The field "Куда пойдёт сайт?" no longer cuts its hint** in a narrow window.
+
 ## 0.6.14 — 13.11.2026
 
 **The "Маршруты" page says what its numbers and lines mean, and shows what goes where right now.**

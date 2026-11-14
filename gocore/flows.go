@@ -22,8 +22,8 @@ import (
 // How far back and how many sites box_flows reports for the "Маршруты"
 // page's "сейчас:" lines.
 const (
-	recentWindow = 10 * time.Minute
-	recentLimit  = 300
+	sitesWindow = 10 * time.Minute
+	sitesLimit  = 300
 )
 
 // RecentSites lists the names connections went to since `since`, newest
@@ -126,7 +126,7 @@ func box_flows() (reply *C.char) {
 	if boxTraffic != nil {
 		open, closed := boxTraffic.Connections(), boxTraffic.ClosedConnections()
 		flows = FlowTotals(open, closed)
-		recent = RecentSites(time.Now().Add(-recentWindow), recentLimit, open, closed)
+		recent = RecentSites(time.Now().Add(-sitesWindow), sitesLimit, open, closed)
 	}
 	out, err := json.Marshal(map[string]any{"flows": flows, "recent": recent})
 	if err != nil {

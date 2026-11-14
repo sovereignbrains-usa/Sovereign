@@ -296,6 +296,11 @@ struct SmartSeen {
   std::string why;
   std::int64_t at = 0;
 };
+// «В обход блокировок»: the services sent through the VPN by themselves, the
+// ones a race can't see shut (Telegram's addresses, TikTok and the AIs shut to
+// Russia by the service, YouTube slowed) and the user gave no way of their
+// own - their ids, in the board's order. Empty in the other mode.
+std::vector<std::string_view> SmartViaVpnServices(const RoutingSettings& settings);
 // The box_smart answer's list, newest first as sent; an entry of the wrong
 // shape is skipped.
 std::vector<SmartSeen> ParseSmartAnswer(std::string_view response);

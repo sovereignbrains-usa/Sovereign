@@ -38,7 +38,7 @@ class GoCore final : public ICore {
   [[nodiscard]] std::string Start(const std::string& configJson) override;
   [[nodiscard]] std::string Stop() override;
   CoreStats Stats() override;
-  std::vector<FlowTotal> Flows() override;
+  FlowReport Flows() override;
   std::optional<RouteSeen> RouteOf(const std::vector<std::string>& targets) override;
   std::vector<SmartVerdict> SmartLearned() override;
   std::map<std::string, std::uint64_t> BlockedCounts() override;

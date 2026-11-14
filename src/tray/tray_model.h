@@ -37,6 +37,9 @@ struct Stats {
   // Bytes up and down together by the outbound a rule picked ("flows": the
   // window's live streams); totals of the box's generation.
   std::map<std::string, std::int64_t> flows;
+  // The names the box's connections went to lately, newest first, with the
+  // outbound each left by ("recent": the "Маршруты" page's "сейчас:").
+  std::vector<std::pair<std::string, std::string>> recent;
 };
 
 // Which of the window's streams an outbound a rule picked is: the config's

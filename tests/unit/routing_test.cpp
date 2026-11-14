@@ -655,6 +655,23 @@ void TestOwn() {
   CHECK(smart != nullptr && (*smart)["type"] == "sov-smart" && (*smart)["outbounds"].size() == 2 &&
         (*smart)["outbounds"][0] == "direct" && (*smart)["outbounds"][1] == "proxy");
   CHECK(RoutingFromJson(RoutingToJson(s)).smart);
+  // "Напрямую" alone is gone (0.6.19): a setting saved with it reads back as
+  // "в обход блокировок"; "через VPN" stays as it was.
+  {
+    RoutingSettings old = s;
+    old.smart = false;
+    CHECK(RoutingFromJson(RoutingToJson(old)).smart);
+    old.finalDirect = false;
+    CHECK(!RoutingFromJson(RoutingToJson(old)).smart);
+    CHECK(SmartViaVpnServices(old).empty());
+    // The services the client sends through the VPN by itself (the board's
+    // quiet chip): not one the user put in a list.
+    RoutingSettings chosen = s;
+    chosen.services.push_back(ServiceRoute{.id = "youtube", .way = ServiceRoute::Way::Direct});
+    const auto vpn = SmartViaVpnServices(chosen);
+    CHECK(std::find(vpn.begin(), vpn.end(), "telegram") != vpn.end());
+    CHECK(std::find(vpn.begin(), vpn.end(), "youtube") == vpn.end());
+  }
   // What a race can't see goes through the VPN by itself: Telegram's
   // addresses, TikTok shut to Russia by itself - unless the user chose.
   {

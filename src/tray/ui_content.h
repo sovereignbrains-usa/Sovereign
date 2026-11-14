@@ -211,6 +211,9 @@ struct UiRouting {
   // "linkedin.com — через VPN (сброс)". Empty: nothing yet.
   std::vector<std::wstring> learned;
   std::size_t learnedMore = 0;  // more than these lines
+  // In that mode the services sent through the VPN by themselves (routing.h
+  // SmartViaVpnServices): their logo's id and name, in order. Empty: none.
+  std::vector<std::pair<std::string, std::wstring>> smartVpn;
   bool ipv4Only = true;
   std::wstring remoteDns;  // "Cloudflare"
   std::wstring localDns;   // "Cloudflare (DoH)"
@@ -388,8 +391,11 @@ struct UiContent {
   bool settingsMore = false;            // the configurations' relay fold open (the window's own)
   int profileTab = 0;                   // the configurations' tab: 0 subscriptions, 1 own servers (the window's own)
   bool routeMenu = false;               // the routing mode's menu dropped (the window's own)
-  // What went each way of the routing in the last minutes, read off the log (the window's own):
-  // by bucket (kBucket*), the newest sites first, and how many more there were.
+  // The names the box's connections went to in the last minutes, newest first, each with its
+  // bucket (kBucketDirect, kBucketProxy, kBucketWarp): off the box's tracker, one per name and way.
+  std::vector<std::pair<std::wstring, int>> routeSeen;
+  // What went each way of the routing in the last minutes (the window's own, from routeSeen and,
+  // for the blocked, the log): by bucket (kBucket*), the newest sites first, and how many more.
   std::array<std::vector<std::wstring>, 4> routeNow;
   std::array<std::size_t, 4> routeNowMore{};
   // How open each fold is while it moves (0 folded .. 1 open; the window's own, law.md --d-fold); -1: at rest,
@@ -446,7 +452,7 @@ enum class UiCommand : std::uint8_t {
   // The routing's:
   ChooseQuic,         // anchor: where to open the menu
   SetHysteriaMbps,      // index: Hysteria 2's speed, Mbit/s (kHysteriaSpeeds); 0: auto (BBR)
-  SetRouteMode,        // index: 0 everything through the VPN but what's sent elsewhere, 1 only what's sent through it
+  SetRouteMode,        // index: 0 everything through the VPN but what's sent elsewhere, 2 «в обход блокировок» (1, only what's sent through it, is gone)
   ToggleRoutingMore,   // the fine settings and DNS, unfolded or not
   ToggleIpv4Only,
   ToggleBlockAds,     // the ads lists, on or off (the settings')

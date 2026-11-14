@@ -196,9 +196,13 @@ func smartWay(tag string, metadata *adapter.InboundContext) (adapter.Outbound, b
 }
 
 // verdictOf: the way remembered for the connection's address (a cut: every
-// name there is cut), else for its name.
+// name there is cut), else for its hoster (a cut on one Cloudflare address:
+// every one is, smart_hosters.go), else for its name.
 func verdictOf(metadata *adapter.InboundContext, now time.Time) (string, bool) {
 	if tag, ok := smartMemo.verdict(smartIPKey(metadata), now); ok {
+		return tag, true
+	}
+	if tag, ok := smartMemo.verdict(smartHosterKey(metadata), now); ok {
 		return tag, true
 	}
 	return smartMemo.verdict(smartKey(metadata), now)
@@ -249,14 +253,22 @@ func (s *smartOutbound) onSlow(index int, key string, metadata *adapter.InboundC
 	return s.stopped(index, key, metadata, "slow")
 }
 
+// stopped: what a cut or a slowdown on the index-th way does - the name and
+// the address remembered for the next way, and, when it was the direct way
+// and the address is a hoster's the country cuts whole, the hoster too.
 func (s *smartOutbound) stopped(index int, key string, metadata *adapter.InboundContext, why string) func() {
 	from, next := s.ways[index].Tag(), s.ways[index+1].Tag()
 	ip := smartIPKey(metadata)
+	hoster := ""
+	if s.ways[index].Type() == constant.TypeDirect {
+		hoster = smartHosterKey(metadata)
+	}
 	return func() {
 		now := time.Now()
 		smartMemo.remember(key, next, why, now)
 		smartMemo.remember(ip, next, why, now)
-		s.logger.Info("smart: ", key, " ", ip, " ", why, " after the handshake on ", from, ", now via ", next)
+		smartMemo.remember(hoster, next, why, now)
+		s.logger.Info("smart: ", key, " ", ip, " ", hoster, " ", why, " after the handshake on ", from, ", now via ", next)
 	}
 }
 
@@ -807,7 +819,7 @@ func (m *smartMemory) learned(now time.Time) map[string]smartVerdict {
 
 // smartLine: one thing the client decided for itself.
 type smartLine struct {
-	Name string `json:"name"` // a site, or "ip:1.2.3.4" (a whole address cut)
+	Name string `json:"name"` // a site, "ip:1.2.3.4" (a whole address cut) or "hoster:cloudflare" (all of it)
 	Way  string `json:"way"`  // the outbound tag it goes by
 	Why  string `json:"why"`  // reset, silent, cut, ...
 	At   int64  `json:"at"`   // unix seconds

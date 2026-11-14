@@ -320,12 +320,20 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     const std::scoped_lock lock(stateMutex_);
     Json response = StatsResponse(core_->Stats());
     // Where it went, by the outbound a rule picked: the window's live streams.
+    // And the names it went to lately, by the same outbounds: the
+    // "Маршруты" page's "сейчас:" lines.
     if (response.value("running", false)) {
+      const FlowReport report = core_->Flows();
       Json flows = Json::object();
-      for (const FlowTotal& flow : core_->Flows()) {
+      for (const FlowTotal& flow : report.totals) {
         flows[flow.tag] = Json::array({flow.upBytes, flow.downBytes});
       }
       response["flows"] = std::move(flows);
+      Json recent = Json::array();
+      for (const RecentSite& site : report.recent) {
+        recent.push_back(Json::array({site.host, site.tag}));
+      }
+      response["recent"] = std::move(recent);
     }
     // Which config the box runs, without the config itself (it holds keys):
     // the tray compares it with its own config.json and restarts the box on a

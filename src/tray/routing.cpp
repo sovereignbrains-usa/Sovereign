@@ -744,7 +744,9 @@ RoutingSettings RoutingFromJson(const nlohmann::json& json) {
     s.hysteriaMbps = static_cast<int>(std::clamp<std::int64_t>(it->get<std::int64_t>(), 0, 10000));
   }
   flag("finalDirect", s.finalDirect);
-  flag("smart", s.smart);
+  // ("smart" is still written, for an older version to read back.) "Напрямую" alone (only the list «Через VPN» through it) is gone since 0.6.19: it's
+  // «в обход блокировок» - the same lists, directly what opens so, the rest through the VPN.
+  s.smart = s.finalDirect;
   flag("ipv4Only", s.ipv4Only);
   if (const auto it = json.find("services"); it != json.end() && it->is_array()) {
     for (const nlohmann::json& item : *it) {
@@ -1389,28 +1391,37 @@ namespace {
 // AIs, the streamings - a race sees them answer), or slowed down rather than
 // cut (YouTube). Through the VPN unless the user sent them a way of their
 // own (04.11.2026, his: «тг не работает тик ток тоже»).
+// (The board names the first two: Telegram and YouTube are the ones known.)
 constexpr std::array<std::string_view, 17> kSmartViaVpn = {
-    "telegram", "whatsapp", "tiktok",  "youtube", "instagram", "facebook",   "x",       "discord", "linkedin",
-    "chatgpt",  "gemini",   "claude",  "grok",    "perplexity", "netflix",   "spotify", "disney"};
+    "telegram", "youtube", "whatsapp", "tiktok", "instagram", "facebook",   "x",       "discord", "linkedin",
+    "chatgpt",  "gemini",  "claude",   "grok",   "perplexity", "netflix",   "spotify", "disney"};
 
 // The settings the config is built from: the user's, and in the smart mode
 // the services above through the VPN where the user chose nothing.
 RoutingSettings Effective(const RoutingSettings& settings) {
-  if (!settings.finalDirect || !settings.smart) {
-    return settings;
-  }
   RoutingSettings out = settings;
-  for (const std::string_view id : kSmartViaVpn) {
-    const bool chosen = std::any_of(settings.services.begin(), settings.services.end(),
-                                    [&](const ServiceRoute& r) { return r.id == id; });
-    if (!chosen && FindService(id) != nullptr) {
-      out.services.push_back(ServiceRoute{.id = std::string(id), .way = ServiceRoute::Way::Proxy});
-    }
+  for (const std::string_view id : SmartViaVpnServices(settings)) {
+    out.services.push_back(ServiceRoute{.id = std::string(id), .way = ServiceRoute::Way::Proxy});
   }
   return out;
 }
 
 }  // namespace
+
+std::vector<std::string_view> SmartViaVpnServices(const RoutingSettings& settings) {
+  std::vector<std::string_view> out;
+  if (!settings.finalDirect || !settings.smart) {
+    return out;
+  }
+  for (const std::string_view id : kSmartViaVpn) {
+    const bool chosen = std::any_of(settings.services.begin(), settings.services.end(),
+                                    [&](const ServiceRoute& r) { return r.id == id; });
+    if (!chosen && FindService(id) != nullptr) {
+      out.push_back(id);
+    }
+  }
+  return out;
+}
 
 std::vector<SmartSeen> ParseSmartAnswer(std::string_view response) {
   std::vector<SmartSeen> out;

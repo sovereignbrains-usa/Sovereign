@@ -2177,7 +2177,9 @@ class Painter {
     const std::wstring lead = L"Всё идёт";
     const float leadWidth = std::ceil(TextWidth(lead, lead_.get()));
     l.items.push_back(Make(Kind::Lead, {left, y, left + leadWidth + 4, y + kTag}, lead));
-    const std::wstring word = r.smart ? L"в обход блокировок" : r.finalDirect ? L"напрямую" : L"через VPN";
+    // Two modes since 0.6.19: "напрямую" alone (only the list «Через VPN» through it) is
+    // RoutingFromJson's «в обход блокировок» now - what it sent directly still goes so.
+    const std::wstring word = r.smart ? L"в обход блокировок" : L"через VPN";
     const float pillWidth = kPillSide + std::ceil(TextWidth(word, lead_.get())) + 8 + kChevron + kPillSide;
     float pillX = left + leadWidth + 8;
     float pillY = y;
@@ -2318,23 +2320,43 @@ class Painter {
         tag.rail = id;
         l.items.push_back(std::move(tag));
       }
-      // Nothing yet through the VPN while only what's chosen goes there: said in amber.
-      if (r.finalDirect && !r.smart && id == kBucketProxy && placed.empty()) {
-        const std::wstring none = L"Пока через VPN не идёт ничего.";
-        const float h = TextHeight(none, captionWrap_.get(), x1 - left);
-        l.items.push_back(Make(Kind::Caption, {left, top + 4, x1, top + 4 + h}, none));
-        l.items.back().warn = true;
-        top += 4 + h;
-        rowTop = top + 8;
+      // «В обход блокировок»: what the client sends through the VPN by itself, a race can't
+      // see shut (routing.h SmartViaVpnServices) - one quiet chip, the first two named, all
+      // of them in its tip. They went there unseen before 0.6.19 (15.11.2026).
+      const bool byItself = r.smart && id == kBucketProxy && !r.smartVpn.empty();
+      if (byItself) {
+        const std::size_t named = std::min<std::size_t>(2, r.smartVpn.size());
+        std::wstring text;
+        std::wstring all;
+        for (std::size_t i = 0; i < r.smartVpn.size(); ++i) {
+          if (i < named) {
+            text += (i > 0 ? L", " : L"") + r.smartVpn[i].second;
+          }
+          all += (i > 0 ? L", " : L"") + r.smartVpn[i].second;
+        }
+        if (r.smartVpn.size() > named) {
+          text += std::format(L" и ещё {}", r.smartVpn.size() - named);
+        }
+        const float w = std::min(x1 - left, 32 + std::ceil(TextWidth(text, body_.get())) + 12);
+        Item tag = Make(Kind::Tag, place(w, kTag), text);
+        tag.action = ItemAction::Hint;
+        tag.tip = L"Клиент сам пускает их через VPN: " + all +
+                  L".\n\nНапрямую их не проверить: Telegram и WhatsApp закрыты по адресам, YouTube замедлен, а "
+                  L"TikTok, ИИ и стриминги сами не пускают из России.\n\nЧтобы пустить сервис иначе, добавь его "
+                  L"в другой список через «+».";
+        tag.logo = r.smartVpn.front().first;
+        tag.quiet = true;
+        tag.rail = id;
+        l.items.push_back(std::move(tag));
       }
       // The way everything else goes to has no list of its own to fill: only what's an exception
       // still (a service through a country) stands there, with its "+"; else it is the line's end.
       const bool bare = rest && placed.empty();
       // The "+": a square after the things, a word where there are none.
       if (!bare) {
-        const std::wstring label = !placed.empty()        ? std::wstring()
-                                   : id == kBucketBlock   ? std::wstring(L"+ отрезать сайт или программу")
-                                                          : std::wstring(L"+ сайт, сервис или программа");
+        const std::wstring label = !placed.empty() || byItself ? std::wstring()
+                                   : id == kBucketBlock        ? std::wstring(L"+ отрезать сайт или программу")
+                                                               : std::wstring(L"+ сайт, сервис или программа");
         float w = kTag;
         float h = kTag;
         if (!label.empty()) {
@@ -2466,13 +2488,15 @@ class Painter {
       const wchar_t* title;
       const wchar_t* detail;
       int bucket;
+      int command;  // UiCommand::SetRouteMode's index
     };
-    const std::array<Choice, 3> choices = {{
-        {L"Через VPN", L"Всё, кроме списка «Напрямую»", kBucketProxy},
-        {L"Напрямую", L"Только список «Через VPN»", kBucketDirect},
+    // "Напрямую" alone is gone (0.6.19, 15.11.2026: "нужны ли 2 режима когда мы сделали
+    // нормальный 3?"): the smart mode sends directly all it did, and the rest it can't open.
+    const std::array<Choice, 2> choices = {{
+        {L"Через VPN", L"Всё, кроме списка «Напрямую»", kBucketProxy, 0},
         // Sovereign tries each site directly and through the VPN at once, keeps directly what
         // opens (gocore/smart.go, 04.11.2026).
-        {L"В обход блокировок", L"Напрямую, а что не открывается — через VPN", kBucketProxy},
+        {L"В обход блокировок", L"Напрямую, а что не открывается — через VPN", kBucketProxy, 2},
     }};
     // Not the page's width: as wide as its words need, under the sentence's own left edge.
     float need = 0;
@@ -2489,10 +2513,10 @@ class Painter {
       const Choice& choice = choices[i];
       const float h = 6 + 20 + 2 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 6;
       Item item = CommandItem(Kind::MenuItem, {x0 + 4, y, x1 - 4, y + h}, choice.title, nullptr,
-                              UiCommand::SetRouteMode, static_cast<int>(i));
+                              UiCommand::SetRouteMode, choice.command);
       item.detail = choice.detail;
       item.rail = choice.bucket;
-      item.checked = i == 0 ? !r.finalDirect : i == 1 ? r.finalDirect && !r.smart : r.smart;
+      item.checked = choice.command == 0 ? !r.finalDirect : r.smart;
       l.items.push_back(std::move(item));
       y += h;
     }
@@ -6789,9 +6813,14 @@ struct MainWindow::Impl {
     }
   }
 
-  // The routing board's "сейчас: …" (UiContent::routeNow), off the log's lines of the last ten
-  // minutes: the sites that went each way, the newest first, a few by name and the rest counted.
-  // A line has its time as "HH:MM" only: read against the local clock, round midnight too.
+  // The routing board's "сейчас: …" (UiContent::routeNow): the sites that went each way in the
+  // last ten minutes, the newest first, a few by name and the rest counted. Directly, through the
+  // VPN and through WARP - off the box's tracker (UiContent::routeSeen), where only what was routed
+  // is: the log also has the client's own probes and a smart race's losing way, and "Через VPN"
+  // named sites that went directly (15.11.2026). The blocked are not tracked (a refused connection
+  // isn't one): off the log's lines, and by the whole name - "adservice.google.com" says what
+  // was blocked, "google.com" read as if all of Google was. A line has its time as "HH:MM" only:
+  // read against the local clock, round midnight too.
   void NoteRouteNow() {
     constexpr std::size_t kNamed = 3;
     constexpr int kRecent = 10;       // minutes
@@ -6800,35 +6829,33 @@ struct MainWindow::Impl {
       way.clear();
     }
     content.routeNowMore.fill(0);
-    SYSTEMTIME local{};
-    GetLocalTime(&local);
-    const int minutes = local.wHour * 60 + local.wMinute;
     std::array<std::unordered_set<std::wstring>, 4> seen;
-    for (std::size_t i = log.events.size(); i-- > 0;) {
-      const LogEvent& event = log.events[i];
-      if (event.hidden || event.route == LogRoute::None) {
-        continue;
+    // An address of numbers says nothing at a glance; a trailing dot is dropped.
+    const auto named = [](std::wstring host) -> std::wstring {
+      while (!host.empty() && host.back() == L'.') {
+        host.pop_back();
       }
-      const std::wstring& stamp = event.time;
-      if (stamp.size() != 5 || stamp[2] != L':') {
-        continue;
-      }
-      const int at = (stamp[0] - L'0') * 600 + (stamp[1] - L'0') * 60 + (stamp[3] - L'0') * 10 + (stamp[4] - L'0');
-      if ((minutes - at + 24 * 60) % (24 * 60) > kRecent) {
-        break;  // the lines run in time: the rest is older
-      }
-      const std::wstring& host = event.title;
-      // An address of numbers says nothing at a glance.
       const bool numbers = std::all_of(host.begin(), host.end(), [](wchar_t ch) { return (ch >= L'0' && ch <= L'9') || ch == L'.'; });
-      if (host.empty() || numbers || host.find(L':') != std::wstring::npos) {
-        continue;
+      return numbers || host.find(L':') != std::wstring::npos ? std::wstring() : host;
+    };
+    // A site is cut at its end; a whole blocked name at its start, so the site it's under stays.
+    const auto note = [&](std::size_t way, const std::wstring& name) {
+      if (name.empty() || way >= seen.size() || !seen[way].insert(name).second) {
+        return;
       }
+      if (content.routeNow[way].size() < kNamed) {
+        const bool whole = way == static_cast<std::size_t>(kBucketBlock);
+        content.routeNow[way].push_back(name.size() <= kName ? name
+                                        : whole              ? L"…" + name.substr(name.size() - (kName - 1))
+                                                             : name.substr(0, kName - 1) + L"…");
+      } else {
+        ++content.routeNowMore[way];
+      }
+    };
+    for (const auto& [host, bucket] : content.routeSeen) {
+      std::wstring name = named(host);
       // The site it's registered under says more at a glance than the host: "datadoghq.com", not
       // "http-intake.logs.us5.datadoghq.com" (a zone of two parts, co.uk or com.ru, counts as one).
-      std::wstring name = host;
-      while (!name.empty() && name.back() == L'.') {
-        name.pop_back();
-      }
       if (const std::size_t last = name.rfind(L'.'); last != std::wstring::npos && last > 0) {
         static constexpr std::array<std::wstring_view, 9> kZones = {L"co", L"com", L"net", L"org", L"gov", L"edu", L"ac", L"msk", L"spb"};
         std::size_t start = name.rfind(L'.', last - 1);
@@ -6840,18 +6867,27 @@ struct MainWindow::Impl {
           name.erase(0, start + 1);
         }
       }
-      const std::size_t way = event.route == LogRoute::Direct  ? 0
-                              : event.route == LogRoute::Proxy ? 1
-                              : event.route == LogRoute::Block ? 2
-                                                               : 3;
-      if (!seen[way].insert(name).second) {
+      if (bucket == kBucketDirect || bucket == kBucketProxy || bucket == kBucketWarp) {
+        note(static_cast<std::size_t>(bucket), name);
+      }
+    }
+    SYSTEMTIME local{};
+    GetLocalTime(&local);
+    const int minutes = local.wHour * 60 + local.wMinute;
+    for (std::size_t i = log.events.size(); i-- > 0;) {
+      const LogEvent& event = log.events[i];
+      if (event.hidden || event.route != LogRoute::Block) {
         continue;
       }
-      if (content.routeNow[way].size() < kNamed) {
-        content.routeNow[way].push_back(name.size() > kName ? name.substr(0, kName - 1) + L"…" : name);
-      } else {
-        ++content.routeNowMore[way];
+      const std::wstring& stamp = event.time;
+      if (stamp.size() != 5 || stamp[2] != L':') {
+        continue;
       }
+      const int at = (stamp[0] - L'0') * 600 + (stamp[1] - L'0') * 60 + (stamp[3] - L'0') * 10 + (stamp[4] - L'0');
+      if ((minutes - at + 24 * 60) % (24 * 60) > kRecent) {
+        break;  // the lines run in time: the rest is older
+      }
+      note(static_cast<std::size_t>(kBucketBlock), named(event.title));
     }
   }
 

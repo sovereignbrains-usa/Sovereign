@@ -299,23 +299,28 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-menu.png");
     routed.routeMenu = false;
-    // Only the chosen through the VPN: what goes directly - the things named there that only go there anyway are hidden.
+    // "В обход блокировок" (the only one with «напрямую» since 0.6.19): the pill's words on a line of
+    // their own, the line's end says the blocked go through the VPN. Nothing named «Напрямую» is
+    // hidden - it goes there without the race; the services the client sends through the VPN by
+    // itself, a quiet chip; what goes each way just now (the core's connections, the block's log).
     routed.routing.finalDirect = true;
-    for (sovereign::tray::UiChip& chip : routed.routing.board) {
-      chip.idle = chip.bucket == 0 && chip.kind != sovereign::tray::UiChip::Kind::Rule;
-    }
-    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 1100, 96,
-                                              dir + L"\\routing-direct-seen.png");
-    // Nothing named on the way the rest goes to (what only goes there anyway is hidden): it is the
-    // line's end, a name and "всё, что не попало выше", no list and no "+" (his: 'нижняя ветка не нужна').
+    routed.routing.smart = true;
+    routed.routing.board = SampleBoard();
+    routed.routing.smartVpn = {{"telegram", L"Telegram"}, {"youtube", L"YouTube"}, {"whatsapp", L"WhatsApp"},
+                               {"tiktok", L"TikTok"}, {"chatgpt", L"ChatGPT"}};
+    routed.routeNow = {std::vector<std::wstring>{L"ya.ru", L"gosuslugi.ru", L"vk.com"},
+                       std::vector<std::wstring>{L"github.com", L"rutracker.org"},
+                       std::vector<std::wstring>{L"adservice.google.com", L"mc.yandex.ru"}, std::vector<std::wstring>{}};
+    routed.routeNowMore = {7, 0, 12, 0};
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 1200, 96,
+                                              dir + L"\\routing-smart.png");
+    // Nothing named on the way the rest goes to: it is the line's end, a name and "всё
+    // остальное", no list and no "+" (his: 'нижняя ветка не нужна').
     std::erase_if(routed.routing.board, [](const sovereign::tray::UiChip& chip) { return chip.bucket == 0; });
+    routed.routeNow = {};
+    routed.routeNowMore = {};
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-rest-bare.png");
-    // "В обход блокировок": the pill's words on a line of their own, the line's end says the blocked
-    // go through the VPN; the menu with the third mode checked.
-    routed.routing.smart = true;
-    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
-                                              dir + L"\\routing-smart.png");
     routed.routeMenu = true;
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-smart-menu.png");

@@ -50,6 +50,21 @@ struct FlowTotal {
   std::int64_t downBytes = 0;
 };
 
+// A name a connection went to lately and the outbound it left by (as in
+// FlowTotal; the smart one resolved to its real way). Only the engine's
+// routed connections: the client's own probes are not among them.
+struct RecentSite {
+  std::string host;
+  std::string tag;
+};
+
+// One read of the engine's tracker: the totals by outbound and the sites
+// of the last minutes, newest first, one per name and way.
+struct FlowReport {
+  std::vector<FlowTotal> totals;
+  std::vector<RecentSite> recent;
+};
+
 // Where the newest connection to an address went: the outbound it left by
 // (a server, "direct"), that outbound's type, the outbounds from it back to
 // the rule's one, and the rule (empty: none matched - the route's final).
@@ -185,9 +200,10 @@ class ICore {
 
   virtual CoreStats Stats() = 0;
 
-  // The traffic by where it went (FlowTotal), for the tray's live streams;
-  // empty while nothing runs, or from an engine that can't tell.
-  virtual std::vector<FlowTotal> Flows() { return {}; }
+  // The traffic by where it went (FlowReport), for the tray's live streams
+  // and the "Маршруты" page's "сейчас:" lines; empty while nothing runs, or
+  // from an engine that can't tell.
+  virtual FlowReport Flows() { return {}; }
 
   // The way of the newest connection the engine keeps to one of `targets` (a
   // name and its addresses): the checks page's "where an address goes".

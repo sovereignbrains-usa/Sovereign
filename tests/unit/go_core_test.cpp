@@ -139,8 +139,13 @@ void TestBridge(const std::wstring& stubPath) {
     CHECK(stub.outstanding() == 0);
 
     // The traffic by outbound: the good pairs kept, the rest skipped.
-    const auto flows = core->Flows();
+    const auto report = core->Flows();
+    const auto& flows = report.totals;
     CHECK(flows.size() == 2);
+    // The recent sites: the [name, way] pairs kept, the rest skipped.
+    CHECK(report.recent.size() == 2);
+    CHECK(report.recent.size() == 2 && report.recent[0].host == "ya.ru" && report.recent[0].tag == "direct" &&
+          report.recent[1].host == "github.com" && report.recent[1].tag == "proxy");
     // "up/down" of a tag, "" if it isn't there.
     const auto flow = [&](const char* tag) {
       for (const auto& f : flows) {

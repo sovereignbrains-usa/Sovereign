@@ -309,6 +309,8 @@ struct View {
   std::string warpServer;
   bool warpDirect = false;
   std::vector<sovereign::tray::SmartSeen> smartLearned;  // what the smart mode decided itself, newest first
+  // The names the box's connections went to lately and the outbound of each (Stats::recent).
+  std::vector<std::pair<std::string, std::string>> recentSites;
   bool quicBlocked = true;  // RoutingSettings::quic as it came to with the servers (QuicBlocked)
   std::vector<std::string> rulesFrom;  // the configurations with rules the user hasn't taken yet (ids)
   std::vector<std::string> blockedAds;  // what the ads lists blocked lately, newest first
@@ -698,6 +700,15 @@ std::optional<sovereign::tray::Stats> PollStats() {
       }
     }
   }
+  // "recent": [["<host>", "<tag>"]] - the names of the last minutes.
+  std::vector<std::pair<std::string, std::string>> recent;
+  if (const auto it = json.find("recent"); it != json.end() && it->is_array()) {
+    for (const auto& pair : *it) {
+      if (pair.is_array() && pair.size() == 2 && pair[0].is_string() && pair[1].is_string()) {
+        recent.emplace_back(pair[0].get<std::string>(), pair[1].get<std::string>());
+      }
+    }
+  }
   return sovereign::tray::Stats{
       .running = sovereign::tray::Field<bool>(json, "running", false),
       .uplinkBytes = sovereign::tray::Field<std::int64_t>(json, "uplink", 0),
@@ -710,6 +721,7 @@ std::optional<sovereign::tray::Stats> PollStats() {
       .lanClosed = sovereign::tray::Field<bool>(json, "lan_closed", false),
       .lanAllowed = std::move(lanAllowed),
       .flows = std::move(flows),
+      .recent = std::move(recent),
   };
 }
 
@@ -902,6 +914,11 @@ class Worker {
         runningHosts_ = combinedHosts_;
       } else if (!stats || !stats->running) {
         runningHosts_.clear();
+      }
+      if (stats && stats->running) {
+        recentSites_ = stats->recent;
+      } else {
+        recentSites_.clear();
       }
       UpdateDelays(stats, urlTest);
       ApplySelection(stats);
@@ -3439,6 +3456,7 @@ class Worker {
       v.warpServer = warpServer_;
       v.warpDirect = warpDirect_;
       v.smartLearned = smartLearned_;
+      v.recentSites = recentSites_;
       v.blockCounts = blockCounts_;
       v.blockWho = blockWho_;
       v.blockedMinutes = BlockedMinutes();
@@ -3644,6 +3662,7 @@ class Worker {
   std::optional<bool> warpAnswers_;
   bool warpDirect_ = false;
   std::vector<sovereign::tray::SmartSeen> smartLearned_;  // View::smartLearned
+  std::vector<std::pair<std::string, std::string>> recentSites_;  // View::recentSites
   std::optional<TrayModel::Clock::time_point> smartAsked_;
   std::map<std::string, std::uint64_t> blockCounts_;  // View::blockCounts
   sovereign::tray::BlockedPrograms blockWho_;         // View::blockWho
@@ -4836,10 +4855,13 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
   std::erase_if(board, [&](const UiChip& chip) {
     return chip.kind == UiChip::Kind::Rule && std::find(folded.begin(), folded.end(), chip.index) != folded.end();
   });
-  // In the bucket everything else goes to (ui_content.h UiChip::idle).
+  // In the bucket everything else goes to (ui_content.h UiChip::idle). In «в обход
+  // блокировок» none: what's named «Напрямую» goes there without the race, a service
+  // named there isn't sent through the VPN by itself (routing.cpp Effective). Before
+  // 0.6.19 they were hidden as if they changed nothing: YouTube moved there was not seen.
   const int rest = r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy;
   for (UiChip& chip : board) {
-    if (chip.bucket != rest) {
+    if (chip.bucket != rest || (r.finalDirect && r.smart)) {
       continue;
     }
     if (chip.kind == UiChip::Kind::Russia) {
@@ -5496,8 +5518,28 @@ UiContent ContentFrom(const View& v) {
   c.routing.hysteriaMbps = r.hysteriaMbps;
   c.routing.finalDirect = r.finalDirect;
   c.routing.smart = r.finalDirect && r.smart;
+  for (const std::string_view id : sovereign::tray::SmartViaVpnServices(r)) {
+    if (const auto* info = sovereign::tray::FindService(id); info != nullptr) {
+      c.routing.smartVpn.emplace_back(std::string(info->id), Widen(std::string(info->name)));
+    }
+  }
+  // What went directly, through the VPN and through WARP lately, off the box's own tracker (the
+  // board's "сейчас:"): the client's probes and a smart race's losing way are not in it, as they
+  // were in the log's lines (15.11.2026: "Через VPN" named sites that went directly).
+  for (const auto& [host, tag] : v.recentSites) {
+    using sovereign::tray::FlowWay;
+    const FlowWay way = sovereign::tray::FlowWayOf(tag);
+    const int bucket = way == FlowWay::Direct ? sovereign::tray::kBucketDirect
+                       : way == FlowWay::Vpn  ? sovereign::tray::kBucketProxy
+                       : way == FlowWay::Warp ? sovereign::tray::kBucketWarp
+                                              : -1;
+    if (bucket >= 0) {
+      c.routeSeen.emplace_back(Widen(host), bucket);
+    }
+  }
   // What the client decided itself: the site, the way, and what its first way did - up to
-  // kLearnedShown lines. A whole address (a cut hosting) reads "адрес 1.2.3.4".
+  // kLearnedShown lines. A whole address (a cut hosting) reads "адрес 1.2.3.4", a whole hoster
+  // "все сайты Cloudflare".
   if (c.routing.smart) {
     constexpr std::size_t kLearnedShown = 8;
     for (const auto& seen : v.smartLearned) {
@@ -5505,7 +5547,13 @@ UiContent ContentFrom(const View& v) {
         c.routing.learnedMore = v.smartLearned.size() - kLearnedShown;
         break;
       }
-      const std::wstring name = seen.name.starts_with("ip:") ? L"адрес " + Widen(seen.name.substr(3)) : Widen(seen.name);
+      // A hoster the country cuts whole (gocore/smart_hosters.go): "все сайты Cloudflare".
+      const auto hoster = [](std::string_view id) -> std::wstring {
+        return id == "cloudflare" ? L"Cloudflare" : Widen(std::string(id));
+      };
+      const std::wstring name = seen.name.starts_with("ip:")       ? L"адрес " + Widen(seen.name.substr(3))
+                                : seen.name.starts_with("hoster:") ? L"все сайты " + hoster(std::string_view(seen.name).substr(7))
+                                                                   : Widen(seen.name);
       const std::wstring way = seen.way == "direct" ? L"напрямую" : L"через VPN";
       const std::wstring why = seen.why == "reset"    ? L"сброс соединения"
                                : seen.why == "silent" ? L"молчание"
@@ -6130,7 +6178,8 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       s.view.checks[static_cast<std::size_t>(CheckId::Route)] = std::move(now);
       break;
     }
-    case UiCommand::SetRouteMode: send(What::FinalDirect, args.index != 0, args.index == 2 ? 1 : 0); break;
+    // Two modes (0.6.19): «через VPN» and «в обход блокировок»; "only the list through the VPN" is gone.
+    case UiCommand::SetRouteMode: send(What::FinalDirect, args.index != 0, args.index != 0 ? 1 : 0); break;
     case UiCommand::SetHysteriaMbps: send(What::HysteriaMbps, false, args.index); break;
     case UiCommand::ToggleIpv4Only: send(What::Ipv4Only, !r.ipv4Only); break;
     case UiCommand::ToggleWarp: send(What::Warp, !r.warp); break;
@@ -6477,10 +6526,10 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       adds.push_back(Add::Program);
       // Where everything else goes anyway, a service or a program changes
       // nothing and isn't shown (UiChip::idle): their menus say so first.
+      // In «в обход блокировок» nothing named «Напрямую» is idle: it goes there without a race.
       std::wstring idleNote;
-      if (bucket == (r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy)) {
-        idleNote = r.finalDirect ? L"Идёт напрямую и так: пригодится в режиме «всё»"
-                                 : L"Идёт через VPN и так: пригодится в режиме «только выбранное»";
+      if (!r.finalDirect && bucket == sovereign::tray::kBucketProxy) {
+        idleNote = L"Идёт через VPN и так: пригодится в режиме «в обход блокировок»";
       }
       items.emplace_back(L"Сайт или адрес…");
       adds.push_back(Add::Site);

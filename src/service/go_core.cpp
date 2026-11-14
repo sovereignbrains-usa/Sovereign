@@ -174,20 +174,31 @@ std::string GoCore::StartUrlTest(const UrlTestRequest& request) {
   return TakeOwnedString(boxUrlTest_(json.dump().c_str()));
 }
 
-std::vector<FlowTotal> GoCore::Flows() {
-  // gocore/flows.go writes it: {"flows":{"<tag>":[up,down],...}}; anything
-  // else in it is skipped, never thrown.
+FlowReport GoCore::Flows() {
+  // gocore/flows.go writes it: {"flows":{"<tag>":[up,down],...},
+  // "recent":[["<host>","<tag>"],...]}; anything else in it is skipped, never
+  // thrown.
   const auto json = nlohmann::json::parse(TakeOwnedString(boxFlows_()), nullptr, /*allow_exceptions=*/false);
-  std::vector<FlowTotal> flows;
-  if (!json.is_object() || !json.contains("flows") || !json["flows"].is_object()) {
-    return flows;
+  FlowReport report;
+  if (!json.is_object()) {
+    return report;
   }
-  for (const auto& [tag, pair] : json["flows"].items()) {
-    if (pair.is_array() && pair.size() == 2 && pair[0].is_number_integer() && pair[1].is_number_integer()) {
-      flows.push_back({.tag = tag, .upBytes = pair[0].get<std::int64_t>(), .downBytes = pair[1].get<std::int64_t>()});
+  if (const auto flows = json.find("flows"); flows != json.end() && flows->is_object()) {
+    for (const auto& [tag, pair] : flows->items()) {
+      if (pair.is_array() && pair.size() == 2 && pair[0].is_number_integer() && pair[1].is_number_integer()) {
+        report.totals.push_back(
+            {.tag = tag, .upBytes = pair[0].get<std::int64_t>(), .downBytes = pair[1].get<std::int64_t>()});
+      }
     }
   }
-  return flows;
+  if (const auto recent = json.find("recent"); recent != json.end() && recent->is_array()) {
+    for (const auto& pair : *recent) {
+      if (pair.is_array() && pair.size() == 2 && pair[0].is_string() && pair[1].is_string()) {
+        report.recent.push_back({.host = pair[0].get<std::string>(), .tag = pair[1].get<std::string>()});
+      }
+    }
+  }
+  return report;
 }
 
 std::vector<SmartVerdict> GoCore::SmartLearned() {

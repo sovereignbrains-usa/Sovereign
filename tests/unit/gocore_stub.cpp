@@ -159,9 +159,11 @@ __declspec(dllexport) char* __cdecl box_delays() {
                   R"({"tag":"de","pending":true},{"delay":5},"junk"]})");
 }
 
-// A fixed answer: two good flows and ones of the wrong shapes.
+// A fixed answer: two good flows, two good recent sites and ones of the
+// wrong shapes.
 __declspec(dllexport) char* __cdecl box_flows() {
-  return Allocate(R"({"flows":{"proxy":[10,200],"direct":[1,5],"bad":[1],"worse":"x","neg":[1.5,2]}})");
+  return Allocate(R"({"flows":{"proxy":[10,200],"direct":[1,5],"bad":[1],"worse":"x","neg":[1.5,2]},)"
+                  R"("recent":[["ya.ru","direct"],["github.com","proxy"],["x"],[1,"direct"],"junk"]})");
 }
 
 // Knows where ya.ru went (by its name or address); anything else: none kept.

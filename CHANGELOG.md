@@ -4,6 +4,13 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.19 — 15.11.2026
+
+- **Two routing modes, not three**: "Напрямую" (everything directly, only what's chosen through the VPN) is gone. «В обход блокировок» does the same and also opens what Russia cuts, so a setting that was "Напрямую" opens as «в обход блокировок»; what's chosen through the VPN stays there.
+- **"Сейчас:" lines are what really went**: on the routing page the sites under each way came from the log's lines, which counted the client's own probes and, in «в обход блокировок», the side that lost the race too, so one site could stand under both ways. They come from the core's connection tracker now: the last 10 minutes, the way the connection really took. Under "Заблокировано" the name is shown whole (cut at its start), not shortened to its site.
+- **What goes through the VPN by itself is shown**: in «в обход блокировок» Telegram, TikTok, the AI services and the rest that a race can't judge go through the VPN without a rule; the "Через VPN" branch shows them as one quiet chip.
+- **Services and programs set to "Напрямую" no longer hide in «в обход блокировок»**: they were drawn as idle, as if the mode sent them there anyway.
+- **One cut teaches the whole hoster**: Russia slows or cuts Cloudflare whole, not site by site. After a cut or a slowdown on the direct way to a Cloudflare address, every Cloudflare address goes through the VPN for 6 hours on that network, instead of each site being cut once first. The page names it "все сайты Cloudflare" among what the client decided on its own.
 ## 0.6.18 — 14.11.2026
 
 - **What the Russian sites' block cuts off is seen now**: before, with "Российские сайты" set to block, a Russian zone or a site from the Russian lists (funpay.com…) simply didn't open (ERR_NAME_NOT_RESOLVED), and nothing said why: the block's counts and "Сайт сломался только что?" knew only the ads' lists. Now the chip "Российские сайты" counts what it refused, the settings' "Блокировка" card is on while it blocks, and the names come in "Сайт сломался только что?" under a line of their own: one picked or all, they go straight to the site by a rule of their own. Not in "Кто обращается": these refusals are answered by the DNS itself, and which program asked isn't known for them.

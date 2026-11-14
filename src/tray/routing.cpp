@@ -69,6 +69,19 @@ std::string ServiceIpsTag(std::string_view id) { return std::string(kServicePref
 constexpr std::array<std::string_view, 4> kGeminiCompanions = {"google.com", "googleapis.com", "gstatic.com",
                                                                "googleusercontent.com"};
 
+// In Russia's zones, yet not Russian sites: Google signs a Russian account in through
+// accounts.google.ru/accounts/SetSID - with the Russian sites blocked the sign-in to Google, and
+// GitHub's "Sign in with Google", broke there (14.11.2026); sent apart from google.com it'd be one
+// session from two addresses. Left out of the Russian sites' rules, they go where google.com goes.
+constexpr std::array<std::string_view, 1> kNotRussian = {"google.ru"};
+
+// A Russian sites' rule's match, but for kNotRussian.
+Json ButNotRussian(Json match) {
+  const Json foreign{{"domain_suffix", std::vector<std::string>(kNotRussian.begin(), kNotRussian.end())},
+                     {"invert", true}};
+  return Json{{"type", "logical"}, {"mode", "and"}, {"rules", Json::array({std::move(match), foreign})}};
+}
+
 // What people want sent elsewhere: shut to a VPS's country (video, AI) or
 // wanted apart, or wanted directly (games, the system's updates). Each list
 // checked to exist in sing-geosite (06.10.2026, the second half 08.10.2026).
@@ -1126,6 +1139,8 @@ std::span<const std::string_view> ServiceCompanions(std::string_view id) {
   return {};
 }
 
+std::span<const std::string_view> NotRussian() { return kNotRussian; }
+
 std::string ServiceOutboundTag(std::string_view id) { return "sov-out-" + std::string(id); }
 
 bool IsCountryCode(std::string_view code) {
@@ -2004,7 +2019,8 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
     russia["action"] = "reject";
   }
   if (!russia.empty()) {
-    const auto to = [&](Json rule) {
+    const auto to = [&](Json match) {
+      Json rule = ButNotRussian(std::move(match));
       rule.update(russia);
       rules.push_back(std::move(rule));
     };
@@ -2159,7 +2175,8 @@ std::string ApplyRouting(std::string_view text, const RoutingSettings& settingsI
   // The Russian names: directly resolved here, blocked given no addresses;
   // through the proxy or WARP the config's own DNS, as everything else's.
   if (settings.russia == RouteRule::Action::Direct || settings.russia == RouteRule::Action::Block) {
-    const auto to = [&](Json rule) {
+    const auto to = [&](Json match) {
+      Json rule = ButNotRussian(std::move(match));
       if (settings.russia == RouteRule::Action::Block) {
         SetNoAddress(rule);
       } else {

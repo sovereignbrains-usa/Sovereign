@@ -225,6 +225,9 @@ void TestRules() {
   CHECK(ClientRuleFor("ya.ru", routing) == "российская зона .ru → напрямую");
   routing.russia = RouteRule::Action::Block;
   CHECK(ClientRuleFor("ya.ru", routing) == "российская зона .ru → блокировать");
+  // Google's sign-in on google.ru isn't a Russian site (14.11.2026); a tail of the name is.
+  CHECK(ClientRuleFor("accounts.google.ru", routing).empty());
+  CHECK(ClientRuleFor("notgoogle.ru", routing) == "российская зона .ru → блокировать");
   routing.russia.reset();
   CHECK(ClientRuleFor("ya.ru", routing).empty());
   CHECK(Mbps(25'000'000, 2.0) == 100.0);

@@ -403,7 +403,11 @@ std::string ClientRuleFor(std::string_view host, const RoutingSettings& routing)
       return std::format("твоё правило «{}» → {}", text, ActionText(rule.action));
     }
   }
-  if (const auto russia = RussiaWay(routing)) {
+  // google.ru and the like: in a Russian zone, but going as google.com does (routing.h NotRussian).
+  const std::span<const std::string_view> notRussian = NotRussian();
+  const bool foreign =
+      std::any_of(notRussian.begin(), notRussian.end(), [&](std::string_view n) { return EndsWithLabel(name, n); });
+  if (const auto russia = RussiaWay(routing); russia && !foreign) {
     for (const std::string_view zone : {"ru", "su", "xn--p1ai", "xn--p1acf", "xn--80adxhks", "moscow", "tatar",
                                         "xn--d1acj3b", "xn--80asehdb", "xn--80aswg", "xn--c1avg"}) {
       if (EndsWithLabel(name, zone)) {

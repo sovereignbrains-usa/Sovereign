@@ -107,6 +107,9 @@ std::span<const ServiceInfo> ServiceCatalog();
 // The names a service signs in through, sent its way with it (Gemini: google.com and the rest).
 // Empty: none.
 std::span<const std::string_view> ServiceCompanions(std::string_view id);
+// The names in Russia's zones that the Russian sites' way leaves out, being a foreign service's own
+// (google.ru: Google's sign-in); they go as google.com goes.
+std::span<const std::string_view> NotRussian();
 const ServiceInfo* FindService(std::string_view id);
 // The service a program is the app of, by its exe's name: one of its apps
 // ("EpicGamesLauncher.exe"), or named as it ("Telegram.exe"); nullptr: none.

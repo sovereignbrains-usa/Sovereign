@@ -495,8 +495,8 @@ void TestOrder() {
           out.emplace_back("ads");
         } else if (r.value("rule_set", json()) == "sov-svc-youtube") {
           out.emplace_back("youtube");
-        } else if (r.contains("domain_suffix") && r["domain_suffix"].dump().find("xn--p1ai") != std::string::npos) {
-          out.emplace_back("russia");
+        } else if (r.value("type", "") == "logical" && r.dump().find("xn--p1ai") != std::string::npos) {
+          out.emplace_back("russia");  // its zones but for google.ru (TestRussiaWays)
         }
       }
       // DNS's rules come in pairs (evaluate, respond: AnswerTyposAtOnce) - each once.
@@ -1337,11 +1337,24 @@ void TestRussiaWays() {
   const std::map<std::string, std::string> lists = {{"sov-geosite-ru", "C:/lists/ru.srs"},
                                                     {"sov-geosite-gov-ru", "C:/lists/gov.srs"},
                                                     {"sov-geoip-ru", "C:/lists/ip.srs"}};
-  // Each Russian route rule's ending ("direct", "reject"...), and its DNS rules'.
-  const auto russian = [](const json& rule) {
-    return (rule.contains("domain_suffix") && rule["domain_suffix"].dump().find("xn--p1ai") != std::string::npos) ||
-           rule.value("rule_set", json()) == json::array({"sov-geosite-ru", "sov-geosite-gov-ru"}) ||
-           rule.value("rule_set", json()) == "sov-geoip-ru";
+  // Each Russian route rule's ending ("direct", "reject"...), and its DNS rules'. Each matches its
+  // zones or lists but for google.ru - Google's sign-in, broken with the Russian sites blocked
+  // (14.11.2026): a rule that'd take it in fails the test.
+  const json notRussian{{"domain_suffix", json::array({"google.ru"})}, {"invert", true}};
+  const auto russian = [&](const json& rule) {
+    if (rule.value("type", "") != "logical" || !rule.contains("rules") || rule["rules"].size() != 2) {
+      const bool bare = (rule.contains("domain_suffix") && rule["domain_suffix"].dump().find("xn--p1ai") != std::string::npos) ||
+                        rule.value("rule_set", json()) == json::array({"sov-geosite-ru", "sov-geosite-gov-ru"}) ||
+                        rule.value("rule_set", json()) == "sov-geoip-ru";
+      CHECK(!bare);
+      return false;
+    }
+    const json& match = rule["rules"][0];
+    const bool is = (match.contains("domain_suffix") && match["domain_suffix"].dump().find("xn--p1ai") != std::string::npos) ||
+                    match.value("rule_set", json()) == json::array({"sov-geosite-ru", "sov-geosite-gov-ru"}) ||
+                    match.value("rule_set", json()) == "sov-geoip-ru";
+    CHECK(!is || rule["rules"][1] == notRussian);
+    return is;
   };
   struct Ways {
     std::vector<std::string> route;

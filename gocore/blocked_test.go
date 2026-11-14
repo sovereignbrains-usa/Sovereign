@@ -100,7 +100,7 @@ func TestBlockedRussia(t *testing.T) {
 	w.notice("DEBUG [4 1ms] router: match[5] rule_set=sov-geoip-ru"+but+" => reject", at)
 	hit("5", "ads.example.com", "rule_set=[sov-ads sov-ads-adguard]", "predefined(rcode=NOERROR)")
 	hit("6", "mail.ru", "domain_suffix=[ru su xn--p1ai...]"+but, "route(sov-local)") // let through: no block
-	hit("7", "x.ru", "domain_suffix=yandex.ru", "predefined(rcode=NOERROR)")          // the user's own
+	hit("7", "x.ru", "domain_suffix=yandex.ru", "predefined(rcode=NOERROR)")         // the user's own
 	got := w.blockedCounts()
 	if got["russia"] != 3 || got["ads"] != 1 || len(got) != 2 {
 		t.Fatalf("counts %v", got)

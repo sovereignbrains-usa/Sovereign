@@ -30,6 +30,13 @@ const (
 	appsKeep      = 256              // programs counted
 	appNamesKeep  = 10               // names remembered a program
 	blockedNotice = "ads: blocked "  // what the tray looks for
+
+	// The Russian sites' block (routing.cpp kRussianZones, kGeositeRu, kGeoipRu): the category its
+	// refusals count for, and what its match lines show.
+	russiaCategory = "russia"
+	russiaGeosite  = "sov-geosite-ru"
+	russiaGeoip    = "sov-geoip-ru"
+	russiaZones    = "domain_suffix=[ru su xn--p1ai" // sing-box prints a list's first three
 )
 
 var idLine = regexp.MustCompile(`\[(\d+) [^\]]+\] (.+)$`)
@@ -53,6 +60,9 @@ type blockedWatch struct {
 	// what a page that just broke had cut - the tray's "Сломалось только что" lets it through.
 	// Not the malware lists' names: those are let through one by one, if at all.
 	last map[string]time.Time
+	// The same for what the Russian sites' block refused ("Российские сайты → Блок"): kept apart,
+	// those names are let through directly, not the way the ads' are.
+	lastRu map[string]time.Time
 }
 
 const (
@@ -64,19 +74,32 @@ var blocked = newBlockedWatch()
 
 func newBlockedWatch() *blockedWatch {
 	return &blockedWatch{asked: map[string]string{}, said: map[string]time.Time{}, counts: map[string]uint64{},
-		counted: map[string]time.Time{}, apps: map[string]uint64{}, appNames: map[string][]string{}, last: map[string]time.Time{}}
+		counted: map[string]time.Time{}, apps: map[string]uint64{}, appNames: map[string][]string{}, last: map[string]time.Time{},
+		lastRu: map[string]time.Time{}}
 }
 
 // recentNames: the names refused within recentWindow of `now`, newest first, at most `most`.
 func (w *blockedWatch) recentNames(now time.Time, most int) []string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	return recentOf(w.last, now, most)
+}
+
+// recentRussia: the same for what the Russian sites' block refused.
+func (w *blockedWatch) recentRussia(now time.Time, most int) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return recentOf(w.lastRu, now, most)
+}
+
+// recentOf: of `last` the names within recentWindow of `now`, newest first, at most `most`; w.mu is held.
+func recentOf(last map[string]time.Time, now time.Time, most int) []string {
 	type seen struct {
 		name string
 		at   time.Time
 	}
 	var list []seen
-	for name, at := range w.last {
+	for name, at := range last {
 		if now.Sub(at) < recentWindow {
 			list = append(list, seen{name, at})
 		}
@@ -144,11 +167,15 @@ const countWindow = 3 * time.Second
 // behind a CNAME when `cloaked`; w.mu is held.
 func (w *blockedWatch) count(cat, name, app string, cloaked bool, now time.Time) {
 	if name != "" && cat != "malware" { // a phishing name isn't let through in a bunch
-		w.last[name] = now
-		if len(w.last) > askedKeep {
-			for n, at := range w.last {
+		last := w.last
+		if cat == russiaCategory {
+			last = w.lastRu
+		}
+		last[name] = now
+		if len(last) > askedKeep {
+			for n, at := range last {
 				if now.Sub(at) >= recentWindow {
-					delete(w.last, n)
+					delete(last, n)
 				}
 			}
 		}
@@ -257,14 +284,33 @@ func (w *blockedWatch) notice(message string, now time.Time) string {
 		}
 		return ""
 	}
-	if !strings.Contains(text, "match[") || !strings.Contains(text, "rule_set=") ||
-		!strings.Contains(text, adsListPrefix) ||
+	if !strings.Contains(text, "match[") ||
 		(!strings.Contains(text, "=> predefined") && !strings.Contains(text, "=> reject")) {
 		return ""
 	}
 	name := w.asked[id]
+	if russiaRule(text) {
+		// Counted and listed, not said: the tray's "Недавно" is the ads', this one has its own.
+		w.count(russiaCategory, name, "", false, now)
+		return ""
+	}
+	if !strings.Contains(text, "rule_set=") || !strings.Contains(text, adsListPrefix) {
+		return ""
+	}
 	w.count(category(text), name, "", false, now)
 	return w.say(name, now)
+}
+
+// russiaRule: a match line of the rule that blocks the Russian sites - routing.cpp makes them one
+// way: their zones (sing-box shows only the first three of a list), the geosite lists and the
+// geoip list, each but for the names Russia's way leaves out (google.ru). The ads' lines don't
+// come here: they say "sov-ads".
+func russiaRule(text string) bool {
+	if strings.Contains(text, adsListPrefix) {
+		return false
+	}
+	return strings.Contains(text, russiaGeosite) || strings.Contains(text, russiaGeoip) ||
+		strings.Contains(text, russiaZones)
 }
 
 // say: the notice for a blocked `name`, or "" when it was said lately; w.mu is held.

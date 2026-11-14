@@ -79,6 +79,45 @@ func TestBlockedCounts(t *testing.T) {
 	}
 }
 
+// The Russian sites' block (14.11.2026: funpay.com and the Google sign-in were cut and nothing said
+// so): its match lines - the zones, the geosite and the geoip lists, each but for google.ru - are
+// counted "russia" and kept apart, and say nothing to the ads' list; an allowed one (directly) or
+// the user's own rule isn't theirs.
+func TestBlockedRussia(t *testing.T) {
+	w := newBlockedWatch()
+	at := time.Unix(1_800_000_000, 0)
+	hit := func(id, name, rule, action string) string {
+		w.notice("DEBUG ["+id+" 0ms] dns: exchange "+name+". IN A", at)
+		return w.notice("DEBUG ["+id+" 1ms] dns: match[2] "+rule+" => "+action, at)
+	}
+	const but = " && !(domain_suffix=google.ru)"
+	if got := hit("1", "funpay.com", "rule_set=[sov-geosite-ru sov-geosite-gov-ru]"+but, "predefined(rcode=NOERROR)"); got != "" {
+		t.Fatalf("a Russian block said %q", got)
+	}
+	hit("2", "ya.ru", "domain_suffix=[ru su xn--p1ai...]"+but, "predefined(rcode=NOERROR)")
+	hit("3", "ya.ru", "domain_suffix=[ru su xn--p1ai...]"+but, "predefined(rcode=NOERROR)") // the AAAA
+	w.notice("DEBUG [4 0ms] router: sniffed protocol: tls, domain: vk.com, client: chrome", at)
+	w.notice("DEBUG [4 1ms] router: match[5] rule_set=sov-geoip-ru"+but+" => reject", at)
+	hit("5", "ads.example.com", "rule_set=[sov-ads sov-ads-adguard]", "predefined(rcode=NOERROR)")
+	hit("6", "mail.ru", "domain_suffix=[ru su xn--p1ai...]"+but, "route(sov-local)") // let through: no block
+	hit("7", "x.ru", "domain_suffix=yandex.ru", "predefined(rcode=NOERROR)")          // the user's own
+	got := w.blockedCounts()
+	if got["russia"] != 3 || got["ads"] != 1 || len(got) != 2 {
+		t.Fatalf("counts %v", got)
+	}
+	now := at.Add(time.Second)
+	// All at the same moment: by name.
+	if names := w.recentRussia(now, 10); strings.Join(names, ",") != "funpay.com,vk.com,ya.ru" {
+		t.Fatalf("Russian recent %v", names)
+	}
+	if names := w.recentNames(now, 10); len(names) != 1 || names[0] != "ads.example.com" {
+		t.Fatalf("recent %v: the Russian names don't belong to it", names)
+	}
+	if got := blockedAnswer()["recent_ru"]; got == nil {
+		t.Fatalf("box_blocked without recent_ru")
+	}
+}
+
 // "Just now": every refusal of a name renews it (the notice says it once in ten minutes), the
 // newest first, what's older than recentWindow out, at most `most`.
 func TestBlockedRecent(t *testing.T) {

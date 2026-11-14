@@ -1434,6 +1434,7 @@ class Worker {
         };
         std::erase_if(blocked_, letThrough);
         std::erase_if(blockWho_.recent, letThrough);  // "Сломалось только что" without them (and LetThrough after)
+        std::erase_if(blockWho_.recentRussia, letThrough);
         if (change.what == RoutingChange::What::PassNames) {
           // Passed again within the few minutes "Вернуть" stands: one undo takes back both.
           if (!PassedLately()) {
@@ -2979,7 +2980,10 @@ class Worker {
     constexpr auto kEvery = std::chrono::seconds(5);
     const auto now = TrayModel::Clock::now();
     const auto& r = settings_.routing;
-    if (!stats || !stats->running || !(r.blockAds || r.trackers || r.cookieWindows || r.malware)) {
+    // The Russian sites' block counts too (gocore/blocked.go, "russia"): the sites a block of theirs cuts
+    // off aren't in the lists, and nothing else said so (14.11.2026: funpay.com, "ERR_NAME_NOT_RESOLVED").
+    const bool russiaBlocked = r.russia == sovereign::tray::RouteRule::Action::Block;
+    if (!stats || !stats->running || !(r.blockAds || r.trackers || r.cookieWindows || r.malware || russiaBlocked)) {
       blockCounts_.clear();
       blockWho_ = {};
       blockCountsAsked_.reset();
@@ -2996,6 +3000,7 @@ class Worker {
       // The box remembers two minutes of refusals, the ones a rule lets through since too: they
       // aren't "just now" any more - a second "Пропустить" made a rule of them again (11.11.2026).
       std::erase_if(blockWho_.recent, [&](const std::string& name) { return LetThrough(name); });
+      std::erase_if(blockWho_.recentRussia, [&](const std::string& name) { return LetThrough(name); });
       CountBlockedMinute(now);
     }
   }
@@ -4720,8 +4725,11 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
     return digits;
   };
   if (r.russia) {
+    // Counted only while it blocks: the core counts what the block's rules refused (a Direct way refuses nothing).
     board.push_back({.kind = UiChip::Kind::Russia, .index = 0, .bucket = static_cast<int>(*r.russia),
-                     .text = L"Российские сайты", .detail = {}, .icon = {}, .logo = "russia"});
+                     .text = L"Российские сайты",
+                     .detail = *r.russia == sovereign::tray::RouteRule::Action::Block ? counted("russia") : std::wstring(),
+                     .icon = {}, .logo = "russia"});
   }
   if (r.blockAds) {
     board.push_back({.kind = UiChip::Kind::Ads, .index = 0, .bucket = sovereign::tray::kBucketBlock,
@@ -5306,6 +5314,9 @@ UiContent ContentFrom(const View& v) {
   c.blockedSince = v.blockedSince;
   c.blockedMinutes = v.blockedMinutes;
   c.blockedJustNow = v.blockWho.recent.size();
+  if (v.routing.russia == sovereign::tray::RouteRule::Action::Block) {  // the Russian sites' block's, as long as it is one
+    c.blockedJustNow += v.blockWho.recentRussia.size();
+  }
   c.blockedKnown = v.blockedKnown;
   c.blockedFrom = v.blockedFrom;
   for (const std::string& name : v.passed) {
@@ -6174,39 +6185,75 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       // one name picked, or all of them at once: one rule where everything
       // else goes (the malware lists' names aren't in it: gocore/blocked.go).
       // A click passed them all straight away, by chance too (11.11.2026).
+      // The Russian sites' block's names are in it too, under a line of their own: it cut them off
+      // by their zone and lists, not by the ads', and the way out of it is straight to the site (14.11.2026).
+      static const std::vector<std::string> kNone;
       const std::vector<std::string>& recent = view.blockWho.recent;
-      if (recent.empty()) {
+      const std::vector<std::string>& russian =
+          r.russia == sovereign::tray::RouteRule::Action::Block ? view.blockWho.recentRussia : kNone;
+      if (recent.empty() && russian.empty()) {
         break;
       }
+      struct Entry {
+        std::size_t at;  // its place in the menu
+        const std::string* name;
+        bool russian;
+      };
+      std::vector<Entry> entries;
       std::vector<std::wstring> items = {L"Закрыто за последние 2 минуты — нажми, чтобы пропускать:", L""};
-      const std::vector<std::size_t> captions = {0};
-      const std::size_t first = items.size();
-      for (const std::string& name : recent) {
+      std::vector<std::size_t> captions = {0};
+      const auto add = [&](const std::string& name, bool fromRussia) {
+        entries.push_back({.at = items.size(), .name = &name, .russian = fromRussia});
         items.push_back(Widen(name));
+      };
+      for (const std::string& name : recent) {
+        add(name, false);
       }
-      const std::size_t all = items.size() + 1;  // after its line
-      if (recent.size() > 1) {
+      if (!russian.empty()) {
+        if (!recent.empty()) {
+          items.emplace_back(L"");
+        }
+        captions.push_back(items.size());
+        items.emplace_back(L"Российские сайты (блок) — пойдут напрямую:");
+        for (const std::string& name : russian) {
+          add(name, true);
+        }
+      }
+      std::size_t all = 0;
+      if (entries.size() > 1) {
         items.emplace_back(L"");
-        items.push_back(std::format(L"Пропустить все {}", recent.size()));
+        all = items.size();
+        items.push_back(std::format(L"Пропустить все {}", entries.size()));
       }
       const auto picked = PickFromMenu(owner, args.anchor, items, -1, {}, captions);
       if (!picked) {
         break;
       }
-      std::string names;
-      if (*picked >= first && *picked - first < recent.size()) {
-        names = recent[*picked - first];
-      } else if (recent.size() > 1 && *picked == all) {
-        for (const std::string& name : recent) {
-          if (!names.empty()) {
-            names += ", ";
-          }
-          names += name;
+      // The ads' names go the way everything else goes, the Russian sites' straight: one rule each.
+      std::string adsNames;
+      std::string russiaNames;
+      const auto take = [&](const Entry& entry) {
+        std::string& to = entry.russian ? russiaNames : adsNames;
+        if (!to.empty()) {
+          to += ", ";
         }
+        to += *entry.name;
+      };
+      if (all != 0 && *picked == all) {
+        for (const Entry& entry : entries) {
+          take(entry);
+        }
+      } else if (const auto hit = std::find_if(entries.begin(), entries.end(),
+                                               [&](const Entry& entry) { return entry.at == *picked; });
+                 hit != entries.end()) {
+        take(*hit);
       }
-      if (!names.empty()) {
+      if (!adsNames.empty()) {
         send(What::PassNames, false, r.finalDirect ? sovereign::tray::kBucketDirect : sovereign::tray::kBucketProxy,
-             0, std::move(names));
+             0, std::move(adsNames));
+      }
+      if (!russiaNames.empty()) {
+        send(What::PassNames, false, sovereign::tray::kBucketDirect, 0, std::move(russiaNames));
       }
       break;
     }

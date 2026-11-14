@@ -62,6 +62,7 @@ struct BlockedWho {
   std::uint64_t cloaked = 0;  // refusals that were a name behind a CNAME
   std::vector<BlockedApp> apps;  // the programs that asked most, most first
   std::vector<std::string> recent;  // the names refused in the last two minutes, newest first
+  std::vector<std::string> recentRussia;  // the same for the Russian sites' block ("recent_ru")
 };
 
 struct RouteSeen {

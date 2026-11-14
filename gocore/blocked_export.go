@@ -12,8 +12,9 @@ import (
 
 // box_blocked: what each block category has refused, {"counts":{"ads":n,
 // "trackers":n,"cookies":n,"malware":n},"cloaked":n,"apps":[{"app","path","count"}],
-// "recent":[name]}: the refusals behind a CNAME, the programs that asked most, and the names
-// refused in the last two minutes, newest first. Freed with box_free.
+// "recent":[name],"recent_ru":[name]}: the refusals behind a CNAME, the programs that asked
+// most, and the names refused in the last two minutes, newest first - the lists', and apart
+// the Russian sites' block's ("russia" in counts). Freed with box_free.
 //
 //export box_blocked
 func box_blocked() (reply *C.char) {
@@ -32,6 +33,7 @@ func blockedAnswer() map[string]any {
 	if apps == nil {
 		apps = []appCount{}
 	}
+	now := time.Now()
 	return map[string]any{"counts": blocked.blockedCounts(), "cloaked": cloaked, "apps": apps,
-		"recent": blocked.recentNames(time.Now(), recentShown)}
+		"recent": blocked.recentNames(now, recentShown), "recent_ru": blocked.recentRussia(now, recentShown)}
 }

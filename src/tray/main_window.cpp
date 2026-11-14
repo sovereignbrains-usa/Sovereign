@@ -4615,7 +4615,8 @@ class Painter {
     {
       const std::size_t card = open(y);
       const UiRouting& r = c.routing;
-      const bool any = r.blockAds || r.trackers || r.cookieWindows || r.malware;
+      // The Russian sites' block cuts off too (and its sites come in "Сайт сломался только что?"), so it is "any".
+      const bool any = r.blockAds || r.trackers || r.cookieWindows || r.malware || r.russia == kBucketBlock;
       const bool counting = any && connected;
       // Only the minutes counted: the first hour, less of them - the trace starts where they do.
       const std::size_t known = std::clamp<std::size_t>(c.blockedKnown, 1, c.blockedMinutes.size());
@@ -4643,7 +4644,8 @@ class Painter {
       headHint(at, L"Что закрывается по пути, по спискам. Точка в названии — закрывается; нажми, чтобы "
                    L"переключить, наведи — расскажет, что это.\n\nСломалось что-то нужное — «Недавно» ниже: "
                    L"нажми имя, и оно пойдёт дальше, или «Пропустить последние» — покажет, что закрыто за "
-                   L"последние 2 минуты: пропусти одно или всё сразу. Ошибся — «Вернуть» закроет снова.");
+                   L"последние 2 минуты: пропусти одно или всё сразу. Закрыты «Российские сайты» — их имена "
+                   L"там же, отдельной строкой: пойдут напрямую. Ошибся — «Вернуть» закроет снова.");
       if (counting) {
         Item count = CommandItem(Kind::Readout, {x1 - 20 - kReadoutWidth, headTop + 6, x1 - 20, headTop + 48},
                                  Grouped(c.blockedTotal), nullptr, UiCommand::BlockedMenu);

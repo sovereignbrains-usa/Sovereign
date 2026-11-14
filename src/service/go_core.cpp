@@ -261,13 +261,17 @@ BlockedWho GoCore::BlockedByWho() {
                           entry["count"].get<std::uint64_t>()});
     }
   }
-  if (const auto it = json.find("recent"); it != json.end() && it->is_array()) {
-    for (const auto& name : *it) {
-      if (name.is_string()) {
-        out.recent.push_back(name.get<std::string>());
+  const auto names = [&json](const char* key, std::vector<std::string>& list) {
+    if (const auto it = json.find(key); it != json.end() && it->is_array()) {
+      for (const auto& name : *it) {
+        if (name.is_string()) {
+          list.push_back(name.get<std::string>());
+        }
       }
     }
-  }
+  };
+  names("recent", out.recent);
+  names("recent_ru", out.recentRussia);
   return out;
 }
 

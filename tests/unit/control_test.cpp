@@ -509,7 +509,7 @@ void TestSmart() {
 
   // What each block category refused: none yet - an empty object; then its numbers.
   CHECK(Send(handler, R"({"cmd":"box_blocked"})") ==
-        json::parse(R"({"cmd":"box_blocked","counts":{},"cloaked":0,"apps":[],"recent":[]})"));
+        json::parse(R"({"cmd":"box_blocked","counts":{},"cloaked":0,"apps":[],"recent":[],"recent_ru":[]})"));
   core.blocked = {{"ads", 12}, {"trackers", 3}};
   answer = Send(handler, R"({"cmd":"box_blocked"})");
   CHECK(answer.value("cmd", "") == "box_blocked");
@@ -525,6 +525,11 @@ void TestSmart() {
   // And what was refused just now, newest first.
   core.blockedWho.recent = {"ads.example.com", "pixel.example.net"};
   answer = Send(handler, R"({"cmd":"box_blocked"})");
+  CHECK(answer["recent"] == json::array({"ads.example.com", "pixel.example.net"}));
+  // The Russian sites' block's, apart.
+  core.blockedWho.recentRussia = {"funpay.com"};
+  answer = Send(handler, R"({"cmd":"box_blocked"})");
+  CHECK(answer["recent_ru"] == json::array({"funpay.com"}));
   CHECK(answer["recent"] == json::array({"ads.example.com", "pixel.example.net"}));
 }
 

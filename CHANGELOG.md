@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.18 — 14.11.2026
+
+- **What the Russian sites' block cuts off is seen now**: before, with "Российские сайты" set to block, a Russian zone or a site from the Russian lists (funpay.com…) simply didn't open (ERR_NAME_NOT_RESOLVED), and nothing said why: the block's counts and "Сайт сломался только что?" knew only the ads' lists. Now the chip "Российские сайты" counts what it refused, the settings' "Блокировка" card is on while it blocks, and the names come in "Сайт сломался только что?" under a line of their own: one picked or all, they go straight to the site by a rule of their own. Not in "Кто обращается": these refusals are answered by the DNS itself, and which program asked isn't known for them.
+
 ## 0.6.17 — 14.11.2026
 
 - **The Russian sites blocked no longer break the sign-in to Google**: google.ru isn't counted a Russian site. A Russian Google account signs in through accounts.google.ru (SetSID), and with "Российские сайты" set to block the sign-in to Google, and GitHub's "Sign in with Google", broke there. google.ru now goes where google.com goes; "почему не открывается сайт" no longer names it a Russian zone.

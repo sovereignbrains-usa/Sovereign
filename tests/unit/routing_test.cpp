@@ -1643,6 +1643,11 @@ void TestBlockedAnswer() {
   CHECK(who.recent.empty());  // an answer from before "recent"
   const auto recent = ParseBlockedPrograms(R"({"cmd":"box_blocked","recent":["a.example.com",7,"","b.example.net"]})");
   CHECK(recent.recent == std::vector<std::string>({"a.example.com", "b.example.net"}));
+  CHECK(recent.recentRussia.empty() && who.recentRussia.empty());  // an answer from before "recent_ru"
+  const auto russian =
+      ParseBlockedPrograms(R"({"cmd":"box_blocked","recent":["a.example.com"],"recent_ru":["funpay.com",3,"","vk.com"]})");
+  CHECK(russian.recentRussia == std::vector<std::string>({"funpay.com", "vk.com"}));
+  CHECK(russian.recent == std::vector<std::string>({"a.example.com"}));
   CHECK(who.apps[0].names.empty());  // an answer from before "names"
   const auto named =
       ParseBlockedPrograms(R"({"cmd":"box_blocked","apps":[{"app":"brave.exe","count":2,"names":["a.test",3,"","b.test"]}]})");

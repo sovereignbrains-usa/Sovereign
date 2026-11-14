@@ -314,6 +314,8 @@ struct BlockedPrograms {
   std::uint64_t cloaked = 0;
   std::vector<BlockedProgram> apps;
   std::vector<std::string> recent;  // the names refused in the last two minutes, newest first
+  // The same for "Российские сайты → Блок" (by the lists of ads kept apart: the way out of it is a Direct pass).
+  std::vector<std::string> recentRussia;
 };
 BlockedPrograms ParseBlockedPrograms(std::string_view response);
 // A check of the lists as it goes (the tray's UpdateRuleSets): one download

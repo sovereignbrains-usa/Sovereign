@@ -393,6 +393,7 @@ struct View {
   sovereign::tray::SpeedRun directSpeed;           // ...and through the line itself, without the VPN
   bool hideExitIp = false;
   bool delaysDetailed = false;
+  bool routeDetailed = false;
   bool serversByDelay = true;
   bool connectAtStartup = true;
   bool routingMore = false;
@@ -555,6 +556,7 @@ struct Shared {
   std::optional<std::string> pendingSpeed;  // a way to run a speed test through ("замерить")
   bool pendingToggleExitIp = false;
   bool pendingToggleDelayDetails = false;
+  bool pendingToggleRouteDetails = false;
   std::optional<bool> pendingServersByDelay;
   std::optional<bool> pendingConnectAtStartup;
   std::optional<sovereign::tray::UpdateMode> pendingUpdates;
@@ -584,7 +586,7 @@ struct Shared {
     return pendingWant || pendingImport || pendingLocalConfig || !pendingChanges.empty() || !pendingRouting.empty() ||
            pendingRemove ||
            pendingRefresh || pendingRelay ||
-           pendingUrlTest || pendingSpeed.has_value() || pendingToggleExitIp || pendingToggleDelayDetails || pendingServersByDelay.has_value() || pendingConnectAtStartup.has_value() || pendingUpdates.has_value() || pendingUpdateQuiet.has_value() || pendingToggleRoutingMore || pendingLogLevel || pendingToggleKillSwitch || pendingReconnect || pendingRecheck || pendingProtectionAlert.has_value() ||
+           pendingUrlTest || pendingSpeed.has_value() || pendingToggleExitIp || pendingToggleDelayDetails || pendingToggleRouteDetails || pendingServersByDelay.has_value() || pendingConnectAtStartup.has_value() || pendingUpdates.has_value() || pendingUpdateQuiet.has_value() || pendingToggleRoutingMore || pendingLogLevel || pendingToggleKillSwitch || pendingReconnect || pendingRecheck || pendingProtectionAlert.has_value() ||
            pendingToggleLanClosed || !pendingLan.empty() || pendingApps || pendingProtocol ||
            pendingChoice;
   }
@@ -782,6 +784,7 @@ class Worker {
       std::optional<std::string> speed;
       bool toggleExitIp = false;
       bool toggleDelayDetails = false;
+      bool toggleRouteDetails = false;
       std::optional<bool> serversByDelay;
       std::optional<bool> connectAtStartup;
       std::optional<sovereign::tray::UpdateMode> updates;
@@ -813,6 +816,7 @@ class Worker {
         speed = std::exchange(shared.pendingSpeed, std::nullopt);
         toggleExitIp = std::exchange(shared.pendingToggleExitIp, false);
         toggleDelayDetails = std::exchange(shared.pendingToggleDelayDetails, false);
+        toggleRouteDetails = std::exchange(shared.pendingToggleRouteDetails, false);
         serversByDelay = std::exchange(shared.pendingServersByDelay, std::nullopt);
         connectAtStartup = std::exchange(shared.pendingConnectAtStartup, std::nullopt);
         updates = std::exchange(shared.pendingUpdates, std::nullopt);
@@ -936,6 +940,10 @@ class Worker {
       }
       if (toggleDelayDetails) {
         settings_.delaysDetailed = !settings_.delaysDetailed;
+        Save();
+      }
+      if (toggleRouteDetails) {
+        settings_.routeDetailed = !settings_.routeDetailed;
         Save();
       }
       if (serversByDelay && *serversByDelay != settings_.serversByDelay) {
@@ -3579,6 +3587,7 @@ class Worker {
       }
       v.hideExitIp = settings_.hideExitIp;
       v.delaysDetailed = settings_.delaysDetailed;
+      v.routeDetailed = settings_.routeDetailed;
       v.serversByDelay = settings_.serversByDelay;
       v.connectAtStartup = settings_.connectAtStartup;
       v.routingMore = settings_.routingMore;
@@ -5209,6 +5218,15 @@ void RequestToggleDelayDetails() {
   Wake();
 }
 
+void RequestToggleRouteDetails() {
+  {
+    auto& shared = State();
+    const std::scoped_lock lock(shared.mutex);
+    shared.pendingToggleRouteDetails = true;
+  }
+  Wake();
+}
+
 void RequestServersByDelay(bool byDelay) {
   {
     auto& shared = State();
@@ -5786,6 +5804,7 @@ UiContent ContentFrom(const View& v) {
   c.exitPending = v.exitIp.pending;
   c.hideExitIp = v.hideExitIp;
   c.delaysDetailed = v.delaysDetailed;
+  c.routeDetailed = v.routeDetailed;
   c.serversByDelay = true;  // the page has one order: fastest first
   c.connectAtStartup = v.connectAtStartup;
   c.routingMore = v.routingMore;
@@ -7220,6 +7239,9 @@ void OnUiCommand(HWND trayWindow, UiCommand command, const sovereign::tray::UiAr
       break;
     case UiCommand::ToggleDelayDetails:
       RequestToggleDelayDetails();
+      break;
+    case UiCommand::ToggleRouteDetails:
+      RequestToggleRouteDetails();
       break;
     case UiCommand::SetServerOrder:
       RequestServersByDelay(args.index == 0);

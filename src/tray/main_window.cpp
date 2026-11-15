@@ -2241,7 +2241,7 @@ class Painter {
       const std::wstring aside = rest && r.smart ? std::wstring(L"всё остальное; заблокированное — через VPN")
                                  : rest           ? std::wstring(L"всё остальное")
                                  : id == kBucketWarp ? r.warpState
-                                 : id == kBucketBlock && c.blockedTotal > 0
+                                 : id == kBucketBlock && c.blockedTotal > 0 && c.routeDetailed
                                      ? L"закрыто с подключения: " + Grouped(c.blockedTotal)
                                      : std::wstring();
       if (!aside.empty()) {
@@ -2283,8 +2283,9 @@ class Painter {
         }
         // Whole pixels up: a chip as wide as its text to the last float got its
         // last letters trimmed to "…" (brave.exe -> "brave.e…", 30.10.2026).
+        const bool counted = c.routeDetailed && !chip.detail.empty();  // (the scheme alone: no figure after the name)
         float w = 32 + std::ceil(TextWidth(chip.text, body_.get())) + 12 +
-                  (chip.detail.empty() ? 0.0f : 8 + std::ceil(TextWidth(chip.detail, caption_.get())));
+                  (counted ? 8 + std::ceil(TextWidth(chip.detail, caption_.get())) : 0.0f);
         float h = kTag;
         if (w > x1 - left) {  // wider than the page: the whole width, the text wrapped, the detail under it
           w = x1 - left;
@@ -2311,10 +2312,10 @@ class Painter {
         // The number after a list's name: how many it has shut since the connection came up.
         if ((chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies ||
              chip.kind == UiChip::Kind::Trackers || chip.kind == UiChip::Kind::Malware) &&
-            !chip.detail.empty()) {
+            c.routeDetailed && !chip.detail.empty()) {
           tag.tip += L"\nЦифра рядом: сколько обращений закрыто с подключения — " + chip.detail + L".";
         }
-        tag.detail = chip.detail;
+        tag.detail = c.routeDetailed ? chip.detail : std::wstring();
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
         tag.text2 = chip.icon;
         tag.logo = chip.logo;
@@ -2409,7 +2410,7 @@ class Painter {
       }
       // What goes this way just now, off the log: a few sites, the rest counted; "ещё N" opens the log of them.
       const auto& now = c.routeNow.at(static_cast<std::size_t>(id));
-      if (!now.empty()) {
+      if (c.routeDetailed && !now.empty()) {
         const std::wstring prefix = id == kBucketBlock ? L"сейчас закрыто: " : L"сейчас: ";
         const std::size_t total = now.size() + c.routeNowMore.at(static_cast<std::size_t>(id));
         std::size_t shown = now.size();
@@ -2455,7 +2456,7 @@ class Painter {
     }
     // What the client worked out itself in «в обход блокировок»: the sites its first way
     // couldn't open and where they go now - a line each, under the board.
-    if (r.smart && !r.learned.empty()) {
+    if (c.routeDetailed && r.smart && !r.learned.empty()) {
       const float nameWidth = std::ceil(TextWidth(L"Клиент решил сам", heading_.get()));
       Item head = Make(Kind::Heading, {left, y, left + nameWidth + 4, y + 28}, L"Клиент решил сам");
       head.action = ItemAction::Hint;
@@ -2595,6 +2596,19 @@ class Painter {
       page_key(L"Настройки", kGlyphSettings, UiPage::Settings, L"Настройки: Kill switch, автозапуск, локальная сеть, блокировка");
       page_key(L"Журнал", kGlyphLog, UiPage::Logs, L"Журнал: что делает ядро, ошибки");
       page_key(L"Маршруты", kGlyphRoute, UiPage::Routing, L"Маршруты: что идёт через VPN, а что напрямую");
+    }
+    // The routing board: the scheme alone, or with what goes each way just now and the blocked counts
+    // (15.11.2026, his: "может 2 режима сделать тут подробный и обычный"). The Servers' "подробные
+    // замеры" key's way: one key by the cross, lit while the detail is on.
+    if (page == UiPage::Routing) {
+      Item details = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, L"Подробно",
+                                        kGlyphDiagnostic, UiCommand::ToggleRouteDetails));
+      details.checked = c.routeDetailed;
+      details.tip = c.routeDetailed ? L"Подробно: с тем, что идёт каждым путём сейчас, и счётчиками блока. Нажми — останется "
+                                      L"одна схема"
+                                    : L"Обычный вид: одна схема. Нажми — добавятся «сейчас: …» по каждому пути и счётчики блока";
+      keys.push_back(std::move(details));
+      right -= kKey;
     }
     // The configurations' ways to add are their tabs' own keys, words beside the icons (12.11.2026:
     // three bare icons in the title said nothing), not the title's.

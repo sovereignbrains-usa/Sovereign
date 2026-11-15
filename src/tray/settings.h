@@ -23,7 +23,7 @@ namespace sovereign::tray {
 // SYSTEM/admins) can read - it holds configs with passwords and keys.
 //
 //   tray.json    {"wantOn", "profiles", "protocol", "routing", "appsMode", "apps",
-//                 "appPaths", "hideExitIp", "delaysDetailed", "serversByDelay", "connectAtStartup",
+//                 "appPaths", "hideExitIp", "delaysDetailed", "routeDetailed", "serversByDelay", "connectAtStartup",
 //                 "routingMore", "logLevel", "killSwitch", "killSwitchChosen", "lanClosed", "lanAllowed",
 //                 "updates"}
 //   profiles\<id>\         one configuration (profiles.h), each with:
@@ -69,6 +69,9 @@ struct TraySettings {
   // The servers' latency in full - its spread, the requests, the connection's
   // time; else one figure, rounded to 5 ms (the rest is the network's noise).
   bool delaysDetailed = false;
+  // The routing page: the scheme alone (false), or with what goes each way just now and the
+  // blocked counts too.
+  bool routeDetailed = false;
   // The servers' page lists them fastest first (the last test's figures);
   // false: in the subscription's order.
   bool serversByDelay = true;

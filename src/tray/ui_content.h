@@ -367,6 +367,7 @@ struct UiContent {
   bool exitPending = false;             // being looked up
   bool hideExitIp = false;              // the country only
   bool delaysDetailed = false;          // latency in full (DelayLabel, DelayDetail)
+  bool routeDetailed = false;           // the routing board with "сейчас: …" and the blocked counts (else the scheme alone)
   bool serversByDelay = true;           // the servers' page lists them fastest first (ServerOrder)
   // The order the servers' page shows them in, indices into protocols (the
   // window's own: kept through a test, while every figure is "…"); empty:
@@ -493,6 +494,7 @@ enum class UiCommand : std::uint8_t {
   RevertConfig,      // the config back to the subscription as it arrived
   ToggleExitIp,        // show or hide the exit's address
   ToggleDelayDetails,  // the servers' latency in full, or one rounded figure
+  ToggleRouteDetails,  // the routing board: the scheme alone, or with what goes each way now and the counts
   SetServerOrder,      // index: 0 fastest first, 1 the subscription's order
   ChooseLogLevel,      // anchor: where to open the menu of levels
   ToggleKillSwitch,

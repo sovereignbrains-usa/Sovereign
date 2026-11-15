@@ -227,6 +227,9 @@ TraySettings LoadSettings() {
   if (const auto v = json.find("delaysDetailed"); v != json.end() && v->is_boolean()) {
     settings.delaysDetailed = v->get<bool>();
   }
+  if (const auto v = json.find("routeDetailed"); v != json.end() && v->is_boolean()) {
+    settings.routeDetailed = v->get<bool>();
+  }
   if (const auto v = json.find("serversByDelay"); v != json.end() && v->is_boolean()) {
     settings.serversByDelay = v->get<bool>();
   }
@@ -330,6 +333,7 @@ void SaveSettings(const TraySettings& settings) {
 
   json["hideExitIp"] = settings.hideExitIp;
   json["delaysDetailed"] = settings.delaysDetailed;
+  json["routeDetailed"] = settings.routeDetailed;
   json["serversByDelay"] = settings.serversByDelay;
   json["connectAtStartup"] = settings.connectAtStartup;
   json["routingMore"] = settings.routingMore;

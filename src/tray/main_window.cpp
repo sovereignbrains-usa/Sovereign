@@ -90,7 +90,7 @@ constexpr float kStationX = 24;      // a station, from the page's left
 constexpr float kMenuDot = 28;       // the mode menu: a row's words from its left (the dot of the way's colour before them)
 constexpr float kMenuCheck = 32;     // and from its right (the check)
 constexpr float kPillSide = 12;      // the mode's pill: its words from its ends
-constexpr float kChevron = 14;       // and the chevron after them
+constexpr float kPillKnob = 25;      // the round knob that holds the chevron, 5 from the pill's right end
 constexpr ULONGLONG kToggleGraceMs = 400;  // a tray click right after the window lost focus hides it
 
 // The log page: a row's height (an event: what happened, and with what under
@@ -1645,7 +1645,7 @@ class Painter {
         case Kind::Title:
         case Kind::Heading: room = w; need = TextWidth(it.text, heading_.get()); break;
         case Kind::Lead: room = w; need = TextWidth(it.text, lead_.get()); break;
-        case Kind::ModePill: room = w - kPillSide - 8 - kChevron - kPillSide; need = TextWidth(it.text, lead_.get()); break;
+        case Kind::ModePill: room = w - kPillSide - 4 - 8 - kPillKnob - 5; need = TextWidth(it.text, lead_.get()); break;
         case Kind::GhostAdd:
           if (!it.text.empty()) {
             room = w - 2 * 12;
@@ -2182,7 +2182,7 @@ class Painter {
     // Two modes since 0.6.19: "напрямую" alone (only the list «Через VPN» through it) is
     // RoutingFromJson's «в обход блокировок» now - what it sent directly still goes so.
     const std::wstring word = r.smart ? L"в обход блокировок" : L"через VPN";
-    const float pillWidth = kPillSide + std::ceil(TextWidth(word, lead_.get())) + 8 + kChevron + kPillSide;
+    const float pillWidth = kPillSide + 4 + std::ceil(TextWidth(word, lead_.get())) + 8 + kPillKnob + 5;
     float pillX = left + leadWidth + 8;
     float pillY = y;
     if (pillX + pillWidth > x1) {
@@ -3949,14 +3949,46 @@ class Painter {
     }
     y += kGap;
     if (c.checks.size() > kCheckRoute) {
-      const std::size_t card = l.items.size();
-      l.items.push_back(Make(Kind::Card, {x0, y, x1, y}));
-      y += kCheckRow + CheckLine(l, c, kCheckRoute, x0, x1, y);
-      l.items[card].rect.bottom = y;
-      y += kGap;
+      y = RouteProbe(l, c, x0, x1, y) + kGap;
     }
     const float end = c.appsInclude ? Apps(l, c, x0, x1, y) : y;
     return c.routeMenu ? std::max(end, RouteMenu(l, r, x0, x1, leadBottom + 8)) : end;
+  }
+
+  // The route check as the page's own tool (15.11.2026, his: the card with a dot, a title, a "?" and an
+  // icon "doesn't fit the tab"): the log's search well - what the page is asked - and its word beside it,
+  // both of one height; the answer a line under them, a dot of its verdict before it. The "?" went: the
+  // key's tip and the answer's say it.
+  float RouteProbe(Layout& l, const UiContent& c, float x0, float x1, float top) const {
+    const UiCheck& check = c.checks[kCheckRoute];
+    constexpr float kProbe = 36;
+    constexpr float kAnswer = 26;
+    const float buttonLeft = x1 - 4 - kRouteButton;
+    const std::wstring tip = L"Введи адрес — клиент откроет его и спросит ядро, как он пошёл: напрямую, через VPN, "
+                             L"через WARP или заблокирован, и по какому правилу.";
+    Item well = CommandItem(Kind::Find, {x0 + 4, top, buttonLeft - 8, top + kProbe}, L"", nullptr,
+                            UiCommand::CheckRoute, 0);
+    well.text2 = check.title;
+    well.tip = tip;
+    well.enabled = !c.checksRunning;
+    l.items.push_back(std::move(well));
+    Item run = CommandItem(Kind::Button, {buttonLeft, top, x1 - 4, top + kProbe}, L"Проверить", nullptr,
+                           UiCommand::CheckRoute, 0);
+    run.enabled = !c.checksRunning;
+    run.tip = L"Ввести сайт и узнать, каким путём он пойдёт";
+    l.items.push_back(std::move(run));
+    float bottom = top + kProbe;
+    if (check.status != UiCheck::Status::NotRun) {
+      Item answer = Make(Kind::CheckRow, {x0 + 4, bottom + 2, x1 - 4, bottom + 2 + kAnswer});
+      answer.detail = check.summary;
+      answer.index = static_cast<int>(check.status);
+      answer.sub = static_cast<int>(kCheckRoute);
+      answer.text2 = check.detail;
+      answer.tip = check.detail.empty() ? tip : check.detail;
+      l.items.push_back(std::move(answer));
+      bottom += 2 + kAnswer;
+    }
+    return bottom;
   }
 
   // What a row grows by (0 or kStackLine) when its value doesn't fit beside its title in the room the
@@ -5006,15 +5038,20 @@ class Painter {
       case Kind::ModePill: {
         // A key in the sentence: the card's plate, a hairline brightened while open, the
         // chevron turned over then (the mockup's .pill).
+        // 15.11.2026 (his: "вид улучшить"): the outline all round read as a field to type in; now a plate
+        // with a lit top edge, and the chevron in a round knob of its own - the part that opens.
         const float radius = (r.bottom - r.top) / 2;
-        k.Round(r, radius, Rgb(255, 255, 255, hovered || it.checked ? 0.10f : 0.06f));
+        k.Round(r, radius, Rgb(255, 255, 255, hovered || it.checked ? 0.09f : 0.05f));
         if (pressed) {
           k.Round(r, radius, Rgb(0, 0, 0, 0.12f));
         }
-        k.Outline(r, radius, Rgb(255, 255, 255, it.checked ? 0.38f : hovered ? 0.30f : 0.20f));
-        k.Text(it.text, lead_.get(), {r.left + kPillSide, r.top, r.right - kPillSide - kChevron - 8, r.bottom}, primary);
-        const float cx = r.right - kPillSide - kChevron / 2;
+        k.Outline(r, radius, Rgb(255, 255, 255, it.checked ? 0.30f : hovered ? 0.22f : 0.12f));
+        k.Text(it.text, lead_.get(), {r.left + kPillSide + 4, r.top, r.right - 5 - kPillKnob - 8, r.bottom}, primary);
+        const float cx = r.right - 5 - kPillKnob / 2;
         const float cy = (r.top + r.bottom) / 2;
+        const float knob = std::min(kPillKnob / 2, radius - 4);
+        k.t->FillEllipse(D2D1::Ellipse({cx, cy}, knob, knob),
+                         k.Color(it.checked ? FromColorRef(ui::kLit, 0.22f) : Rgb(255, 255, 255, hovered ? 0.16f : 0.09f)));
         const float turn = it.checked ? -1.0f : 1.0f;
         Polyline(k, {{cx - 3.5f, cy - 1.75f * turn}, {cx, cy + 1.75f * turn}, {cx + 3.5f, cy - 1.75f * turn}}, primary,
                  1.75f);
@@ -5295,6 +5332,12 @@ class Painter {
         // The title's line: the whole row, or - the result stands under it - the row less kStackLine.
         const float lineBottom = it.stacked ? r.bottom - kStackLine : r.bottom;
         const float cy = (r.top + lineBottom) / 2;
+        if (it.text.empty()) {  // the route probe's answer: a dot and the verdict, under its well
+          k.t->FillEllipse(D2D1::Ellipse({r.left + 12.5f, cy}, 4.0f, 4.0f), k.Color(status));
+          k.Text(it.detail, trailing_.get(), {r.left + 26, r.top, r.right - 8, r.bottom},
+                 it.index >= 3 ? status : primary);
+          break;
+        }
         k.t->FillEllipse(D2D1::Ellipse({r.left + 20.5f, cy}, 4.5f, 4.5f), k.Color(status));  // its ink from the line 20
         // The title and its "?" (a Hint item after it), the result in what's
         // left on the right, or under the title when that's too little.
@@ -5938,12 +5981,18 @@ class Painter {
   // A key's pill; a new version's is thinner (30.10.2026, his: the button was
   // big, its top edge flush with the window's), with its number on it as wide
   // as its cell.
+  // A title bar key that switches something (the routing board's detail, the servers' full figures, auto): on, it
+  // is lit in its own place; a version's key has its window and lamp.
+  static bool IsToggleKey(const Item& it) {
+    return it.command == UiCommand::ToggleRouteDetails || it.command == UiCommand::ToggleDelayDetails ||
+           (it.command == UiCommand::SetProtocol && it.detail.empty() && !it.loud);
+  }
   static D2D1_RECT_F KeyPill(const Item& it) {
     if (it.loud) {  // the report's key on a bad day: its words beside the bubble, a quiet button's outline
       const float cy = (it.rect.top + it.rect.bottom) / 2;
       return {it.rect.left + 2, cy - 13, it.rect.right - 2, cy + 13};
     }
-    if (it.checked) {
+    if (it.checked && !IsToggleKey(it)) {
       const float cy = (it.rect.top + it.rect.bottom) / 2;
       if (it.detail.empty()) {
         const float cx = (it.rect.left + it.rect.right) / 2;
@@ -6192,6 +6241,7 @@ class Painter {
   void DrawChrome(const Canvas& k, const Item& it, bool hovered, bool pressed) const {
     const D2D1_RECT_F r = it.rect;
     const bool cross = it.glyph == kGlyphClose;
+    const bool litKey = it.checked && IsToggleKey(it);
     if (it.loud) {
       // A bad day (the kill switch closed the internet): "Сообщить о проблеме" said, not only drawn - a
       // quiet button, a hairline and no fill, the bubble before the words (settings-instruments.html, frame 5).
@@ -6206,6 +6256,10 @@ class Painter {
       k.Text(it.detail, caption_.get(), {pill.left + 30, r.top, pill.right - 8, r.bottom}, ink);
       return;
     }
+    if (litKey) {  // a toggle that is on: its key pressed in and lit, the white of the hand (not a lamp)
+      k.Round(ChromePill(r), 8, FromColorRef(ui::kLit, pressed ? 0.10f : (hovered ? 0.22f : 0.15f)));
+      k.Outline(ChromePill(r), 8, FromColorRef(ui::kLit, 0.30f));
+    }
     if (!it.checked && (hovered || pressed)) {
       k.Round(ChromePill(r), 8,
               cross ? FromColorRef(ui::kDanger, pressed ? 0.14f : 0.22f)
@@ -6215,7 +6269,7 @@ class Painter {
     // halo, its number on it where it fits - the one thing on the bar that's
     // news (30.10.2026, his: "ахуенный значок"; it was the arrow in the
     // accent alone, lost among the keys).
-    if (it.checked) {
+    if (it.checked && !litKey) {
       // An indicator window: a dark recess with a lit hairline and a pilot
       // lamp lit in it, the version in white (30.10.2026: the solid blue pill
       // was a button; this is a reading). White since: blue is the VPN's.
@@ -6234,6 +6288,7 @@ class Painter {
       return;
     }
     const D2D1_COLOR_F ink = !it.enabled ? FromColorRef(ui::kSecondaryText, 0.4f)
+                             : litKey     ? FromColorRef(ui::kPrimaryText)
                              : !hovered   ? FromColorRef(ui::kSecondaryText)
                              : cross      ? FromColorRef(ui::kDanger)
                                           : FromColorRef(ui::kPrimaryText);
@@ -7086,7 +7141,7 @@ struct MainWindow::Impl {
           }
           rect = {std::max(8.0F, keysLeft - kRoom), it.rect.top, keysLeft - 4, it.rect.bottom};
         }
-        if (anchor == UiCommand::CheckRoute) {
+        if (anchor == UiCommand::CheckRoute && it.kind != Kind::Find) {
           // Its button is an icon: the address is typed over the line's result.
           for (const Item& row : layout.items) {
             if (row.kind == Kind::CheckRow && row.rect.top < it.rect.bottom && row.rect.bottom > it.rect.top) {

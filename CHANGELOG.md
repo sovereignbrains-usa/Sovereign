@@ -7,6 +7,7 @@ What changed for someone using Sovereign, release by release. The release workfl
 ## 0.6.21 — 15.11.2026
 
 - **Microsoft Store apps are in the list of programs**: "Программа…" on the routing page, in "Из запущенных", offered ApplicationFrameHost for every Store (UWP) app — the window on the screen is its, and a rule on that name matches nothing. The app is listed under its own exe now (Безопасность Windows → SecHealthUI.exe, and the like). A Store app that is suspended, with only an empty frame left, is not offered at all.
+- **Routing page, a calmer look**: the mode's pill is a plate with the chevron in a round knob of its own (it was an outline that read as a field to type in). The title bar's switches (the routing page's detail, the servers' full figures, auto) are lit as a pressed-in key when on, no longer a window with a lamp like the version's key beside them. The route check («Куда пойдёт сайт?») is no card with a dot and an icon any more: a search well and its «Проверить» on one line, the answer under them with a dot of its verdict.
 
 ## 0.6.20 — 15.11.2026
 

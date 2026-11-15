@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.21 — 15.11.2026
+
+- **Microsoft Store apps are in the list of programs**: "Программа…" on the routing page, in "Из запущенных", offered ApplicationFrameHost for every Store (UWP) app — the window on the screen is its, and a rule on that name matches nothing. The app is listed under its own exe now (Безопасность Windows → SecHealthUI.exe, and the like). A Store app that is suspended, with only an empty frame left, is not offered at all.
+
 ## 0.6.20 — 15.11.2026
 
 - **The routing page has two views**: the plain one is the scheme alone — the ways, what's on them, "Куда пойдёт сайт?". The detailed one adds the "сейчас: …" lines, the blocked counts and "Клиент решил сам". The key "Подробно" is in the title bar, by the cross; the choice is kept.

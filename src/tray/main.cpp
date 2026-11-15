@@ -4903,8 +4903,47 @@ struct RunningApp {
   std::string path;  // the exe's full path, for its icon
 };
 
+// The full path of a process's exe; empty if it can't be read (a protected or
+// an elevated process, one that is gone).
+std::wstring ProcessExePath(DWORD pid) {
+  const wil::unique_handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+  if (!process) {
+    return {};
+  }
+  wchar_t path[MAX_PATH]{};
+  DWORD size = MAX_PATH;
+  return QueryFullProcessImageNameW(process.get(), 0, path, &size) ? std::wstring(path, size) : std::wstring();
+}
+
+// A Microsoft Store (UWP) app has no top-level window of its own: the one on
+// the screen belongs to ApplicationFrameHost, and the app - the process whose
+// name a rule has to match - is behind it, in a child window. Its pid, or 0
+// if there is none (the app is suspended: its frame is a ghost).
+DWORD ProcessBehindFrame(HWND frame, DWORD frameProcess) {
+  struct Search {
+    DWORD frameProcess;
+    DWORD found;
+  } search{frameProcess, 0};
+  EnumChildWindows(
+      frame,
+      [](HWND child, LPARAM context) -> BOOL {
+        // EnumChildWindows hands its context back as an LPARAM - the cast is the API's shape.
+        auto* const found = reinterpret_cast<Search*>(context);  // NOLINT(performance-no-int-to-ptr)
+        DWORD pid = 0;
+        GetWindowThreadProcessId(child, &pid);
+        if (pid != 0 && pid != found->frameProcess) {
+          found->found = pid;
+          return FALSE;
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&search));
+  return search.found;
+}
+
 // The programs with a visible window - what "add from running" offers -
-// sorted by name, without duplicates and without the ones already listed.
+// sorted by name, without duplicates and without the ones already listed. A
+// Store app is listed under its own exe, not under its frame host's.
 std::vector<RunningApp> RunningApps(const std::vector<std::string>& listed) {
   std::vector<RunningApp> names;
   EnumWindows(
@@ -4914,18 +4953,25 @@ std::vector<RunningApp> RunningApps(const std::vector<std::string>& listed) {
         }
         DWORD pid = 0;
         GetWindowThreadProcessId(w, &pid);
-        const wil::unique_handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
-        if (!process || pid == GetCurrentProcessId()) {
+        if (pid == GetCurrentProcessId()) {
           return TRUE;
         }
-        wchar_t path[MAX_PATH]{};
-        DWORD size = MAX_PATH;
-        if (QueryFullProcessImageNameW(process.get(), 0, path, &size)) {
-          const std::wstring full(path, size);
-          // EnumWindows hands its context back as an LPARAM - the cast is the API's shape.
-          reinterpret_cast<std::vector<RunningApp>*>(out)->push_back(  // NOLINT(performance-no-int-to-ptr)
-              {Narrow(full.substr(full.find_last_of(L'\\') + 1)), Narrow(full)});
+        std::wstring full = ProcessExePath(pid);
+        if (full.empty()) {
+          return TRUE;
         }
+        std::string name = Narrow(full.substr(full.find_last_of(L'\\') + 1));
+        if (SameName(name, "ApplicationFrameHost.exe")) {
+          const DWORD app = ProcessBehindFrame(w, pid);
+          full = app != 0 ? ProcessExePath(app) : std::wstring();
+          if (full.empty()) {
+            return TRUE;  // a ghost frame, or an app that can't be read: the host's name would match nothing
+          }
+          name = Narrow(full.substr(full.find_last_of(L'\\') + 1));
+        }
+        // EnumWindows hands its context back as an LPARAM - the cast is the API's shape.
+        reinterpret_cast<std::vector<RunningApp>*>(out)->push_back(  // NOLINT(performance-no-int-to-ptr)
+            {std::move(name), Narrow(full)});
         return TRUE;
       },
       reinterpret_cast<LPARAM>(&names));

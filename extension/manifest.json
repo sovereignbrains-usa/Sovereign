@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Sovereign помощник",
   "short_name": "Sovereign",
-  "version": "0.1.0",
-  "description": "YouTube без рекламы: рекламные вставки вырезаются из страницы ещё до плеера.",
+  "version": "0.2.0",
+  "description": "YouTube без рекламы: рекламные вставки вырезаются из страницы ещё до плеера. TikTok: баннер cookie сам отвечает «отклонить».",
   "icons": {
     "16": "icons/16.png",
     "48": "icons/48.png",
@@ -23,6 +23,11 @@
       "css": ["yt.css"],
       "run_at": "document_start",
       "all_frames": true
+    },
+    {
+      "matches": ["*://*.tiktok.com/*"],
+      "js": ["tt-page.js"],
+      "run_at": "document_idle"
     }
   ]
 }

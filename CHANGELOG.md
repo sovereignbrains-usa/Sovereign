@@ -4,6 +4,12 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.20 — 15.11.2026
+
+- **The routing page has two views**: the plain one is the scheme alone — the ways, what's on them, "Куда пойдёт сайт?". The detailed one adds the "сейчас: …" lines, the blocked counts and "Клиент решил сам". The key "Подробно" is in the title bar, by the cross; the choice is kept.
+- **"Назад" from the log goes back to "Маршруты"** when the log was opened by a "ещё N" there, not round by the main screen.
+- **The routing scheme's line is drawn better**: it runs on unbroken, and the branches come out from under it instead of painting a stretch of it in their colour. A branch that carries sites just now has dots on it, the others are quieter. The line's end has the same faint ring as its start.
+
 ## 0.6.19 — 15.11.2026
 
 - **Two routing modes, not three**: "Напрямую" (everything directly, only what's chosen through the VPN) is gone. «В обход блокировок» does the same and also opens what Russia cuts, so a setting that was "Напрямую" opens as «в обход блокировок»; what's chosen through the VPN stays there.

@@ -2447,6 +2447,7 @@ class Painter {
       Item route = Make(Kind::Route, {x0, cy - kLineTurn, x0 + kSchemeIndent - 4, cy + kLineTurn});
       route.rail = id;
       route.sub = id == kBucketBlock ? kRouteEnd : kRouteStation;
+      route.checked = !now.empty();  // sites went this way just now: its dots run (DrawRoute)
       if (rest) {
         restY = cy;
       } else {
@@ -2477,7 +2478,7 @@ class Painter {
     Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY});
     spine.rail = mode;
     spine.sub = kRouteSpine;
-    routes.insert(routes.begin(), std::move(spine));
+    routes.push_back(std::move(spine));  // last: it is drawn over the branches' first stretch
     l.items.insert(l.items.begin() + static_cast<std::ptrdiff_t>(lines), std::make_move_iterator(routes.begin()),
                    std::make_move_iterator(routes.end()));
     return y - 20;
@@ -6004,14 +6005,18 @@ class Painter {
 
   // A line of the routing scheme (Kind::Route): the mode's spine from its node down to the way
   // everything else goes, or a way's branch off it to its station (the block's: a bar, the line
-  // ends). Steady: the pointer does not light it.
+  // ends). Steady: the pointer does not light it. The main line is drawn after the branches (Board):
+  // it runs on unbroken, a branch comes out from under it instead of painting a stretch of it its
+  // own colour. A branch that carries traffic just now (Item::checked: its "сейчас:" has sites)
+  // has the main line's dots on it; one that doesn't is quieter (15.11.2026).
   void DrawRoute(const Canvas& k, const Item& it) const {
     const D2D1_RECT_F r = it.rect;
-    const D2D1_COLOR_F ink = FromColorRef(BucketColor(it.rail));
+    const bool spine = it.sub == kRouteSpine;
+    const bool live = spine || it.checked;
+    const D2D1_COLOR_F ink = FromColorRef(BucketColor(it.rail), live ? 1.0f : 0.55f);
     const D2D1_COLOR_F hole = FromColorRef(ui::kWindowColor);
     const float x = r.left + kLineX;
     const float end = r.left + kStationX;
-    const bool spine = it.sub == kRouteSpine;
     const float width = spine ? 3.0f : 2.0f;
     const float y = spine ? r.bottom : (r.top + r.bottom) / 2;  // where it turns into its way
     const float from = spine ? r.top : y - kLineTurn;
@@ -6025,15 +6030,18 @@ class Painter {
       sink->EndFigure(D2D1_FIGURE_END_OPEN);
       if (SUCCEEDED(sink->Close())) {
         k.t->DrawGeometry(path.get(), k.Color(ink), width, roundCaps_.get());
-        if (spine) {  // the traffic on the main line: dots going down it (still, with the motion off)
-          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, 0.55f)), 1.5f, dots_.get());
+        if (live) {  // the traffic: dots along the line (the main line's always, a branch's while it carries some)
+          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, spine ? 0.55f : 0.7f)), 1.5f, dots_.get());
         }
       }
     }
     if (it.sub == kRouteEnd) {  // the block: the line ends in a bar
       k.t->DrawLine({end, y - 6}, {end, y + 6}, k.Color(ink), width, roundCaps_.get());
     } else {  // a station, hollow: the window's colour inside its ring
-      const float radius = spine ? 5.0f : 4.0f;
+      const float radius = spine ? 6.0f : 4.0f;
+      if (spine) {  // the line's end: the faint ring the mode's node at the top has
+        k.t->DrawEllipse(D2D1::Ellipse({end, y}, 10, 10), k.Color(FromColorRef(BucketColor(it.rail), 0.25f)), 1.5f);
+      }
       k.t->FillEllipse(D2D1::Ellipse({end, y}, radius, radius), k.Color(hole));
       k.t->DrawEllipse(D2D1::Ellipse({end, y}, radius, radius), k.Color(ink), spine ? 3.0f : 2.0f);
     }

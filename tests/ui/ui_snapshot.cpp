@@ -306,8 +306,8 @@ int Snapshots(const std::wstring& dir) {
     routed.routing.finalDirect = true;
     routed.routing.smart = true;
     routed.routing.board = SampleBoard();
-    routed.routing.smartVpn = {{"telegram", L"Telegram"}, {"youtube", L"YouTube"}, {"whatsapp", L"WhatsApp"},
-                               {"tiktok", L"TikTok"}, {"chatgpt", L"ChatGPT"}};
+    routed.routing.smartVpn = {{"telegram", L"Telegram"}, {"whatsapp", L"WhatsApp"}, {"instagram", L"Instagram"},
+                               {"tiktok", L"TikTok"}, {"discord", L"Discord"}};
     routed.routeNow = {std::vector<std::wstring>{L"ya.ru", L"gosuslugi.ru", L"vk.com"},
                        std::vector<std::wstring>{L"github.com", L"rutracker.org"},
                        std::vector<std::wstring>{L"adservice.google.com", L"mc.yandex.ru"}, std::vector<std::wstring>{}};

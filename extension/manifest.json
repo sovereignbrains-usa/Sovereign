@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Sovereign помощник",
+  "short_name": "Sovereign",
+  "version": "0.1.0",
+  "description": "YouTube без рекламы: рекламные вставки вырезаются из страницы ещё до плеера.",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+      "js": ["yt-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": ["*://*.youtube.com/*", "*://*.youtube-nocookie.com/*"],
+      "js": ["yt-page.js"],
+      "css": ["yt.css"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

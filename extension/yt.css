@@ -1,0 +1,38 @@
+/* Sovereign helper, YouTube: what is left of an ad on the page once
+   yt-main.js took it out of the data - and the slots, if it didn't. */
+
+/* youtube.com */
+ytd-ad-slot-renderer,
+ytd-in-feed-ad-layout-renderer,
+ytd-display-ad-renderer,
+ytd-promoted-sparkles-web-renderer,
+ytd-promoted-sparkles-text-search-renderer,
+ytd-promoted-video-renderer,
+ytd-compact-promoted-video-renderer,
+ytd-search-pyv-renderer,
+ytd-banner-promo-renderer,
+ytd-statement-banner-renderer,
+ytd-brand-video-shelf-renderer,
+ytd-brand-video-singleton-renderer,
+ytd-companion-slot-renderer,
+ytd-action-companion-ad-renderer,
+ytd-player-legacy-desktop-watch-ads-renderer,
+ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"],
+ytd-rich-item-renderer:has(ytd-ad-slot-renderer),
+ytd-rich-section-renderer:has(ytd-statement-banner-renderer),
+ytd-rich-section-renderer:has(ytd-brand-video-shelf-renderer),
+ytd-merch-shelf-renderer,
+#masthead-ad,
+#player-ads,
+.ytp-ad-overlay-container,
+.ytp-ad-image-overlay,
+
+/* m.youtube.com */
+ad-slot-renderer,
+ytm-promoted-sparkles-web-renderer,
+ytm-promoted-video-renderer,
+ytm-companion-ad-renderer,
+ytm-companion-slot,
+ytm-rich-item-renderer:has(ad-slot-renderer) {
+  display: none !important;
+}

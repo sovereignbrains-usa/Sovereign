@@ -675,6 +675,7 @@ struct LogState {
   bool selected = false;   // a row is: its card under the list
   std::wstring detail;     // the selected row's line as the core wrote it
   bool server = false;     // it's about one of the servers' ways: "Показать сервер"
+  UiPage back = UiPage::Overview;  // where the log's "Назад" leads: the routing board's "ещё N" opened it from there
 };
 
 // The live traffic round the main screen's switch (UiContent::flow*): dots
@@ -1008,9 +1009,10 @@ bool AnyWaiting(const UiContent& c) {
 
 // Where a page's "back" (and Esc) leads: a configuration to the list, the
 // rest to the overview.
-UiPage BackOf(UiPage page) {
+UiPage BackOf(UiPage page, UiPage logFrom = UiPage::Overview) {
   switch (page) {
     case UiPage::Profile: return UiPage::Subscription;
+    case UiPage::Logs: return logFrom;  // the board's "ещё N" opened it: back to the board, not round by the overview
     default: return UiPage::Overview;  // the routing and the log too: the title bar's keys open them
   }
 }
@@ -1253,7 +1255,7 @@ class Painter {
     l.viewTop = kCaption;  // the page scrolls under our title bar
     l.viewBottom = height;
     // fixed: before the page's items, which scroll
-    const bool nameWhole = Caption(l, c, width, page, HeadOf(c, page, profile));
+    const bool nameWhole = Caption(l, c, width, page, HeadOf(c, page, profile), logState.back);
     const std::size_t first = l.items.size();
 
     // An inner page's first line 12 under the bar: its name is the bar's now.
@@ -2553,7 +2555,8 @@ class Painter {
   // On an inner page back and the page's name (HeadOf) stand where the icon and the name are; the
   // report goes after the name, as it does after the app's. Returns false when the name (a configuration's) did not
   // fit: the bar says "Конфигурация" and the page carries the name, wrapped.
-  bool Caption(Layout& l, const UiContent& c, float width, UiPage page, const PageHead& head) const {
+  bool Caption(Layout& l, const UiContent& c, float width, UiPage page, const PageHead& head,
+               UiPage logFrom) const {
     // Keys of one width, the cross's too (it was Windows' 46): their pills
     // (DrawChrome) a step apart, the cross's as far from the window's right
     // edge as from its top. Its cell still runs to the edge - a throw of the
@@ -2691,7 +2694,7 @@ class Painter {
       // left says "Конфигурация" and goes on the page.
       Item back = chrome(Make(Kind::IconButton, {0, 0, 40, kCaption}, L"Назад", kGlyphBack));
       back.action = ItemAction::Page;
-      back.index = static_cast<int>(BackOf(page));
+      back.index = static_cast<int>(BackOf(page, logFrom));
       back.tip = L"Назад (Esc)";
       l.items.push_back(std::move(back));
       constexpr float kTitleLeft = 44;
@@ -6305,6 +6308,7 @@ struct MainWindow::Impl {
 
   UiContent content;
   UiPage page = UiPage::Overview;
+  UiPage logFrom = UiPage::Overview;  // the page the board's "ещё N" opened the log from: its "Назад" leads there
   std::string openProfile;  // the id of the configuration UiPage::Profile shows
   float scroll = 0;
   Layout layout;
@@ -6901,6 +6905,7 @@ struct MainWindow::Impl {
     state.search = log.search;
     state.only = !log.only.empty();
     state.onlyTitle = log.onlyTitle;
+    state.back = logFrom;
     state.route = log.route == LogRoute::Direct  ? L"сайты напрямую"
                   : log.route == LogRoute::Proxy ? L"сайты через VPN"
                   : log.route == LogRoute::Block ? L"заблокированные сайты"
@@ -7286,6 +7291,9 @@ struct MainWindow::Impl {
       }
     }
     if (p != page) {
+      if (page == UiPage::Logs) {
+        logFrom = UiPage::Overview;  // left; the next way in is the board's "ещё N" only if it says so
+      }
       page = p;
       scroll = 0;
       in.focus = -1;
@@ -7370,6 +7378,7 @@ struct MainWindow::Impl {
         log.follow = true;
         log.Rebuild();
         ClampLog();
+        logFrom = page == UiPage::Routing ? UiPage::Routing : UiPage::Overview;
         Go(UiPage::Logs);
         return;
       case ItemAction::LogOnly:
@@ -8217,7 +8226,7 @@ struct MainWindow::Impl {
       if (routeMenu) {
         SetRouteMenu(false);
       } else if (page != UiPage::Overview) {
-        Go(BackOf(page));
+        Go(BackOf(page, logFrom));
       } else {
         ShowWindow(hwnd, SW_HIDE);
       }

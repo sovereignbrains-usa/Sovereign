@@ -5334,8 +5334,7 @@ class Painter {
         const float cy = (r.top + lineBottom) / 2;
         if (it.text.empty()) {  // the route probe's answer: a dot and the verdict, under its well
           k.t->FillEllipse(D2D1::Ellipse({r.left + 12.5f, cy}, 4.0f, 4.0f), k.Color(status));
-          k.Text(it.detail, trailing_.get(), {r.left + 26, r.top, r.right - 8, r.bottom},
-                 it.index >= 3 ? status : primary);
+          k.Text(it.detail, body_.get(), {r.left + 26, r.top, r.right - 8, r.bottom}, it.index >= 3 ? status : primary);
           break;
         }
         k.t->FillEllipse(D2D1::Ellipse({r.left + 20.5f, cy}, 4.5f, 4.5f), k.Color(status));  // its ink from the line 20
@@ -6257,8 +6256,7 @@ class Painter {
       return;
     }
     if (litKey) {  // a toggle that is on: its key pressed in and lit, the white of the hand (not a lamp)
-      k.Round(ChromePill(r), 8, FromColorRef(ui::kLit, pressed ? 0.10f : (hovered ? 0.22f : 0.15f)));
-      k.Outline(ChromePill(r), 8, FromColorRef(ui::kLit, 0.30f));
+      k.Round(ChromePill(r), 8, FromColorRef(ui::kLit, pressed ? 0.12f : (hovered ? 0.24f : 0.18f)));
     }
     if (!it.checked && (hovered || pressed)) {
       k.Round(ChromePill(r), 8,

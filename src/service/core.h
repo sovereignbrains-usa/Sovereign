@@ -156,7 +156,7 @@ struct SiteResult {
 struct SpeedResult {
   std::string tag;
   bool pending = false;   // a run goes
-  std::int64_t kbps = 0;  // the best three seconds of it, kbit/s; 0 with no error: nothing yet
+  std::int64_t kbps = 0;  // the run's average after its first second, kbit/s; 0 with no error: nothing yet
   std::string error;      // why there is none
 };
 

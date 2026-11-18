@@ -2,12 +2,15 @@ package main
 
 // The speed of a way, by the user's click ("замерить" on the servers page):
 // eight seconds of a download through the outbound itself from Cloudflare's
-// speed test (pieces of it one after another over one connection, a few
-// hundred MB on a fast line, so only on a click). The figure is the best
-// three seconds of the run, the first second (the window still growing)
-// left out - what a long download would get, not what a small page shows.
-// Like box_exitip it only starts the run and reports what it knows, one run
-// at a time.
+// speed test - three connections at once, each reading pieces of it one
+// after another (a few hundred MB on a fast line, so only on a click). The
+// figure is the average of the run after its first second of data (the
+// window still growing; counted from the first byte, so a slow handshake
+// is not held against the way): what a long download would get, not what a
+// small page shows. Not the best window of the run: that figure is the
+// burst's, and on 18.11.2026 one flow and the best 3 s put the same line
+// at 122 to 329 Mbit/s from one way to the next. Like box_exitip it only
+// starts the run and reports what it knows, one run at a time.
 
 /*
 #include <stdlib.h>
@@ -23,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	box "github.com/sagernet/sing-box"
@@ -42,8 +46,10 @@ const (
 	speedPiece      = 40_000_000
 	speedPieceLeast = 5_000_000
 	speedDuration   = 8 * time.Second
-	speedWarmup     = time.Second
-	speedWindow     = 3 * time.Second
+	speedWarmup     = time.Second     // from the first byte of the run
+	speedLeast      = 2 * time.Second // the shortest stretch after it that says a figure
+	speedFlows      = 3               // one flow's speed is its congestion control's mood (150 of 250 Mbit/s on his line)
+	speedSample     = 100 * time.Millisecond
 	speedMaxTags    = 512
 )
 
@@ -90,26 +96,37 @@ func resetSpeed() {
 	speedBusy = false
 }
 
-// speedFigure: the best `window` of a run given as byte counts at moments
-// since its start, in kbit/s; 0 when the run was too short to say.
+// speedFigure: the average speed of a run given as byte counts (all its
+// flows together) at moments since its start, in kbit/s: from `speedWarmup`
+// after the first byte to the last sample. 0 when less than `speedLeast`
+// of it is left to say.
 func speedFigure(at []time.Duration, bytes []int64) int64 {
-	var best int64
+	first := -1
 	for i := range at {
-		if at[i] < speedWarmup {
-			continue
-		}
-		// The earliest sample at least `window` before this one.
-		for j := i - 1; j >= 0; j-- {
-			if at[i]-at[j] >= speedWindow {
-				kbps := (bytes[i] - bytes[j]) * 8 / int64((at[i]-at[j])/time.Millisecond)
-				if kbps > best {
-					best = kbps
-				}
-				break
-			}
+		if bytes[i] > 0 {
+			first = i
+			break
 		}
 	}
-	return best
+	if first < 0 {
+		return 0
+	}
+	from := -1
+	for i := first; i < len(at); i++ {
+		if at[i]-at[first] >= speedWarmup {
+			from = i
+			break
+		}
+	}
+	if from < 0 {
+		return 0
+	}
+	last := len(at) - 1
+	span := at[last] - at[from]
+	if span < speedLeast {
+		return 0
+	}
+	return (bytes[last] - bytes[from]) * 8 / int64(span/time.Millisecond)
 }
 
 type speedRequest struct {
@@ -216,10 +233,82 @@ func speedOutbound(instance *box.Box, tag string) (adapter.Outbound, bool) {
 // runSpeed: the run itself; `progress` hears the last second's speed, a few
 // times a second, for the figure that grows on the page while it goes.
 func runSpeed(ctx context.Context, outbound adapter.Outbound, progress func(kbps int64)) speedState {
-	ctx, cancel := context.WithTimeout(ctx, speedDuration+10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, speedDuration)
 	defer cancel()
-	// Keep-alive stays on: the next piece goes over the connection the last
-	// one used, not through a new handshake with the outbound.
+
+	var total atomic.Int64 // what all the flows have read
+	var failMu sync.Mutex
+	var failed string // the first flow's reason to stop, if it was not the clock
+	fail := func(reason string) {
+		failMu.Lock()
+		defer failMu.Unlock()
+		if failed == "" {
+			failed = reason
+		}
+	}
+	var flows sync.WaitGroup
+	for range speedFlows {
+		flows.Add(1)
+		go func() {
+			defer flows.Done()
+			defer catchPanic("speed flow", fail)
+			if reason := speedFlow(ctx, outbound, &total); reason != "" {
+				fail(reason)
+			}
+		}()
+	}
+	finished := make(chan struct{})
+	go func() {
+		flows.Wait()
+		close(finished)
+	}()
+
+	// The flows only count; the run looks at the count every speedSample.
+	start := time.Now()
+	ticker := time.NewTicker(speedSample)
+	defer ticker.Stop()
+	hard := time.NewTimer(speedDuration + 3*time.Second) // a flow that won't let go is left behind
+	defer hard.Stop()
+	var at []time.Duration
+	var counts []int64
+	var told time.Duration
+	back := 0 // the earliest sample within the last second
+	for done := false; !done; {
+		select {
+		case <-ticker.C:
+		case <-finished:
+			done = true
+		case <-hard.C:
+			done = true
+		}
+		now := time.Since(start)
+		at = append(at, now)
+		counts = append(counts, total.Load())
+		for back < len(at)-1 && now-at[back+1] >= time.Second {
+			back++
+		}
+		if now-told >= 250*time.Millisecond && now-at[back] >= 500*time.Millisecond {
+			told = now
+			progress((counts[len(counts)-1] - counts[back]) * 8 / int64((now-at[back])/time.Millisecond))
+		}
+	}
+	if kbps := speedFigure(at, counts); kbps > 0 {
+		return speedState{Kbps: kbps}
+	}
+	failMu.Lock()
+	defer failMu.Unlock()
+	if failed != "" {
+		return speedState{Error: failed}
+	}
+	return speedState{Error: "too little came through to say"}
+}
+
+// speedFlow: one connection's share of a run - pieces of the test file one
+// after another over one keep-alive connection (the next piece goes over
+// the connection the last one used, not through a new handshake with the
+// outbound), every byte added to `total`, until the context ends. It
+// returns why it stopped when that was not the end of the run, else "".
+func speedFlow(ctx context.Context, outbound adapter.Outbound, total *atomic.Int64) string {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			conn, err := outbound.DialContext(ctx, "tcp", M.ParseSocksaddr(addr))
@@ -236,70 +325,46 @@ func runSpeed(ctx context.Context, outbound adapter.Outbound, progress func(kbps
 	defer transport.CloseIdleConnections()
 	client := http.Client{Transport: transport}
 
-	start := time.Now()
-	var at []time.Duration
-	var counts []int64
-	var total int64
 	buffer := make([]byte, 64<<10)
-	var readErr error
-	var told time.Duration
-	back := 0 // the earliest sample within the last second
 	size := int64(speedPiece)
-pieces:
-	for time.Since(start) < speedDuration {
+	var got int64 // this flow's
+	for ctx.Err() == nil {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(speedURL, size), nil)
 		if err != nil {
-			return speedState{Error: err.Error()}
+			return err.Error()
 		}
 		request.Header.Set("User-Agent", "sing-box "+constant.Version)
 		response, err := client.Do(request)
 		if err != nil {
-			if total == 0 {
-				return speedState{Error: shortSiteError(err)}
+			if ctx.Err() != nil {
+				return ""
 			}
-			break // a later piece failed: the figure is of what came
+			return shortSiteError(err)
 		}
 		if response.StatusCode != http.StatusOK {
 			response.Body.Close()
-			if smaller, again := nextPiece(size, response.StatusCode, total); again {
+			if smaller, again := nextPiece(size, response.StatusCode, got); again {
 				size = smaller
 				continue
 			}
-			if total == 0 {
-				return speedState{Error: fmt.Sprintf("HTTP %d", response.StatusCode)}
-			}
-			break
+			return fmt.Sprintf("HTTP %d", response.StatusCode)
 		}
-		for time.Since(start) < speedDuration {
+		for {
 			n, err := response.Body.Read(buffer)
-			total += int64(n)
-			now := time.Since(start)
-			at = append(at, now)
-			counts = append(counts, total)
-			if err != nil {
-				if err != io.EOF {
-					readErr = err
-					response.Body.Close()
-					break pieces
-				}
+			total.Add(int64(n))
+			got += int64(n)
+			if err == io.EOF {
 				break // the piece came whole: the next one
 			}
-			for back < len(at)-1 && now-at[back+1] >= time.Second {
-				back++
-			}
-			if now-told >= 250*time.Millisecond && now-at[back] >= 500*time.Millisecond {
-				told = now
-				progress((total - counts[back]) * 8 / int64((now-at[back])/time.Millisecond))
+			if err != nil {
+				response.Body.Close()
+				if ctx.Err() != nil {
+					return ""
+				}
+				return shortSiteError(err)
 			}
 		}
 		response.Body.Close()
 	}
-	kbps := speedFigure(at, counts)
-	if kbps == 0 {
-		if readErr != nil {
-			return speedState{Error: shortSiteError(readErr)}
-		}
-		return speedState{Error: "too little came through to say"}
-	}
-	return speedState{Kbps: kbps}
+	return ""
 }

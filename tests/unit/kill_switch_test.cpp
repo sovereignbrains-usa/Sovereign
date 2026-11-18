@@ -112,10 +112,10 @@ void TestRules() {
 
   const auto tun = TunPrefixes(R"({"inbounds":[{"type":"tun","address":["172.19.0.1/30"]}]})");
   const auto rules = BuildKillSwitchRules({.enabled = true, .allowLan = true, .lanClosed = false, .lanAllowed = {}}, tun);
-  // IPv4: core, loopback, tunnel, DHCP, LAN DNS block, LAN, block all; IPv6 has no tunnel address
-  // here, and neighbour discovery besides.
-  CHECK(Count(rules, false) == 7);
-  CHECK(Count(rules, true) == 7);
+  // IPv4: core, loopback, tunnel, DHCP, LAN name blocks (DNS, DoT), LAN, block all; IPv6 has no
+  // tunnel address here, and neighbour discovery besides.
+  CHECK(Count(rules, false) == 8);
+  CHECK(Count(rules, true) == 8);
   CheckDhcpScoped(rules, 2);
   CHECK(HasNeighbourDiscovery(rules));
   CHECK(std::all_of(rules.begin(), rules.end(), [](const auto& r) { return r.weight <= 15; }));
@@ -280,6 +280,40 @@ void TestLanAllowedStaysLocal() {
   }
 }
 
+// What answers names in the local network is shut by more than port 53: DoT/DoQ
+// (853) always, and with the network closed mDNS (5353) and LLMNR (5355) too.
+// Every one of them outranks the permit it would otherwise slip through.
+void TestNamesStayOut() {
+  const auto ports = [](const std::vector<KillSwitchRule>& rules, bool v6, bool inbound, std::uint8_t below, bool lan) {
+    std::vector<std::uint16_t> found;
+    for (const auto& r : rules) {
+      if (r.v6 == v6 && r.inbound == inbound && !r.permit && r.remotePort && !r.remotePrefixes.empty() &&
+          r.weight > below && r.name.starts_with(lan ? "LAN" : "no")) {
+        found.push_back(*r.remotePort);
+      }
+    }
+    std::sort(found.begin(), found.end());
+    return found;
+  };
+  const std::vector<std::uint16_t> open = {53, 853};
+  const std::vector<std::uint16_t> closed = {53, 853, 5353, 5355};
+
+  // The kill switch with the local network open: the permit sits at 4.
+  const auto plain = BuildKillSwitchRules({.enabled = true, .allowLan = true, .lanClosed = false, .lanAllowed = {}}, {});
+  for (const bool v6 : {false, true}) {
+    CHECK(ports(plain, v6, false, 4, false) == open);
+    CHECK(ports(plain, v6, true, 4, false).empty());
+  }
+
+  // The network closed: what is let in is at 12, the names are shut above it.
+  const auto shut = BuildKillSwitchRules(
+      {.enabled = false, .allowLan = true, .lanClosed = true, .lanAllowed = {"192.168.31.1", "fe80::1"}}, {});
+  for (const bool v6 : {false, true}) {
+    CHECK(ports(shut, v6, false, 12, true) == closed);
+    CHECK(ports(shut, v6, true, 12, true).empty());
+  }
+}
+
 void TestKeptSettings() {
   using sovereign::service::KillSwitchSettingsText;
   using sovereign::service::ParseKillSwitchSettings;
@@ -308,6 +342,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestRules();
     TestLanClosed();
     TestLanAllowedStaysLocal();
+    TestNamesStayOut();
     TestKeptSettings();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

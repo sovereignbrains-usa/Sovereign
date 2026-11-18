@@ -106,6 +106,25 @@ Prefix Make(bool v6, std::initializer_list<std::uint8_t> bytes, int bits) {
   return p;
 }
 
+// What the local network answers names over: DNS (53), and DNS over TLS/QUIC
+// (853) - a router answering those is the same leak. Strict (the network
+// closed) adds the multicast name services, mDNS (5353) and LLMNR (5355): an
+// open network keeps them, printers and NAS are found by them. DoH rides 443,
+// the router's own page's port as well: not shut.
+struct NameService {
+  std::uint16_t port;
+  const char* name;
+};
+
+std::vector<NameService> NameServices(bool strict) {
+  std::vector<NameService> services = {{53, "no DNS"}, {853, "no DNS over TLS"}};
+  if (strict) {
+    services.push_back({5353, "no mDNS"});
+    services.push_back({5355, "no LLMNR"});
+  }
+  return services;
+}
+
 // Private, shared (100.64/10: the provider's routers, hotspots, Tailscale),
 // link-local and multicast destinations: the local network.
 std::vector<Prefix> LanPrefixes(bool v6) {
@@ -273,10 +292,12 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
         }
 
         if (!inbound) {
-          KillSwitchRule dns = lanRule(false, 13, "no DNS");
-          dns.remotePrefixes = LanPrefixes(v6);
-          dns.remotePort = 53;
-          rules.push_back(std::move(dns));
+          for (const NameService& service : NameServices(/*strict=*/true)) {
+            KillSwitchRule dns = lanRule(false, 13, service.name);
+            dns.remotePrefixes = LanPrefixes(v6);
+            dns.remotePort = service.port;
+            rules.push_back(std::move(dns));
+          }
         }
 
         if (!allowed.empty()) {
@@ -334,10 +355,12 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
     }
 
     if (settings.allowLan && !settings.lanClosed) {
-      KillSwitchRule lanDns = rule(false, 5, "no DNS in the local network");
-      lanDns.remotePrefixes = LanPrefixes(v6);
-      lanDns.remotePort = 53;
-      rules.push_back(std::move(lanDns));
+      for (const NameService& service : NameServices(/*strict=*/false)) {
+        KillSwitchRule lanDns = rule(false, 5, std::string(service.name) + " in the local network");
+        lanDns.remotePrefixes = LanPrefixes(v6);
+        lanDns.remotePort = service.port;
+        rules.push_back(std::move(lanDns));
+      }
 
       KillSwitchRule lan = rule(true, 4, "the local network");
       lan.remotePrefixes = LanPrefixes(v6);

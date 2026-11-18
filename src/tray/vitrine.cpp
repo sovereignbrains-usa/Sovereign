@@ -1,3 +1,8 @@
+// windows.h's min/max macros break std::min/max (clang-tidy in CI doesn't see
+// the global NOMINMAX for every file); vitrine.h brings in d2d1.h, so before it.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "vitrine.h"
 
 #include <d2d1_1.h>
@@ -1541,7 +1546,8 @@ struct VitrineArt::Impl {
       const float ps = static_cast<float>(j) * 2.0944f;
       const auto at = [&](float h) { return StreamAt(h, h * kTwoPi / kPitch + ps - spin); };
       // the thread
-      for (float h = -25; h < kStreamTop; h += 5) {
+      for (int step = -25; step < static_cast<int>(kStreamTop); step += 5) {
+        const auto h = static_cast<float>(step);
         const StreamPoint p = at(h);
         const StreamPoint q = at(h + 5);
         const float e = StreamFade(h + 2.5f) * a;

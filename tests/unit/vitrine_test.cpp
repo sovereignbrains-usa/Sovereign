@@ -2,6 +2,11 @@
 // pieces that fill the hood, the box opening after it, the moves between
 // states and where each ends.
 
+// windows.h's min/max macros break std::min/max (clang-tidy in CI doesn't see
+// the global NOMINMAX for every file); vitrine.h brings in d2d1.h.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -85,7 +90,8 @@ void TestAfterBreak() {
   CHECK(Close(shut.lift, 0) && Close(shut.open, 0) && Close(shut.stream, 0) && Close(shut.plinth, 1) && Close(shut.pool, 0));
   // The flaps overshoot a little and settle.
   float most = 0;
-  for (double u = 0; u < 2; u += 0.01) {
+  for (int step = 0; step < 200; ++step) {
+    const double u = static_cast<double>(step) * 0.01;
     most = std::max(most, vitrine::AfterBreak(u, 1).open);
   }
   CHECK(most > 1 && most < 1.4f);

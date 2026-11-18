@@ -415,6 +415,11 @@ void RunInConsole() {
 }  // namespace
 
 int wmain(int argc, wchar_t* argv[]) {
+  // From here on a DLL is looked for in the folder of this exe (where the
+  // installer put it, closed to non-administrators) and System32 only: never
+  // in the current directory or along PATH, whatever loads it by a bare name.
+  // The ones the loader mapped before this line are the system's already.
+  LOG_IF_WIN32_BOOL_FALSE(SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32));
   const trace::ProviderRegistration tracing;
   const std::wstring arg = (argc > 1) ? argv[1] : L"";
 

@@ -147,8 +147,9 @@ constexpr std::chrono::minutes kRefreshRetry{30};
 constexpr std::size_t kLogKeep = 5000;
 constexpr int kLogPagesPerPoll = 20;
 
-// A kill switch the service couldn't apply is tried again after this.
-constexpr std::chrono::seconds kKillSwitchRetry{10};
+// A kill switch the service couldn't apply is tried again after this: short,
+// the connection is up (or coming up) unprotected till it takes.
+constexpr std::chrono::seconds kKillSwitchRetry{2};
 // Turned on, shut by the kill switch, nothing getting through for this long:
 // the window offers the way out (UpdateLockout).
 constexpr std::chrono::seconds kLockout{20};
@@ -910,6 +911,14 @@ class Worker {
       model_.SetExpectedConfig(expected);
       const auto stats = PollStats();
       const Action action = model_.OnPoll(stats, TrayModel::Clock::now());
+      // The kill switch stands before the box does, not after the steps that
+      // follow its start: the tunnel comes up behind it. (The service puts
+      // the tunnel's own addresses in at box_start, ControlHandler.)
+      bool killSwitchDone = false;
+      if (action == Action::Start && stats) {
+        UpdateKillSwitch(stats);
+        killSwitchDone = killSwitchError_.empty();
+      }
       Execute(model_, action, config, AtBoot());
       SyncBoot();
       ScheduleProtectionCheck(stats);
@@ -1005,7 +1014,9 @@ class Worker {
       }
       ScanLan();
       RemindPaid();
-      UpdateKillSwitch(stats);
+      if (!killSwitchDone) {  // else it was just done, before the start
+        UpdateKillSwitch(stats);
+      }
       if (logLevel && *logLevel != settings_.logLevel) {
         settings_.logLevel = *logLevel;
         Save();  // the effective config changes: the model restarts the box
@@ -7509,7 +7520,8 @@ void OnUpdateLaunched(HWND trayWindow) {
   const auto update = g_updater->Get();
   if (!error && g_updateAsked) {
     HWND owner = g_mainWindow != nullptr && g_mainWindow->IsVisible() ? GetForegroundWindow() : trayWindow;
-    if (const std::string uac = sovereign::tray::LaunchInstaller(owner, update.installer); !uac.empty()) {
+    if (const std::string uac = sovereign::tray::LaunchInstaller(owner, update.installer, update.installerSha256);
+        !uac.empty()) {
       g_updater->LaunchFailed(uac);
     } else {
       g_installerLaunched = true;  // the installer closes the tray and starts the new one when it's done

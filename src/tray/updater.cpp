@@ -134,6 +134,7 @@ void Updater::LaunchFailed(const std::string& why) {
     s.error = why;
     s.installer.clear();
     s.signedRelease.clear();
+    s.installerSha256.clear();
   });
 }
 
@@ -388,10 +389,39 @@ void Updater::DoInstall() {
     s.status = Status::Ready;
     s.installer = path;
     s.signedRelease = release->signedText;
+    s.installerSha256 = release->sha256;
   });
 }
 
-std::string LaunchInstaller(HWND owner, const std::wstring& path) {
+std::string LaunchInstaller(HWND owner, const std::wstring& path, const std::string& sha256) {
+  // Held, shared for reading only: nothing can write, rename or delete it
+  // while the check and the launch go (the system opens it for reading and
+  // running all the same).
+  const wil::unique_hfile file(
+      CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+  LARGE_INTEGER size{};
+  if (!file || !GetFileSizeEx(file.get(), &size) || size.QuadPart <= 0 ||
+      static_cast<std::uint64_t>(size.QuadPart) > kMaxInstallerBytes || sha256.empty()) {
+    return "установщик не найден или не проверен — не запускаю";
+  }
+  std::string bytes(static_cast<std::size_t>(size.QuadPart), '\0');
+  for (std::size_t offset = 0; offset < bytes.size();) {
+    const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 1U << 20));
+    DWORD read = 0;
+    if (!ReadFile(file.get(), bytes.data() + offset, chunk, &read, nullptr) || read == 0) {
+      return "установщик не прочитался — не запускаю";
+    }
+    offset += read;
+  }
+  bool matches = false;
+  try {
+    matches = Sha256Hex(bytes) == sha256;
+  } catch (...) {
+    LOG_CAUGHT_EXCEPTION_MSG("hashing the installer before its launch failed");
+  }
+  if (!matches) {
+    return "установщик изменился после проверки — не запускаю";
+  }
   SHELLEXECUTEINFOW info{};
   info.cbSize = sizeof info;
   info.fMask = SEE_MASK_NOASYNC;

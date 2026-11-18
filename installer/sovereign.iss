@@ -67,6 +67,13 @@ Name: "{autoprograms}\Sovereign"; Filename: "{app}\sovereign-tray.exe"
 Name: "{autodesktop}\Sovereign"; Filename: "{app}\sovereign-tray.exe"; Tasks: desktopicon
 
 [Run]
+; The service runs from here as SYSTEM and loads its DLLs from here: whoever
+; can write into this folder runs code as SYSTEM. Program Files already keeps
+; users out; a folder picked elsewhere (C:\Sovereign inherits "users may
+; write") would not, so the folder gets its own list - SYSTEM and
+; administrators full, users read and run (the tray runs from here as them) -
+; before the service is registered. Not on the root of a drive.
+Filename: "{sys}\icacls.exe"; Parameters: """{app}"" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX"; Flags: runhidden waituntilterminated; StatusMsg: "Права на папку программы…"; Check: CanLockAppDir
 Filename: "{app}\sovereign-core.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated; StatusMsg: "Регистрация службы…"
 Filename: "{sys}\sc.exe"; Parameters: "start SovereignCore"; Flags: runhidden waituntilterminated; StatusMsg: "Запуск службы…"
 ; Runs in silent mode too (no skipifsilent): an update brings the tray back.
@@ -89,6 +96,13 @@ Filename: "{sys}\reg.exe"; Parameters: "delete HKCU\Software\Microsoft\Windows\C
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+// Not a drive's root (C:\): taking the inherited rights off a root is not
+// something a program's installer does.
+function CanLockAppDir(): Boolean;
+begin
+  Result := Length(RemoveBackslash(ExpandConstant('{app}'))) > 3;
+end;
+
 // The service runs this setup for an update while nobody is at the computer
 // (src/service/self_update_win.cpp), with the session to bring the tray back to.
 function FromService(): Boolean;

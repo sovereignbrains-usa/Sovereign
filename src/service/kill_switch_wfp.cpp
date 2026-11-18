@@ -317,6 +317,16 @@ bool WfpKillSwitch::Active() {
     return false;
   }
   FwpmFreeMemory0(reinterpret_cast<void**>(&sublayer));
+  // The sublayer alone is no kill switch: a sweep of the filters (an
+  // administrator's, a tool's) leaves it behind, and the service would take
+  // the empty sublayer for protection after a restart. The first filter is
+  // always there when Apply put any (Kept reads it too).
+  const GUID first = FilterKey(0);
+  FWPM_FILTER0* filter = nullptr;
+  if (FwpmFilterGetByKey0(engine.Handle(), &first, &filter) != ERROR_SUCCESS || filter == nullptr) {
+    return false;
+  }
+  FwpmFreeMemory0(reinterpret_cast<void**>(&filter));
   return true;
 }
 

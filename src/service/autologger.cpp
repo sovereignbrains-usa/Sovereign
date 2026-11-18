@@ -2,7 +2,9 @@
 
 #include <windows.h>
 
+#include <aclapi.h>
 #include <evntrace.h>
+#include <sddl.h>
 
 #include <wil/resource.h>
 #include <wil/result.h>
@@ -36,8 +38,29 @@ std::wstring GuidString(const GUID& g) {
                      g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
 }
 
+// The recorder holds hosts and sing-box's error text: SYSTEM and administrators
+// only, inherited by the files in it. ProgramData's own ACL lets every user
+// read what is made under it. Applied to what is there already, too (an older
+// install's folder and its .etl files).
+void RestrictToAdministrators(const std::wstring& directory) {
+  PSECURITY_DESCRIPTOR descriptor = nullptr;
+  THROW_IF_WIN32_BOOL_FALSE(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      L"D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", SDDL_REVISION_1, &descriptor, nullptr));
+  const wil::unique_hlocal release(descriptor);
+  BOOL present = FALSE;
+  BOOL defaulted = FALSE;
+  PACL dacl = nullptr;
+  THROW_IF_WIN32_BOOL_FALSE(GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted));
+  THROW_LAST_ERROR_IF(!present || dacl == nullptr);
+  std::wstring path = directory;  // SetNamedSecurityInfoW takes a mutable string
+  THROW_IF_WIN32_ERROR(SetNamedSecurityInfoW(path.data(), SE_FILE_OBJECT,
+                                             DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                                             nullptr, nullptr, dacl, nullptr));
+}
+
 // %ProgramData%\Sovereign\Logs, created if missing (AutoLogger requires the
-// directory to exist; it doesn't create it).
+// directory to exist; it doesn't create it), and closed to everyone but SYSTEM
+// and administrators.
 std::wstring EnsureLogDirectory() {
   wchar_t programData[MAX_PATH]{};
   const DWORD n = ExpandEnvironmentStringsW(L"%ProgramData%", programData, MAX_PATH);
@@ -48,7 +71,9 @@ std::wstring EnsureLogDirectory() {
       THROW_LAST_ERROR_IF(GetLastError() != ERROR_ALREADY_EXISTS);
     }
   }
-  return dir + L"\\Logs";
+  const std::wstring logs = dir + L"\\Logs";
+  RestrictToAdministrators(logs);
+  return logs;
 }
 
 void SetDword(HKEY key, const wchar_t* name, DWORD value) {

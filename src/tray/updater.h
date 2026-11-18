@@ -37,6 +37,7 @@ class Updater {
     std::string error;       // Failed, or Available after a failed download: why
     std::wstring installer;  // Ready: the verified installer on disk
     std::string signedRelease;  // Ready: the update.json it was checked against, for the service
+    std::string installerSha256;  // Ready: what the installer on disk was checked to be (LaunchInstaller looks again)
     std::string boxLatest;   // the newest stable sing-box, once known (kSingBoxReleasesApi)
     std::wstring checkedAt;  // when a release was last found out about, local "18:27"; empty: not yet
     // Downloading the installer: bytes got, bytes expected (the release's size; 0 - unknown), and the
@@ -92,6 +93,10 @@ class Updater {
 // Runs a downloaded installer elevated (UAC) and without its wizard: it
 // stops the tray and the service, replaces the files and starts both again.
 // Empty on success, otherwise why not ("отменено" when the user said no).
-[[nodiscard]] std::string LaunchInstaller(HWND owner, const std::wstring& path);
+// The file sat in %TEMP% (the user's, writable by whatever runs as them) from
+// the check to the click: it is held open, shared for reading only, and
+// hashed again against `sha256` right before the elevated launch, so nothing
+// can swap it in between.
+[[nodiscard]] std::string LaunchInstaller(HWND owner, const std::wstring& path, const std::string& sha256);
 
 }  // namespace sovereign::tray

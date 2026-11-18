@@ -54,6 +54,22 @@ Expect ($LASTEXITCODE -eq 0 -and $auto -match '356e995a-3c2d-5ae3-fad1-410ee24d6
 $live = logman query 'Sovereign-Core' -ets 2>&1 | Out-String
 Expect ($LASTEXITCODE -eq 0 -and $live -match 'sovereign\.etl') 'the session runs right after install, writing sovereign.etl'
 
+# The recorder holds hosts and sing-box's error text: SYSTEM and administrators only (audit #9).
+function Owners([string]$path) {
+  $acl = Get-Acl -LiteralPath $path
+  $sids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
+  return [pscustomobject]@{ Protected = $acl.AreAccessRulesProtected; Sids = ($sids -join ',') }
+}
+$logs = Join-Path $env:ProgramData 'Sovereign\Logs'
+$dir = Owners $logs
+Expect ($dir.Protected -and $dir.Sids -eq 'S-1-5-18,S-1-5-32-544') "the log folder is SYSTEM and Administrators only ($($dir.Sids))"
+$files = @(Get-ChildItem -LiteralPath $logs -Filter 'sovereign.etl*')
+Expect ($files.Count -gt 0) 'the recorder''s file is in the folder'
+foreach ($file in $files) {
+  $acl = Owners $file.FullName
+  Expect ($acl.Sids -eq 'S-1-5-18,S-1-5-32-544') "$($file.Name) is SYSTEM and Administrators only ($($acl.Sids))"
+}
+
 Write-Host '== the installed service'
 Start-Service SovereignCore
 for ($i = 0; $i -lt 100 -and -not ([IO.Directory]::GetFiles('\\.\pipe\') -contains '\\.\pipe\sovereign-control'); $i++) { Start-Sleep -Milliseconds 100 }

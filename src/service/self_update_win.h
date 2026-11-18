@@ -40,6 +40,11 @@ class SelfUpdate final : public IUpdateRunner {
 // <the service's folder>\Update.
 std::wstring UpdateDirectory();
 
+// <the service's folder>\sovereign-tray.exe - the one program, besides
+// elevated ones, the control pipe takes requests from. Empty if the service
+// can't tell its own path.
+std::wstring TrayExecutable();
+
 // sovereign-core.exe --launch-tray <session>, run by the installer the
 // service started: the new tray in the user's session, as the user, without
 // its window. False if nobody is signed in there.

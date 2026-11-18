@@ -234,6 +234,11 @@ std::wstring UpdateDirectory() {
   return dir.empty() ? std::wstring() : dir + L"\\Update";
 }
 
+std::wstring TrayExecutable() {
+  const std::wstring dir = ExeDirectory();
+  return dir.empty() ? std::wstring() : dir + L"\\sovereign-tray.exe";
+}
+
 bool LaunchTray(std::uint32_t session) {
   // The user's own token (not elevated, for an administrator too): the tray
   // runs as when they start it.
@@ -246,7 +251,7 @@ bool LaunchTray(std::uint32_t session) {
     return false;
   }
   const std::wstring dir = ExeDirectory();
-  const std::wstring exe = dir + L"\\sovereign-tray.exe";
+  const std::wstring exe = TrayExecutable();
   std::wstring command = L"\"" + exe + L"\" --updated";
   STARTUPINFOW startup{};
   startup.cb = sizeof startup;

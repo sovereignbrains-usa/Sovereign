@@ -223,10 +223,14 @@ void StartAtBoot(const std::stop_token& stop, sovereign::service::ControlHandler
   }
 }
 
-void RunPipeServer(const std::stop_token& stopToken, sovereign::service::ControlHandler& handler) {
+// `trustedClientImage`: see PipeServer. The service passes its tray; the
+// console mode for development none - there the service is the developer's
+// own process and the DACL is all there is.
+void RunPipeServer(const std::stop_token& stopToken, sovereign::service::ControlHandler& handler,
+                   std::optional<std::wstring> trustedClientImage) {
   sovereign::service::PipeServer server(
       sovereign::ipc::kPipeName,
-      [&handler](const std::string& request) { return handler.Handle(request); });
+      [&handler](const std::string& request) { return handler.Handle(request); }, std::move(trustedClientImage));
   server.Run(stopToken);
 }
 
@@ -272,7 +276,7 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
     // Beside the pipe, not before it: a start waits on the network up to
     // seconds, and the tray must get its answers meanwhile.
     std::jthread boot([&handler](const std::stop_token& stop) { StartAtBoot(stop, handler); });
-    RunPipeServer(state.stopSource.get_token(), handler);
+    RunPipeServer(state.stopSource.get_token(), handler, sovereign::service::TrayExecutable());
     boot.request_stop();
   }  // joined before the core is stopped
   trace::ProcessState("service", "stopping");
@@ -402,7 +406,7 @@ void RunInConsole() {
              << L", core " << (state.core ? L"loaded" : L"NOT loaded")
              << L", Ctrl+C для остановки.\n";
   trace::ProcessState("console", "running");
-  RunPipeServer(state.stopSource.get_token(), handler);
+  RunPipeServer(state.stopSource.get_token(), handler, std::nullopt);
   trace::ProcessState("console", "stopping");
   StopCoreOnShutdown(state);
   trace::ProcessState("console", "stopped");

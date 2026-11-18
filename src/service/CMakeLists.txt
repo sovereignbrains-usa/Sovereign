@@ -61,6 +61,8 @@ add_library(sovereign_service_lib STATIC
   kill_switch.h
   log_ring.cpp
   log_ring.h
+  pipe_access.cpp
+  pipe_access.h
   self_update.h
 )
 target_include_directories(sovereign_service_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

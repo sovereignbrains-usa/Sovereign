@@ -6,6 +6,7 @@
 
 #include <array>
 
+#include "pipe_access.h"
 #include "protocol.h"
 
 namespace sovereign::service {
@@ -18,12 +19,16 @@ namespace {
 // создающего процесса, который не включает SID сессии другого контекста
 // того же пользователя (split-token). Без явного ACL клиент получает
 // "Access to the path is denied" на ConnectNamedPipe/CreateFile — не
-// баг клиента, а отсутствие ACL на сервере. AU/SY/BA = Authenticated
-// Users/SYSTEM/Built-in Administrators.
+// баг клиента, а отсутствие ACL на сервере. SY/BA/IU = SYSTEM/Built-in
+// Administrators/Interactive (those signed in at this computer - the tray's
+// users; not network logons, service accounts and scheduled tasks, which
+// "Authenticated Users" let in too). Read and write, not "all": a client
+// has no business changing the pipe's own DACL. Who of those may actually
+// give commands is IsAllowedPipeClient's call (pipe_access.h).
 wil::unique_hlocal_ptr<SECURITY_DESCRIPTOR> CreatePipeSecurityDescriptor() {
   PSECURITY_DESCRIPTOR rawDescriptor = nullptr;
   THROW_IF_WIN32_BOOL_FALSE(ConvertStringSecurityDescriptorToSecurityDescriptorW(
-      L"D:(A;;GA;;;AU)(A;;GA;;;SY)(A;;GA;;;BA)", SDDL_REVISION_1, &rawDescriptor,
+      L"D:P(A;;GRGW;;;SY)(A;;GRGW;;;BA)(A;;GRGW;;;IU)", SDDL_REVISION_1, &rawDescriptor,
       nullptr));
   return wil::unique_hlocal_ptr<SECURITY_DESCRIPTOR>(
       static_cast<SECURITY_DESCRIPTOR*>(rawDescriptor));
@@ -36,7 +41,9 @@ wil::unique_hfile CreatePipeInstance(const std::wstring& pipeName) {
 
   wil::unique_hfile pipe(CreateNamedPipeW(
       pipeName.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-      PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+      // REJECT_REMOTE_CLIENTS: without it \\computer\pipe\sovereign-control
+      // opens over SMB for anyone the DACL names.
+      PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
       1,  // nMaxInstances: один инстанс, обрабатываем клиентов по очереди
       sovereign::ipc::kPipeBufferSize, sovereign::ipc::kPipeBufferSize, 0,
       &securityAttributes));
@@ -74,6 +81,37 @@ bool WaitForClient(HANDLE pipe, HANDLE stopEvent) {
   THROW_LAST_ERROR_IF(
       !GetOverlappedResult(pipe, &overlapped, &bytesTransferred, FALSE));
   return true;
+}
+
+// Who is on the other end: its executable and whether its token is elevated.
+// What can't be read counts as "no": an image that isn't there is no tray, a
+// token that can't be opened isn't proof of an administrator.
+PipeClient QueryPipeClient(HANDLE pipe, ULONG* processId) {
+  PipeClient client;
+  *processId = 0;
+  if (!GetNamedPipeClientProcessId(pipe, processId)) {
+    return client;
+  }
+  // The handle keeps the process object, and so its id, from being reused
+  // while we look at it.
+  wil::unique_handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, *processId));
+  if (!process) {
+    return client;
+  }
+  std::wstring image(32768, L'\0');
+  DWORD size = static_cast<DWORD>(image.size());
+  if (QueryFullProcessImageNameW(process.get(), 0, image.data(), &size)) {
+    image.resize(size);
+    client.image = std::move(image);
+  }
+  wil::unique_handle token;
+  TOKEN_ELEVATION elevation{};
+  DWORD returned = 0;
+  if (OpenProcessToken(process.get(), TOKEN_QUERY, &token) &&
+      GetTokenInformation(token.get(), TokenElevation, &elevation, sizeof elevation, &returned)) {
+    client.elevated = elevation.TokenIsElevated != 0;
+  }
+  return client;
 }
 
 // Reads one whole pipe message. In message mode a message longer than the
@@ -126,8 +164,10 @@ void WriteMessage(HANDLE pipe, const std::string& message) {
 
 }  // namespace
 
-PipeServer::PipeServer(std::wstring pipeName, RequestHandler handler)
-    : pipeName_(std::move(pipeName)), handler_(std::move(handler)) {}
+PipeServer::PipeServer(std::wstring pipeName, RequestHandler handler, std::optional<std::wstring> trustedClientImage)
+    : pipeName_(std::move(pipeName)),
+      handler_(std::move(handler)),
+      trustedClientImage_(std::move(trustedClientImage)) {}
 
 void PipeServer::Run(const std::stop_token& stopToken) {
   wil::unique_event_nothrow stopEvent;
@@ -141,6 +181,15 @@ void PipeServer::Run(const std::stop_token& stopToken) {
   while (!stopToken.stop_requested()) {
     if (!WaitForClient(pipe.get(), stopEvent.get())) {
       break;
+    }
+
+    // Before reading a byte: a client that isn't allowed doesn't get to hold
+    // the single instance with a half-sent message either.
+    ULONG clientProcess = 0;
+    if (!IsAllowedPipeClient(QueryPipeClient(pipe.get(), &clientProcess), trustedClientImage_)) {
+      LOG_WIN32_MSG(ERROR_ACCESS_DENIED, "pipe client %lu refused: not the tray, not elevated", clientProcess);
+      DisconnectNamedPipe(pipe.get());
+      continue;
     }
 
     try {

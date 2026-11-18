@@ -23,6 +23,11 @@ target_link_libraries(unit-control PRIVATE sovereign_service_lib)
 sovereign_copy_asan_runtime(unit-control)
 add_test(NAME unit-control COMMAND unit-control)
 
+add_executable(unit-pipe-access pipe_access_test.cpp check.h "${CMAKE_SOURCE_DIR}/src/service/pipe_server.cpp")
+target_link_libraries(unit-pipe-access PRIVATE sovereign_service_lib)
+sovereign_copy_asan_runtime(unit-pipe-access)
+add_test(NAME unit-pipe-access COMMAND unit-pipe-access)
+
 # The control plane's threads racing each other (tests/tsan/stress_test.cpp):
 # here its invariants under MSVC and ASan; the race detection itself is the
 # tsan job's, on Linux.

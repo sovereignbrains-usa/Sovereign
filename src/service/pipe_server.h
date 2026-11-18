@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <functional>
+#include <optional>
 #include <stop_token>
 #include <string>
 
@@ -17,7 +18,9 @@ class PipeServer {
  public:
   using RequestHandler = std::function<std::string(const std::string& request)>;
 
-  explicit PipeServer(std::wstring pipeName, RequestHandler handler);
+  // `trustedClientImage`: the one program that may use the pipe besides
+  // elevated processes (pipe_access.h); none - anyone the DACL lets in.
+  PipeServer(std::wstring pipeName, RequestHandler handler, std::optional<std::wstring> trustedClientImage = std::nullopt);
 
   // Блокирует вызывающий поток до stopToken.stop_requested().
   void Run(const std::stop_token& stopToken);
@@ -25,6 +28,7 @@ class PipeServer {
  private:
   std::wstring pipeName_;
   RequestHandler handler_;
+  std::optional<std::wstring> trustedClientImage_;
 };
 
 }  // namespace sovereign::service

@@ -526,7 +526,7 @@ int Snapshots(const std::wstring& dir) {
   const std::array<std::pair<const wchar_t*, const wchar_t*>, 5> tips = {{
       {L"Доступна версия", L"tip-update"},
       {L"Сообщить о проблеме", L"tip-report"},
-      {L"Вставить из буфера:", L"tip-add"},
+      {L"Добавить конфигурацию:", L"tip-add"},
       {L"Отключить VPN", L"tip-switch"},
       {L"Выбрать сервер", L"tip-server"},
   }};
@@ -536,6 +536,25 @@ int Snapshots(const std::wstring& dir) {
   }
   sovereign::tray::RenderMainWindowSnapshot(content, UiPage::Overview, logs, 600, 930, 144, dir + L"\\tip-report-150.png",
                                             L"Сообщить о проблеме");
+  // The "+" rolled out (18.11.2026): the four add keys right of it, each an icon and a word, its tip the full name;
+  // in the narrowest window they lose their words; on their way (half out) the label fades.
+  variant([&](UiContent& rolled) {
+    rolled.addOpen = true;
+    sovereign::tray::RenderMainWindowSnapshot(rolled, UiPage::Overview, logs, 400, 620, 96, dir + L"\\add-open.png");
+    sovereign::tray::RenderMainWindowSnapshot(rolled, UiPage::Overview, logs, 400, 620, 96, dir + L"\\tip-add-key.png",
+                                              L"Вставить из буфера:");
+    sovereign::tray::RenderMainWindowSnapshot(rolled, UiPage::Overview, logs, 350, 620, 96, dir + L"\\add-open-narrow.png");
+    rolled.addFold = 0.5f;
+    sovereign::tray::RenderMainWindowSnapshot(rolled, UiPage::Overview, logs, 350, 620, 96, dir + L"\\add-folding.png");
+  });
+  // A refresh that failed: in the card's head, right (red, a dot), the name before the words where there's room.
+  variant([&](UiContent& failed) {
+    failed.profiles.front().failed = true;
+    sovereign::tray::RenderMainWindowSnapshot(failed, UiPage::Overview, logs, 400, 620, 96, dir + L"\\failed-one.png");
+    sovereign::tray::RenderMainWindowSnapshot(failed, UiPage::Overview, logs, 350, 620, 96, dir + L"\\failed-one-narrow.png");
+    failed.profiles[1].failed = true;
+    sovereign::tray::RenderMainWindowSnapshot(failed, UiPage::Overview, logs, 400, 620, 96, dir + L"\\failed-two.png");
+  });
   variant([&](UiContent& routed) {
     routed.routing.warp = true;
     routed.routing.warpRegistered = true;
@@ -1066,8 +1085,8 @@ int AskTest(HINSTANCE instance) {
 int LayoutTest(const std::wstring& dir) {
   UiContent content = SampleContent();
   content.checks = SampleChecks();
-  // The variants live on the heap: eight UiContents on the stack pass /analyze's 16 KB (C6262).
-  std::vector<UiContent> variants(11, content);
+  // The variants live on the heap: fifteen UiContents on the stack pass /analyze's 16 KB (C6262).
+  std::vector<UiContent> variants(15, content);
   UiContent& routed = variants[0];
   // WARP on, with a site of its own: its card lists it, "Свои правила" doesn't.
   routed.routing.rules = {{L"qwen.ai, qwenlm.ai, alicdn.com, aliyun.com", L"напрямую"},
@@ -1133,6 +1152,18 @@ int LayoutTest(const std::wstring& dir) {
   UiContent& foldingRelay = variants[8];
   foldingRelay.settingsMore = true;
   foldingRelay.relayFold = 0.5f;
+  // The add keys rolled out (a failed refresh hides while they are), and half way.
+  UiContent& addOpened = variants[11];
+  addOpened.addOpen = true;
+  UiContent& addFolding = variants[12];
+  addFolding.addOpen = true;
+  addFolding.addFold = 0.5f;
+  // A refresh that failed: one subscription (its name before the words), then two (their number).
+  UiContent& failedOne = variants[13];
+  failedOne.profiles.front().failed = true;
+  UiContent& failedTwo = variants[14];
+  failedTwo.profiles[0].failed = true;
+  failedTwo.profiles[1].failed = true;
   // The configurations' "Мои серверы" tab, a VPS of one's own first (its page too); and a
   // subscription from one's own server, its page with the look over ssh and no installer.
   UiContent& owned = variants[9];
@@ -1146,7 +1177,7 @@ int LayoutTest(const std::wstring& dir) {
     const wchar_t* name;
     const UiContent* content;
   };
-  const std::array<Page, 20> pages = {{{UiPage::Overview, L"overview", &content},
+  const std::array<Page, 24> pages = {{{UiPage::Overview, L"overview", &content},
                                       {UiPage::Overview, L"overview-troubled", &troubled},
                                       {UiPage::Logs, L"logs-troubled", &troubled},
                                       {UiPage::Servers, L"servers", &content},
@@ -1165,7 +1196,11 @@ int LayoutTest(const std::wstring& dir) {
                                       {UiPage::Subscription, L"subscription-own", &owned},
                                       {UiPage::Profile, L"profile-own", &owned},
                                       {UiPage::Overview, L"overview-own", &owned},
-                                      {UiPage::Profile, L"profile-own-subscription", &ownedSubscription}}};
+                                      {UiPage::Profile, L"profile-own-subscription", &ownedSubscription},
+                                      {UiPage::Overview, L"add-open", &addOpened},
+                                      {UiPage::Overview, L"add-folding", &addFolding},
+                                      {UiPage::Overview, L"failed-one", &failedOne},
+                                      {UiPage::Overview, L"failed-two", &failedTwo}}};
   CreateDirectoryW(dir.c_str(), nullptr);
   int failures = 0;
   int cut = 0;

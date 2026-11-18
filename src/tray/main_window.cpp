@@ -190,25 +190,29 @@ constexpr const wchar_t* kGlyphRoute = L"\xE8F0";
 constexpr const wchar_t* kGlyphShield = L"\xEA18";
 constexpr const wchar_t* kGlyphLightning = L"\xE945";   // auto: the fastest server by itself
 constexpr const wchar_t* kGlyphDiagnostic = L"\xE9D9";  // the measurements in full
+constexpr const wchar_t* kGlyphCalendar = L"\xE787";
 constexpr const wchar_t* kGlyphReport = L"\xEBE8";
 constexpr const wchar_t* kGlyphServer = L"\xE839";  // Network: a server of one's own  // Bug: "something's wrong", plainer than the feedback bubble
 
-// The three ways to add a configuration, each a key of its own with its tip
+// The four ways to add a configuration, each a key of its own with its tip
 // where there was one "+" with a list dropping from it (his, 30.10.2026:
-// 'вместо кнопки добавить и плюсика эти 3 расположить и подсказку на каждую').
+// 'вместо кнопки добавить и плюсика эти 3 расположить и подсказку на каждую'). On the card they roll
+// out of a bare "+" (18.11.2026) with the short `word` after the icon; the tip says it in full.
 struct AddWay {
   const wchar_t* name;
   const wchar_t* glyph;
   UiCommand command;
   const wchar_t* tip;
+  const wchar_t* word;
 };
 const std::array<AddWay, 4> kAddWays = {{
     {L"Вставить из буфера", kGlyphPaste, UiCommand::PasteSubscription,
-     L"Вставить из буфера: ссылка подписки, ключ или конфиг"},
-    {L"QR-код с экрана", kGlyphQrCode, UiCommand::ScanScreen, L"QR-код с экрана: найти его и добавить подписку"},
-    {L"Из файла…", kGlyphFile, UiCommand::ImportFile, L"Из файла: конфиг, ключи или картинка с QR-кодом"},
+     L"Вставить из буфера: ссылка подписки, ключ или конфиг", L"Буфер"},
+    {L"QR-код с экрана", kGlyphQrCode, UiCommand::ScanScreen, L"QR-код с экрана: найти его и добавить подписку",
+     L"QR-код"},
+    {L"Из файла…", kGlyphFile, UiCommand::ImportFile, L"Из файла: конфиг, ключи или картинка с QR-кодом", L"Файл"},
     {L"Свой сервер…", kGlyphServer, UiCommand::AddOwnServer,
-     L"Свой сервер: адрес VPS (root@1.2.3.4), клиент зайдёт по ssh-ключу и поставит на него VPN"},
+     L"Свой сервер: адрес VPS (root@1.2.3.4), клиент зайдёт по ssh-ключу и поставит на него VPN", L"Сервер"},
 }};
 
 enum class Kind : std::uint8_t {
@@ -261,6 +265,9 @@ enum class Kind : std::uint8_t {
   Trace,         // the last hour of blocks, a bar a minute (text2: one wchar per minute, its height in 0..1000)
   Readout,       // a big number with its unit under it, right-aligned (text: the number, detail: the unit)
   Find,          // the log's search: a box typed in on a click (text: what's sought; empty: what can be)
+  Days,          // a configuration's days left: a capsule, a lit dot, filled by how much of a month is left
+                 // (fold: its share, 0..1; sub: 0 plenty, 1 running out, 2 almost gone or gone, 3 not known: a dashed
+                 // one with a calendar's glyph); clickable where the date is the user's to say
 };
 
 // The servers' columns at a Choice's right edge, from the edge in: the failures (a dot and a count), then the
@@ -299,6 +306,7 @@ enum class ItemAction : std::uint8_t {
   RouteLog,    // the routing board's "ещё N": the log of the sites that went that way (index: bucket)
   LogServer,   // the servers' page, for the selected row's server
   ToggleMore,  // the configurations' relay fold, folded or not (the window's own)
+  ToggleAdd,   // the configurations' "+": the add keys rolled out or put away (the window's own)
   ProfileTab,  // the configurations' tab (index: 0 subscriptions, 1 own servers; the window's own)
   ToggleServer,  // a server's card opened or folded (text2: its key, index: open now; the window's own)
   Hide,        // our title bar's cross: the window away to the tray
@@ -1207,6 +1215,7 @@ class Painter {
     button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     chip_ = MakeFormat(Text(), 12.5f);
     chip_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    micro_ = MakeFormat(Text(), ui::kTMicro);
     center_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     center_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     strong_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
@@ -1623,16 +1632,16 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 48> kNames = {
+    static constexpr std::array<const wchar_t*, 49> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
         L"AppTitle", L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
         L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link",   L"Instrument", L"Dot",  L"Trace",
-        L"Readout",  L"Find"};
+        L"Readout",  L"Find",     L"Days"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
-    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Find) + 1);
+    static_assert(kNames.size() == static_cast<std::size_t>(Kind::Days) + 1);
     std::wstring out;
     for (std::size_t i = 0; i < l.items.size(); ++i) {
       const Item& it = l.items[i];
@@ -1705,7 +1714,9 @@ class Painter {
                                 (it.kind == Kind::Title || it.kind == Kind::Card || it.kind == Kind::Instrument)) ||
                                (o.action == ItemAction::ToggleServer && it.kind == Kind::Choice) ||  // a server's chevron
                                (o.kind == Kind::Link && it.kind == Kind::Way) ||
-                               ((o.kind == Kind::Muted || o.kind == Kind::Button) && it.kind == Kind::Card);
+                               ((o.kind == Kind::Muted || o.kind == Kind::Button || o.kind == Kind::Chip ||
+                                 o.kind == Kind::Days) &&
+                                it.kind == Kind::Card);
           overlaps = overlaps || (over && !allowed);
         }
       }
@@ -2864,11 +2875,12 @@ class Painter {
     if (shown.empty()) {
       return y;
     }
-    // A line's height: the name and the paid line, and a line more for each thing wrong.
+    // A line's height: the name, and a line more where the traffic runs out. The paid date went into the
+    // days' capsule on the right and the failed refresh into the head (18.11.2026, his: "оплачено до и выбор
+    // даты в этот овал", "подписка не обновилась сверху").
     constexpr float kHeader = 40;
-    const auto rowHeight = [&](const UiProfile& p) {
-      return 6.0f + 26 + 22 + (p.failed ? 20.0f : 0.0f) + (p.trafficShare >= 0.8f ? 20.0f : 0.0f) + 6;
-    };
+    constexpr float kLine = 46;
+    const auto rowHeight = [&](const UiProfile& p) { return kLine + (p.trafficShare >= 0.8f ? 20.0f : 0.0f); };
     float h = kHeader + 1;
     for (const std::size_t i : shown) {
       h += rowHeight(c.profiles[i]);
@@ -2883,27 +2895,88 @@ class Painter {
     card.tip = L"Конфигурации: обновить, выключить отдельные серверы";
     l.items.push_back(std::move(card));
 
-    // The head: how many, and the three ways to add another configuration
-    // (the clipboard, a QR code, a file) as keys, each with its tip (he
-    // wanted adding here 16.10.2026; the "+ Добавить" and its list gone,
-    // 30.10.2026).
-    constexpr float kAddKey = 32;
-    constexpr float kAddStep = kAddKey + 2;
-    const float addWidth = kAddStep * static_cast<float>(kAddWays.size()) - 2;
-    // The last key's glyph (16) ends on the line 20: its zone reaches past it.
-    const float keysRight = right + (kAddKey - 16) / 2;
-    float addLeft = keysRight - addWidth;
-    for (const AddWay& way : kAddWays) {
-      Item add = CommandItem(Kind::IconButton, {addLeft, y + 4, addLeft + kAddKey, y + kHeader - 4}, way.name, way.glyph,
-                             way.command);
-      add.tip = way.tip;
-      l.items.push_back(std::move(add));
-      addLeft += kAddStep;
+    // The head: how many, a bare "+" after it, and, on a click, the four ways to add another configuration
+    // (the clipboard, a QR code, a file, a server of one's own) rolling out to its right, each an icon and
+    // a word, its tip the full name (his, 18.11.2026: "плюсик справа от конфигурации при нажатии выкатывает
+    // эти кнопки", no circle round it). The label stays while all fits; else it fades as they roll out, and
+    // then they lose their words. On the right, what's wrong: a refresh that failed.
+    const float open = FoldOf(c.addOpen, c.addFold);
+    const std::wstring labelText = std::format(L"КОНФИГУРАЦИИ · {}", shown.size());
+    const float labelWidth = std::ceil(TextWidth(Spaced(labelText), engraved_.get())) + 2;
+    constexpr float kPlusZone = 28;   // the "+"'s zone (its ink 11, the zone reaches past it)
+    constexpr float kChipHeight = 24;
+    constexpr float kChipGap = 4;
+    constexpr float kChipSquare = 30;  // a key with no word
+    std::array<float, kAddWays.size()> wordChip{};
+    float wordsWidth = 0;
+    for (std::size_t n = 0; n < kAddWays.size(); ++n) {
+      wordChip[n] = 22 + std::ceil(TextWidth(kAddWays[n].word, micro_.get())) + 10;
+      wordsWidth += wordChip[n] + (n > 0 ? kChipGap : 0.0f);
     }
-    Item label = Make(Kind::Muted, {left, y + 9, keysRight - addWidth - 8, y + kHeader - 9},
-                      std::format(L"КОНФИГУРАЦИИ · {}", shown.size()));
-    label.engraved = true;
-    l.items.push_back(std::move(label));
+    const float plusByLabel = left + labelWidth - 2;  // the zone's left behind the label
+    const float plusAtEdge = left - 6;                // ...and with the label gone: its ink on the line 20
+    const bool allFits = labelWidth - 2 + kPlusZone + 2 + wordsWidth <= right - left;
+    const bool wordy = allFits || kPlusZone - 4 + wordsWidth <= right - left;
+    const float plusLeft = allFits ? plusByLabel : plusByLabel + (plusAtEdge - plusByLabel) * open;
+    Item plus = Make(Kind::IconButton, {plusLeft, y + 4, plusLeft + kPlusZone, y + kHeader - 4},
+                     L"Добавить конфигурацию", kGlyphAdd);
+    plus.action = ItemAction::ToggleAdd;
+    plus.fold = open;
+    plus.tip = c.addOpen ? L"Свернуть"
+                         : L"Добавить конфигурацию: из буфера, QR-код с экрана, из файла, свой сервер";
+    l.items.push_back(std::move(plus));
+    if (open > 0) {
+      // They unroll from the "+": each as wide as `open` of its width (a row that stays inside the card
+      // whatever the "+"'s place on its way), the keys' insides cut to it.
+      float chipLeft = plusLeft + kPlusZone + 2;
+      const float chipTop = y + (kHeader - kChipHeight) / 2;
+      for (std::size_t n = 0; n < kAddWays.size(); ++n) {
+        const AddWay& way = kAddWays[n];
+        const float w = (wordy ? wordChip[n] : kChipSquare) * open;
+        Item chip = CommandItem(Kind::Chip, {chipLeft, chipTop, chipLeft + w, chipTop + kChipHeight}, way.word,
+                                way.glyph, way.command);
+        chip.tip = way.tip;
+        chip.sub = wordy ? 0 : 1;
+        chip.fold = open < 1 ? open : -1.0f;
+        l.items.push_back(std::move(chip));
+        chipLeft += w + kChipGap * open;
+      }
+    }
+    const float labelGone = allFits ? 0.0f : open;
+    if (labelGone < 1) {
+      Item label = Make(Kind::Muted, {left, y + 9, left + labelWidth + 4, y + kHeader - 9}, labelText);
+      label.engraved = true;
+      label.fold = labelGone > 0 ? labelGone : -1.0f;
+      l.items.push_back(std::move(label));
+    }
+    // What's wrong, in the room right of the "+": one failed - which; more - how many; as short as it must
+    // be to fit. It's gone while the keys are out.
+    std::vector<const UiProfile*> failed;
+    for (const std::size_t i : shown) {
+      if (c.profiles[i].failed) {
+        failed.push_back(&c.profiles[i]);
+      }
+    }
+    if (!failed.empty() && open < 1) {
+      const float room = right - (plusByLabel + kPlusZone + 8);
+      const std::array<std::wstring, 3> candidates =
+          failed.size() == 1
+              ? std::array<std::wstring, 3>{failed.front()->name + L": подписка не обновилась",
+                                            L"Подписка не обновилась", L"Не обновилась"}
+              : std::array<std::wstring, 3>{std::format(L"Подписки не обновились: {}", failed.size()),
+                                            std::format(L"Не обновились: {}", failed.size()), L"Не обновились"};
+      for (const std::wstring& text : candidates) {
+        const float w = kMutedLamp + std::ceil(TextWidth(text, caption_.get())) + 2;
+        if (w <= room) {
+          Item wrong = Make(Kind::Muted, {right - w, y + 9, right, y + kHeader - 9}, text);
+          wrong.warn = true;
+          wrong.lamp = 3;
+          wrong.fold = open > 0 ? open : -1.0f;
+          l.items.push_back(std::move(wrong));
+          break;
+        }
+      }
+    }
     l.items.push_back(Make(Kind::Divider, {left, y + kHeader, right, y + kHeader + 1}));
 
     float top = y + kHeader + 1;
@@ -2916,61 +2989,54 @@ class Painter {
         l.items.push_back(Make(Kind::Divider, {left, rowTop, right, rowTop + 1}));
       }
       // Right to left: the arrow, the days left, and the name stops short of them.
+      const float mid = rowTop + kLine / 2;
       const float arrow = right - 20;
-      l.items.push_back(Make(Kind::IconButton, {arrow, rowTop, right, rowTop + rowHeightNow}, {}, kGlyphChevron));
+      l.items.push_back(Make(Kind::IconButton, {arrow, rowTop, right, rowTop + kLine}, {}, kGlyphChevron));
       float nameRight = arrow - 8;
+      // The days left in a capsule with the date behind it: pointed at, it says it; the ones whose date
+      // is the user's to say (their own server's, or one no panel gives) open the calendar on a click.
+      const bool editable = p.paidByHand || p.paidTill.empty();
+      std::wstring days;
+      int tone = 0;
       if (p.daysLeft >= 0) {
-        const std::wstring days = p.daysLeft == 0 ? std::wstring(L"закончилась")
-                                                  : std::format(L"{} {}", p.daysLeft, DaysWord(p.daysLeft));
-        const float w = TextWidth(days, caption_.get()) + 2 * kPillPad;
-        const float mid = rowTop + rowHeightNow / 2;
-        Item pill = Make(Kind::Pill, {arrow - 8 - w, mid - 11, arrow - 8, mid + 11}, days);
-        pill.warn = p.daysLeft <= 3;
-        nameRight = pill.rect.left - 8;
-        l.items.push_back(std::move(pill));
+        days = p.daysLeft == 0 ? std::wstring(L"закончилась") : std::format(L"{} {}", p.daysLeft, DaysWord(p.daysLeft));
+        tone = p.daysLeft <= 3 ? 2 : p.daysLeft <= 7 ? 1 : 0;
+      } else if (p.paidTill.empty()) {
+        days = L"Указать дату";
+        tone = 3;
+      }
+      if (!days.empty()) {
+        const float w = 22 + std::ceil(TextWidth(days, caption_.get())) + 10;
+        const D2D1_RECT_F rect{arrow - 8 - w, mid - 12, arrow - 8, mid + 12};
+        Item capsule = editable ? CommandItem(Kind::Days, rect, days, kGlyphCalendar, UiCommand::PaidMenu, index)
+                                : Make(Kind::Days, rect, days, kGlyphCalendar);
+        capsule.sub = tone;
+        capsule.fold = tone == 3 ? 0.0f : std::clamp(static_cast<float>(p.daysLeft) / 30.0f, 0.06f, 1.0f);
+        if (tone == 3) {
+          capsule.tip = L"Подписка не говорит, до какого числа оплачено: нажми и укажи";
+        } else if (p.paidByHand) {
+          capsule.tip = L"Сервер оплачен до " + p.paidTill + L": нажми, чтобы продлить на месяц или указать другую дату";
+        } else if (p.paidTill.empty()) {
+          capsule.tip = L"Оплата кончается через " + days + L": нажми и укажи, до какого числа оплачено";
+        } else {
+          capsule.tip = L"Оплачено до " + p.paidTill;
+        }
+        nameRight = capsule.rect.left - 8;
+        l.items.push_back(std::move(capsule));
       }
       // The name, and what kind of configuration it is after it - if there's room.
       const float nameWidth = std::min(TextWidth(p.name, heading_.get()) + 2, nameRight - left);
-      l.items.push_back(Make(Kind::Heading, {left, rowTop + 6, left + nameWidth, rowTop + 32}, p.name));
+      l.items.push_back(Make(Kind::Heading, {left, mid - 13, left + nameWidth, mid + 13}, p.name));
       // One's own first: a subscription from one's own server is on "Мои серверы" too (12.11.2026).
       const std::wstring badge = !p.ownHost.empty() ? L"свой сервер" : p.subscription ? L"подписка" : L"свой конфиг";
       const float badgeWidth = TextWidth(badge, caption_.get()) + 2 * kPillPad;
       if (left + nameWidth + 8 + badgeWidth <= nameRight) {
-        l.items.push_back(Make(Kind::Pill, {left + nameWidth + 8, rowTop + 8, left + nameWidth + 8 + badgeWidth, rowTop + 30},
+        l.items.push_back(Make(Kind::Pill, {left + nameWidth + 8, mid - 11, left + nameWidth + 8 + badgeWidth, mid + 11},
                                badge));
       }
-      float line = rowTop + 34;
-      if (p.paidTill.empty()) {
-        // Not said by its panel, not by the user yet: a click to say it.
-        const std::wstring ask = L"Указать, до какого числа оплачено ›";
-        const float w = std::min(TextWidth(ask, caption_.get()) + 4, right - left);
-        l.items.push_back(
-            CommandItem(Kind::Muted, {left, line, left + w, line + 20}, ask, nullptr, UiCommand::PaidMenu, index));
-      } else {
-        std::wstring paid = (p.paidByHand ? L"Сервер оплачен до " : L"Оплачено до ") + p.paidTill.substr(0, 5);
-        if (p.paidByHand) {
-          paid += L" ›";
-          const float w = std::min(TextWidth(paid, caption_.get()) + 4, right - left);
-          Item item = CommandItem(Kind::Muted, {left, line, left + w, line + 20}, paid, nullptr, UiCommand::PaidMenu, index);
-          item.warn = p.daysLeft <= 3;
-          item.tip = L"Оплатил — продлить на месяц или указать дату";
-          l.items.push_back(std::move(item));
-        } else {
-          Item item = Make(Kind::Muted, {left, line, right, line + 20}, paid);
-          item.warn = p.daysLeft <= 3;
-          l.items.push_back(std::move(item));
-        }
-      }
-      line += 22;
-      if (p.failed) {
-        Item failed = Make(Kind::Muted, {left, line, right, line + 20}, L"Подписка не обновилась");
-        failed.warn = true;
-        l.items.push_back(std::move(failed));
-        line += 20;
-      }
       if (p.trafficShare >= 0.8f) {
-        Item traffic =
-            Make(Kind::Muted, {left, line, right, line + 20}, L"Трафик: " + p.trafficUsed + L" из " + p.trafficTotal);
+        Item traffic = Make(Kind::Muted, {left, rowTop + kLine - 10, right, rowTop + kLine + 10},
+                            L"Трафик: " + p.trafficUsed + L" из " + p.trafficTotal);
         traffic.warn = true;
         l.items.push_back(std::move(traffic));
       }
@@ -5109,14 +5175,18 @@ class Painter {
       case Kind::Text: k.Text(it.text, body_.get(), r, it.warn ? FromColorRef(ui::kDanger) : primary); break;
       case Kind::Muted: {  // one that picks something (a Command): brighter under the mouse
         D2D1_RECT_F at = r;
+        // `fold` on a label: how far it's faded out (the add keys rolling out over it).
+        const float fade = it.fold >= 0 ? 1.0f - std::clamp(it.fold, 0.0f, 1.0f) : 1.0f;
         if (it.lamp > 0) {  // a dot before it (WARP: works, or doesn't answer)
           const COLORREF tone = it.lamp >= 3 ? ui::kDanger : it.lamp == 2 ? ui::kWarning : ui::kUpload;
-          k.t->FillEllipse(D2D1::Ellipse({r.left + 3.5f, (r.top + r.bottom) / 2}, 3.5f, 3.5f), k.Color(FromColorRef(tone)));
+          k.t->FillEllipse(D2D1::Ellipse({r.left + 3.5f, (r.top + r.bottom) / 2}, 3.5f, 3.5f),
+                           k.Color(FromColorRef(tone, fade)));
           at.left += kMutedLamp;
         }
-        k.Text(it.engraved ? Spaced(it.text) : it.text, it.engraved ? engraved_.get() : caption_.get(), at,
-               it.warn ? FromColorRef(ui::kDanger)
-                       : (hovered && it.action == ItemAction::Command ? primary : secondary));
+        D2D1_COLOR_F ink = it.warn ? FromColorRef(ui::kDanger)
+                                   : (hovered && it.action == ItemAction::Command ? primary : secondary);
+        ink.a *= fade;
+        k.Text(it.engraved ? Spaced(it.text) : it.text, it.engraved ? engraved_.get() : caption_.get(), at, ink);
         break;
       }
       case Kind::Meter: {
@@ -5239,7 +5309,8 @@ class Painter {
         if (hoverAlpha > 0 && it.enabled) {
           k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
         }
-        DrawIcon(k, it.glyph, r, !it.enabled ? FromColorRef(ui::kSecondaryText, 0.4f) : (hovered ? primary : secondary));
+        DrawIcon(k, it.glyph, r, !it.enabled ? FromColorRef(ui::kSecondaryText, 0.4f) : (hovered ? primary : secondary),
+                 std::max(it.fold, 0.0f));  // a "+" that opens something turns into a cross by it
         if (it.checked) {
           k.t->FillEllipse(D2D1::Ellipse({r.right - 9, r.top + 9}, 4, 4), k.Color(lit));
         }
@@ -5384,6 +5455,30 @@ class Painter {
         break;
       }
       case Kind::Chip:
+        if (!it.glyph.empty()) {
+          // A small key: an icon and a word, a hairline round it (the card's add keys, rolling out of the
+          // "+": `fold` fades them in; `sub` 1: the icon alone).
+          const float fade = it.fold >= 0 ? std::clamp(it.fold, 0.0f, 1.0f) : 1.0f;
+          const float rad = (r.bottom - r.top) / 2;
+          k.Round(r, rad, Rgb(255, 255, 255, (pressed ? 0.10f : hovered ? 0.08f : 0.03f) * fade));
+          k.Outline(r, rad, Rgb(255, 255, 255, (hovered ? 0.24f : 0.12f) * fade));
+          D2D1_COLOR_F ink = hovered ? primary : secondary;
+          ink.a *= fade;
+          const bool rolling = it.fold >= 0 && it.fold < 1;  // the key is still unrolling: its inside is cut to it
+          if (rolling) {
+            k.t->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+          }
+          if (it.sub == 1) {
+            DrawIcon(k, it.glyph, {r.left, r.top, r.left + 30, r.bottom}, ink);
+          } else {
+            DrawIcon(k, it.glyph, {r.left + 4, r.top, r.left + 20, r.bottom}, ink);
+            k.Text(it.text, micro_.get(), {r.left + 22, r.top, r.left + 22 + 200, r.bottom}, ink);
+          }
+          if (rolling) {
+            k.t->PopAxisAlignedClip();
+          }
+          break;
+        }
         if (it.checked) {
           k.Round(r, 15, FromColorRef(ui::kLit, pressed ? 0.08f : (hovered ? 0.16f : 0.12f)));
           k.Outline(r, 15, FromColorRef(ui::kLit, 0.40f));
@@ -5469,6 +5564,36 @@ class Painter {
         }
         k.Outline(r, 5, it.warn ? FromColorRef(ui::kWarning, 0.40f) : Rgb(255, 255, 255, 0.08f));
         k.Text(it.text, caption_.get(), {r.left + kPillPad, r.top, r.right, r.bottom}, ink);
+        break;
+      }
+      case Kind::Days: {
+        // The days left as a capsule: a lit dot, the days in words, the capsule filled by how much of a
+        // month is left - blue while there's plenty, amber from a week, red from three days; dashed with a
+        // calendar where nobody says. Where a click says the date, its rim lights under the pointer.
+        const float rad = (r.bottom - r.top) / 2;
+        const float cy = (r.top + r.bottom) / 2;
+        const bool clickable = it.action == ItemAction::Command && it.enabled;
+        if (it.sub == 3) {
+          k.Round(r, rad, Rgb(255, 255, 255, pressed ? 0.09f : hovered ? 0.06f : 0.02f));
+          const D2D1_RECT_F inner{r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f};
+          k.t->DrawRoundedRectangle(D2D1::RoundedRect(inner, rad - 0.5f, rad - 0.5f),
+                                    k.Color(Rgb(255, 255, 255, hovered ? 0.45f : 0.22f)), 1, dashed_.get());
+          DrawIcon(k, it.glyph, {r.left + 4, r.top, r.left + 20, r.bottom}, hovered ? primary : secondary);
+          k.Text(it.text, caption_.get(), {r.left + 22, r.top, r.right, r.bottom}, hovered ? primary : secondary);
+          break;
+        }
+        const COLORREF tone = it.sub >= 2 ? ui::kDanger : it.sub == 1 ? ui::kWarning : ui::kVpn;
+        const bool bright = clickable && (hovered || pressed);
+        k.Round(r, rad, FromColorRef(tone, 0.07f));
+        k.t->PushAxisAlignedClip({r.left, r.top, r.left + (r.right - r.left) * std::clamp(it.fold, 0.0f, 1.0f), r.bottom},
+                                 D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        k.Round(r, rad, FromColorRef(tone, bright ? 0.28f : 0.20f));
+        k.t->PopAxisAlignedClip();
+        k.Outline(r, rad, FromColorRef(tone, bright ? 0.80f : 0.45f));
+        const D2D1_POINT_2F dot{r.left + 11, cy};
+        k.t->FillEllipse(D2D1::Ellipse(dot, 6.5f, 6.5f), k.Color(FromColorRef(tone, 0.16f)));  // its glow
+        k.t->FillEllipse(D2D1::Ellipse(dot, 3.5f, 3.5f), k.Color(FromColorRef(tone)));
+        k.Text(it.text, caption_.get(), {r.left + 22, r.top, r.right, r.bottom}, primary);
         break;
       }
       case Kind::AppTitle: {
@@ -6199,8 +6324,12 @@ class Painter {
       line(a.x, a.y, b.x, b.y);
       line(b.x, b.y, c.x, c.y);
     } else if (glyph == kGlyphAdd) {
-      line(-5.5f, 0, 5.5f, 0);
-      line(0, -5.5f, 0, 5.5f);
+      // Turned by `turn` up to 45 degrees: a cross where it opens something.
+      const float angle = turn * 0.78539816f;
+      const float sine = std::sin(angle);
+      const float cosine = std::cos(angle);
+      line(-5.5f * cosine, -5.5f * sine, 5.5f * cosine, 5.5f * sine);
+      line(5.5f * sine, -5.5f * cosine, -5.5f * sine, 5.5f * cosine);
     } else if (glyph == kGlyphRefresh) {
       // Three quarters of a ring and its arrowhead at the open end, up right.
       wil::com_ptr<ID2D1PathGeometry> arc;
@@ -6327,6 +6456,7 @@ class Painter {
   wil::com_ptr<IDWriteTextFormat> center_;
   wil::com_ptr<IDWriteTextFormat> strong_;  // 14 semibold from the left: a menu choice's title
   wil::com_ptr<IDWriteTextFormat> chip_;
+  wil::com_ptr<IDWriteTextFormat> micro_;     // a word beside an icon on a small key (the add keys)
   wil::com_ptr<IDWriteTextFormat> wrap_;
   wil::com_ptr<IDWriteTextFormat> captionWrap_;
   wil::com_ptr<IDWriteTextFormat> mono_;
@@ -6391,6 +6521,7 @@ struct MainWindow::Impl {
   LogView log;
   bool selecting = false;      // dragging a selection over the log
   bool settingsMore = false;   // the configurations' relay fold open (UiContent::settingsMore)
+  bool addOpen = false;        // the configurations' add keys rolled out (UiContent::addOpen)
   int profileTab = 0;          // the configurations' tab (UiContent::profileTab)
   bool routeMenu = false;      // the routing mode's menu dropped (UiContent::routeMenu)
   bool lidUp = false;          // the kill switch's lid lifted, for kLidUpMs (UiContent::lidUp)
@@ -6542,6 +6673,7 @@ struct MainWindow::Impl {
   };
   FoldMove routingMove;
   FoldMove relayMove;
+  FoldMove addMove;
 
   // The flag says where the fold goes; if that's new, it moves from where it is - at once with the
   // window away, a modal box up or Windows' animations off.
@@ -6559,19 +6691,21 @@ struct MainWindow::Impl {
   void SetFolds() {
     content.routingFold = routingMove.Moving() ? routingMove.Now() : -1.0f;
     content.relayFold = relayMove.Moving() ? relayMove.Now() : -1.0f;
+    content.addFold = addMove.Moving() ? addMove.Now() : -1.0f;
   }
 
   // New flags (from the host, or the window's own): the folds aimed anew.
   void NoteFolds() {
     Aim(routingMove, content.routingMore);
     Aim(relayMove, settingsMore);
+    Aim(addMove, addOpen);
     SetFolds();
   }
 
   // A frame of a fold moving: the page laid out again at its height of now; true while one still does.
   bool StepFold() {
-    if (!routingMove.Moving() && !relayMove.Moving()) {
-      if (content.routingFold >= 0 || content.relayFold >= 0) {  // the last frame: at rest
+    if (!routingMove.Moving() && !relayMove.Moving() && !addMove.Moving()) {
+      if (content.routingFold >= 0 || content.relayFold >= 0 || content.addFold >= 0) {  // the last frame: at rest
         SetFolds();
         Relayout();
       }
@@ -6995,6 +7129,7 @@ struct MainWindow::Impl {
       state.server = log.AboutWay(log.caret);
     }
     content.settingsMore = settingsMore;
+    content.addOpen = addOpen;
     content.profileTab = profileTab;
     content.routeMenu = routeMenu;
     content.lidUp = lidUp;
@@ -7125,19 +7260,15 @@ struct MainWindow::Impl {
           // A chip: what's in it, or its name, across the scheme on its line.
           rect = {layout.boardLeft, it.rect.top, layout.boardRight, it.rect.top + kTag};
         }
-        if (anchor == UiCommand::AddOwnServer && it.kind == Kind::IconButton) {
-          // The last of the add keys: the address is typed left of them all, over the label or the title.
-          constexpr float kRoom = 240;
-          float keysLeft = it.rect.left;
-          for (const Item& key : layout.items) {
-            const bool addKey = std::any_of(kAddWays.begin(), kAddWays.end(),
-                                            [&](const AddWay& way) { return way.command == key.command; });
-            if (addKey && key.action == ItemAction::Command && key.rect.top < it.rect.bottom &&
-                key.rect.bottom > it.rect.top) {
-              keysLeft = std::min(keysLeft, key.rect.left);
+        if (anchor == UiCommand::AddOwnServer && it.kind == Kind::Chip) {
+          // The last of the add keys: the address is typed over the card's head, from its left line to
+          // its right one - the label, the "+" and the keys are under the box.
+          for (const Item& card : layout.items) {
+            if (card.kind == Kind::Card && Contains(card.rect, it.rect.left, it.rect.top)) {
+              rect = {card.rect.left + 20, it.rect.top, card.rect.right - 20, it.rect.bottom};
+              break;
             }
           }
-          rect = {std::max(8.0F, keysLeft - kRoom), it.rect.top, keysLeft - 4, it.rect.bottom};
         }
         if (anchor == UiCommand::CheckRoute && it.kind != Kind::Find) {
           // Its button is an icon: the address is typed over the line's result.
@@ -7486,6 +7617,11 @@ struct MainWindow::Impl {
         NoteFolds();
         Relayout();
         return;
+      case ItemAction::ToggleAdd:
+        addOpen = !addOpen;
+        NoteFolds();
+        Relayout();
+        return;
       case ItemAction::ToggleServer: {
         const auto at = std::find_if(serverFolds.begin(), serverFolds.end(),
                                      [&](const auto& entry) { return entry.first == item.text2; });
@@ -7523,7 +7659,13 @@ struct MainWindow::Impl {
     POINT anchor{static_cast<LONG>((item.rect.left + item.indent) * scale), static_cast<LONG>(item.rect.bottom * scale)};
     ClientToScreen(hwnd, &anchor);
     args.anchor = anchor;
-    onCommand(item.command, args);
+    const bool addKey = item.kind == Kind::Chip && !item.glyph.empty();  // an add key: the keys roll back after it
+    onCommand(item.command, args);  // (it may lay the page out anew: `item` is not used past it)
+    if (addKey && addOpen) {
+      addOpen = false;
+      NoteFolds();
+      Relayout();
+    }
   }
 
   // As the core wrote them (CRLF): the selected rows' lines, or every line the window keeps.

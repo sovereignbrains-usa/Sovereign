@@ -392,6 +392,7 @@ struct UiContent {
   bool settingsMore = false;            // the configurations' relay fold open (the window's own)
   int profileTab = 0;                   // the configurations' tab: 0 subscriptions, 1 own servers (the window's own)
   bool routeMenu = false;               // the routing mode's menu dropped (the window's own)
+  bool addOpen = false;                 // the configurations' add keys rolled out of the "+" (the window's own)
   // The names the box's connections went to in the last minutes, newest first, each with its
   // bucket (kBucketDirect, kBucketProxy, kBucketWarp): off the box's tracker, one per name and way.
   std::vector<std::pair<std::wstring, int>> routeSeen;
@@ -403,6 +404,7 @@ struct UiContent {
   // as the flag above says.
   float routingFold = -1;               // the fine settings'
   float relayFold = -1;                 // the relay's
+  float addFold = -1;                   // the add keys' (their "+" turns into a cross by it)
   std::optional<UiQuestion> question;   // asked over the page (the window's own, MainWindow::Ask)
   bool lockedOut = false;               // on, the kill switch holding the internet shut, nothing getting through
   std::wstring lockoutReason;           // why nothing gets through

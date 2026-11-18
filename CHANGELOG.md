@@ -4,6 +4,12 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.22 — 18.11.2026
+
+- **The configurations' card on the main screen, tidied**: the head is the label and a bare "+" after it. A click rolls four keys out of it — «Буфер», «QR-код», «Файл», «Сервер», each an icon and a word, their tips the full names — and the "+" turns into a cross; a key's click puts them away again. Where the label and the keys do not fit together, the label gives way; in the narrowest window the keys keep their icons alone.
+- **The days left are one capsule, with the date behind it**: a lit dot, the days in words, filled by how much of a month is left — blue while there is plenty, amber from a week, red from three days, «закончилась» at none. Pointed at, it says the date it is paid to; for a server of one's own, or a subscription that gives no date, a click opens the calendar (a dashed «Указать дату» where nobody says). The line «Оплачено до…» under the name is gone.
+- **«Подписка не обновилась» is in the card's head, on the right**, red with a dot, with the name of the one that failed — or «Подписки не обновились: N» for several; it hides while the keys are out. The row no longer grows for it.
+
 ## 0.6.21 — 18.11.2026
 
 - **Microsoft Store apps are in the list of programs**: "Программа…" on the routing page, in "Из запущенных", offered ApplicationFrameHost for every Store (UWP) app — the window on the screen is its, and a rule on that name matches nothing. The app is listed under its own exe now (Безопасность Windows → SecHealthUI.exe, and the like). A Store app that is suspended, with only an empty frame left, is not offered at all.

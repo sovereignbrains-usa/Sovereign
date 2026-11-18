@@ -4,6 +4,11 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.23 — 18.11.2026
+
+- **The log's key is on the left, by «Сообщить о проблеме»**: both are about what went wrong, and the right side of the title bar keeps the routes, the settings and the window's own keys. While the main screen says something is wrong (the same words as its banner), the log's key is a window with an amber lamp, and its tip says what.
+- **The configurations' card lights only where it leads**: the rows below the head are the link to the page and are lit under the pointer; the head, with its "+" and the keys it rolls out, is not part of that plate, so a click aimed at the "+" cannot land on the page. The "+" is a square of its own, lit when pointed at. The arrow at the row's end is gone — the lit plate says it is a link; the days' capsule stands on the line 20 at the edge.
+
 ## 0.6.22 — 18.11.2026
 
 - **The configurations' card on the main screen, tidied**: the head is the label and a bare "+" after it. A click rolls four keys out of it — «Буфер», «QR-код», «Файл», «Сервер», each an icon and a word, their tips the full names — and the "+" turns into a cross; a key's click puts them away again. Where the label and the keys do not fit together, the label gives way; in the narrowest window the keys keep their icons alone.

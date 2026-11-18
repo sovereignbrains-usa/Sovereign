@@ -176,10 +176,8 @@ constexpr const wchar_t* kGlyphProgram = L"\xE7C4";
 constexpr const wchar_t* kGlyphStopwatch = L"\xE916";
 constexpr const wchar_t* kGlyphDownload = L"\xE896";
 constexpr const wchar_t* kGlyphUndo = L"\xE7A7";
-constexpr const wchar_t* kGlyphSave = L"\xE74E";
 constexpr const wchar_t* kGlyphPause = L"\xE769";
 constexpr const wchar_t* kGlyphPlay = L"\xE768";
-constexpr const wchar_t* kGlyphFilter = L"\xE71C";
 constexpr const wchar_t* kGlyphMore = L"\xE712";    // "⋯": what else can be done here
 constexpr const wchar_t* kGlyphSearch = L"\xE721";
 constexpr const wchar_t* kGlyphQrCode = L"\xED14";
@@ -345,6 +343,7 @@ struct Item {
   bool tickAlways = false;  // the mark stays with the switch off (a DNS way); else it burns while the switch is on
   float fold = -1;      // a fold's handle: how open it is (0..1), its chevron turned by it; -1: not a fold's
   float clip = -1;      // a fold's row while the fold moves: seen and clicked above this line only; -1: whole
+  float linkTop = -1;   // a Card that is a link: lit and clicked below this line only, the head above has keys of its own; -1: whole
   float indent = 0;     // a row (ValueRow, Switch, Divider) in an instrument's card: in by this, under its name
   int lamp = 0;         // an Instrument's lamp: 0 none (nothing to check), 1 works, 2 worth fixing, 3 triggered
   int verdict = 0;      // a Card's outline: 0 none, 2 amber (worth fixing), 3 red (triggered)
@@ -359,6 +358,15 @@ inline D2D1_RECT_F Seen(const Item& it) {
   D2D1_RECT_F r = it.rect;
   if (it.clip >= 0) {
     r.bottom = std::min(r.bottom, it.clip);
+  }
+  return r;
+}
+
+// Where a click lands: what is seen, and of a card that is a link only what lies below its head (`linkTop`).
+inline D2D1_RECT_F Hit(const Item& it) {
+  D2D1_RECT_F r = Seen(it);
+  if (it.linkTop >= 0) {
+    r.top = std::max(r.top, it.linkTop);
   }
   return r;
 }
@@ -2603,10 +2611,10 @@ class Painter {
     };
     // On the main screen what is opened now and then a click away (the
     // wrench's menu of 17.10 gone, 30.10.2026, his: "журнал и маршруты рядом
-    // с шестиренкой").
+    // с шестиренкой"). The log moved to the left, by the report (18.11.2026, his: "журнал на лево"): both
+    // are about what went wrong.
     if (page == UiPage::Overview) {
       page_key(L"Настройки", kGlyphSettings, UiPage::Settings, L"Настройки: Kill switch, автозапуск, локальная сеть, блокировка");
-      page_key(L"Журнал", kGlyphLog, UiPage::Logs, L"Журнал: что делает ядро, ошибки");
       page_key(L"Маршруты", kGlyphRoute, UiPage::Routing, L"Маршруты: что идёт через VPN, а что напрямую");
     }
     // The routing board: the scheme alone, or with what goes each way just now and the blocked counts
@@ -2676,6 +2684,21 @@ class Painter {
     };
     if (!inner) {
       left += placeReport(left, right - 4);
+    }
+    // The log after the report, on the main screen: its key's window lamps (amber) while the screen says
+    // something is wrong (Issues: the same words as the banner), and the tip says what.
+    std::optional<Item> log;
+    if (page == UiPage::Overview) {
+      log = chrome(Make(Kind::IconButton, {left, 0, left + kKey, kCaption}, L"Журнал", kGlyphLog));
+      log->action = ItemAction::Page;
+      log->index = static_cast<int>(UiPage::Logs);
+      log->tip = L"Журнал: что делает ядро, ошибки";
+      if (const std::vector<Issue> issues = Issues(c); !issues.empty()) {
+        log->checked = true;
+        log->warn = true;
+        log->tip = L"Журнал: " + issues.front().brief + (issues.size() > 1 ? std::format(L" и ещё {}", issues.size() - 1) : L"");
+      }
+      left += kKey;
     }
     // A new version: the pill after the report, solid accent with its
     // version on it where there's room, the arrow alone where there isn't
@@ -2748,8 +2771,11 @@ class Painter {
       name.rect.right = report.rect.left;
       l.items.push_back(std::move(name));
     }
-    // Left to right, as Tab goes: the report, the update, the page keys or "+", the cross.
+    // Left to right, as Tab goes: the report, the log, the update, the page keys or "+", the cross.
     l.items.push_back(std::move(report));
+    if (log) {
+      l.items.push_back(std::move(*log));
+    }
     if (update) {
       l.items.push_back(std::move(*update));
     }
@@ -2892,6 +2918,10 @@ class Painter {
     card.action = ItemAction::Page;
     card.index = static_cast<int>(UiPage::Subscription);
     card.glass = true;
+    // The rows are the link, the head is not: its "+" and its keys are targets of their own, not a corner of
+    // a plate that lights from edge to edge (18.11.2026, his: "при наводке подсвечивается все окно, можно
+    // мискликнуть по крестику"). No arrow on the rows either: the lit plate says it.
+    card.linkTop = y + kHeader + 2;
     card.tip = L"Конфигурации: обновить, выключить отдельные серверы";
     l.items.push_back(std::move(card));
 
@@ -2918,7 +2948,8 @@ class Painter {
     const bool allFits = labelWidth - 2 + kPlusZone + 2 + wordsWidth <= right - left;
     const bool wordy = allFits || kPlusZone - 4 + wordsWidth <= right - left;
     const float plusLeft = allFits ? plusByLabel : plusByLabel + (plusAtEdge - plusByLabel) * open;
-    Item plus = Make(Kind::IconButton, {plusLeft, y + 4, plusLeft + kPlusZone, y + kHeader - 4},
+    // A square of its own, 28: pointed at, its plate lights alone (the card's no longer does over the head).
+    Item plus = Make(Kind::IconButton, {plusLeft, y + 6, plusLeft + kPlusZone, y + kHeader - 6},
                      L"Добавить конфигурацию", kGlyphAdd);
     plus.action = ItemAction::ToggleAdd;
     plus.fold = open;
@@ -2988,11 +3019,9 @@ class Painter {
       if (i != shown.front()) {
         l.items.push_back(Make(Kind::Divider, {left, rowTop, right, rowTop + 1}));
       }
-      // Right to left: the arrow, the days left, and the name stops short of them.
+      // Right to left: the days left, and the name stops short of them.
       const float mid = rowTop + kLine / 2;
-      const float arrow = right - 20;
-      l.items.push_back(Make(Kind::IconButton, {arrow, rowTop, right, rowTop + kLine}, {}, kGlyphChevron));
-      float nameRight = arrow - 8;
+      float nameRight = right;
       // The days left in a capsule with the date behind it: pointed at, it says it; the ones whose date
       // is the user's to say (their own server's, or one no panel gives) open the calendar on a click.
       const bool editable = p.paidByHand || p.paidTill.empty();
@@ -3007,7 +3036,7 @@ class Painter {
       }
       if (!days.empty()) {
         const float w = 22 + std::ceil(TextWidth(days, caption_.get())) + 10;
-        const D2D1_RECT_F rect{arrow - 8 - w, mid - 12, arrow - 8, mid + 12};
+        const D2D1_RECT_F rect{right - w, mid - 12, right, mid + 12};
         Item capsule = editable ? CommandItem(Kind::Days, rect, days, kGlyphCalendar, UiCommand::PaidMenu, index)
                                 : Make(Kind::Days, rect, days, kGlyphCalendar);
         capsule.sub = tone;
@@ -5076,7 +5105,14 @@ class Painter {
         if (!it.quiet) {
           k.Round(r, kRadius, it.glass ? Rgb(255, 255, 255, 0.035f) : FromColorRef(ui::kCardColor));
           if (hoverAlpha > 0 && it.action != ItemAction::None) {  // a card that is a link
+            // Its head's own keys (linkTop) are not lit with it: the plate starts below the head.
+            if (it.linkTop >= 0) {
+              k.t->PushAxisAlignedClip({r.left, it.linkTop, r.right, r.bottom}, D2D1_ANTIALIAS_MODE_ALIASED);
+            }
             k.Round(r, kRadius, Rgb(255, 255, 255, hoverAlpha));
+            if (it.linkTop >= 0) {
+              k.t->PopAxisAlignedClip();
+            }
           }
           k.Outline(r, kRadius, Rgb(255, 255, 255, it.glass ? 0.10f : 0.08f));
           // An instrument's verdict: its card's edge in the colour of its fate - red, it went off; amber, worth fixing.
@@ -6400,11 +6436,13 @@ class Painter {
       // An indicator window: a dark recess with a lit hairline and a pilot
       // lamp lit in it, the version in white (30.10.2026: the solid blue pill
       // was a button; this is a reading). White since: blue is the VPN's.
+      // `warn` (the log's key while something is wrong): the lamp and the hairline in amber.
       const D2D1_RECT_F pill = KeyPill(it);
-      const D2D1_COLOR_F lamp = FromColorRef(ui::kLit);
+      const COLORREF tone = it.warn ? ui::kWarning : ui::kLit;
+      const D2D1_COLOR_F lamp = FromColorRef(tone);
       k.Round(pill, 7, Rgb(0, 0, 0, 0.38f));
-      k.Round(pill, 7, FromColorRef(ui::kLit, pressed ? 0.03f : (hovered ? 0.10f : 0.05f)));
-      k.Outline(pill, 7, FromColorRef(ui::kLit, hovered ? 0.60f : 0.35f));
+      k.Round(pill, 7, FromColorRef(tone, pressed ? 0.03f : (hovered ? 0.10f : 0.05f)));
+      k.Outline(pill, 7, FromColorRef(tone, hovered ? 0.60f : 0.35f));
       if (it.detail.empty()) {
         k.Text(it.glyph, glyph_.get(), r, FromColorRef(ui::kPrimaryText));
         k.Led({pill.right - 5, pill.top + 5}, 2.0f, lamp);
@@ -6845,7 +6883,7 @@ struct MainWindow::Impl {
       if (routeMenu && !InMenu(item)) {
         continue;  // the mode's menu dropped: a press elsewhere only puts it away (WM_LBUTTONDOWN)
       }
-      if ((!anyItem && !Interactive(item)) || !Contains(Seen(item), x, y)) {
+      if ((!anyItem && !Interactive(item)) || !Contains(Hit(item), x, y)) {
         continue;
       }
       if (item.scrolls && (y < layout.viewTop || y >= layout.viewBottom)) {

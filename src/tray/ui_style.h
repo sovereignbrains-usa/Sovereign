@@ -23,7 +23,7 @@ namespace sovereign::tray::ui {
 // несёт одну семантику"). One colour, one meaning:
 //  - your hand: a switch on, a pick, the main action - kLit, the light's
 //    white, never a hue;
-//  - where traffic goes: VPN blue (the cube's light), WARP orange, direct
+//  - where traffic goes: VPN blue (the case's light), WARP orange, direct
 //    grey, blocked red - the traffic's own dots, the routes' rails;
 //  - how a check fares: green good, amber attention, red failed.
 // A logo (a DNS provider's) is no colour of ours: not set among the values.

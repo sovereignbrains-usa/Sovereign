@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cwchar>
 #include <deque>
 #include <filesystem>
 #include <format>
@@ -36,13 +37,13 @@
 #include <utility>
 #include <vector>
 
-#include "cube.h"
 #include "diagnostics.h"
 #include "flags.h"
 #include "icons.h"
 #include "log_events.h"
 #include "resource.h"
 #include "ui_style.h"
+#include "vitrine.h"
 
 namespace sovereign::tray {
 
@@ -142,15 +143,14 @@ constexpr UINT kMenuHysteriaSpeed = 120;  // + its index in kHysteriaSpeeds
 // A tip (TipText) shows when its item is pointed at this long; a "?"'s at once.
 constexpr UINT_PTR kTipTimer = 1;
 constexpr UINT kTipDelayMs = 500;
-// The connect cube's motion (cube.h): frames while it moves, a turn into a
-// new state's pose, the turning while it connects (degrees per ms).
-constexpr UINT_PTR kCubeTimer = 2;
-constexpr UINT kCubeFrameMs = 15;
-constexpr UINT kCubeIdleFrameMs = 33;  // the idle life (Idle) is slow: 30 frames a second are plenty
-constexpr ULONGLONG kCubeTurnMs = 520;
+// The connect case's motion (vitrine.h): quick frames while the glass
+// breaks or mends and while the spiral flows, slow ones for the idle gloss.
+constexpr UINT_PTR kVitrineTimer = 2;
+constexpr UINT kVitrineFrameMs = 15;
+constexpr UINT kVitrineIdleFrameMs = 33;  // the gloss and the motes are slow: 30 frames a second are plenty
+constexpr ULONGLONG kVitrineHitMs = 2000; // a click's spot on the glass, kept for the state it asked for
 constexpr UINT kQuestionInMs = 170;  // MainWindow::Ask's card coming in
 constexpr UINT kFoldMs = 240;        // a fold opening or closing (law.md --d-fold)
-constexpr float kCubeSpin = 0.12f;
 
 // Segoe Fluent Icons (Windows 11; the same code points in Segoe MDL2 Assets).
 constexpr const wchar_t* kGlyphSync = L"\xE895";
@@ -377,7 +377,7 @@ inline float FoldOf(bool open, float moving) { return moving >= 0 ? moving : (op
 
 
 // A way's colour on the routing board: a rail down its card's left edge and
-// a dot on its labels - the traffic's own (ui_style.h), the cube's blue and
+// a dot on its labels - the traffic's own (ui_style.h), the case's blue and
 // the dots flying out of it, not a palette of the board's. Dull where it's
 // drawn (30.10.2026, his: "менее цвета неоновые"): kRailAlpha. By bucket: 0
 // directly, 1 through the VPN, 2 blocked, 3 WARP.
@@ -696,9 +696,9 @@ struct LogState {
 };
 
 // The live traffic round the main screen's switch (UiContent::flow*): dots
-// along paths - up through the cube for the VPN (WARP's in its own colour),
+// along paths - up through the box for the VPN (WARP's in its own colour),
 // round its side for what goes directly - as many and as fast as the rates
-// say; a blocked ad flies at the cube and breaks on it in red sparks. Moved
+// say; a blocked ad flies at the box and breaks on it in red sparks. Moved
 // a frame a screen refresh while the overview shows (Impl::liveAt), never
 // with Windows' animations off.
 enum class Stream : std::uint8_t { Vpn, Warp, Direct, Blocked, Spark };
@@ -745,22 +745,22 @@ float DotSpeed(double rate) {
   return 0.42f + 0.3f * std::min(1.0f, std::log2(1 + static_cast<float>(rate) / 65536) / 5);
 }
 
-// Where a dot is, round the switch's square `cube`: from under it up to over it.
-D2D1_POINT_2F DotAt(const Particle& p, D2D1_RECT_F cube) {
-  const float s = cube.right - cube.left;
-  const D2D1_POINT_2F c{(cube.left + cube.right) / 2, (cube.top + cube.bottom) / 2};
+// Where a dot is, round the box's bounds `box`: from under it up to over it.
+D2D1_POINT_2F DotAt(const Particle& p, D2D1_RECT_F box) {
+  const float s = box.right - box.left;
+  const D2D1_POINT_2F c{(box.left + box.right) / 2, (box.top + box.bottom) / 2};
   const float bottom = c.y + s * 1.1f;
   const float top = c.y - s * 1.1f;
   switch (p.stream) {
     case Stream::Vpn:
     case Stream::Warp: {
-      // Up through the cube, drawn in to its middle on the way.
+      // Up through the box, drawn in to its middle on the way.
       const float squeeze = 1 - 0.75f * std::sin(std::numbers::pi_v<float> * std::clamp(p.t, 0.0f, 1.0f));
       const float lane = p.stream == Stream::Warp ? s * 0.07f : 0.0f;
       return {c.x + lane + p.offset * s * 0.22f * squeeze, bottom + (top - bottom) * p.t};
     }
     case Stream::Direct: {
-      // Up round the cube's side - its own lane past the glass.
+      // Up round the box's side - its own lane past the glass.
       const float side = p.offset < 0 ? -1.0f : 1.0f;
       const D2D1_POINT_2F a{c.x + p.offset * s * 0.18f, bottom};
       const D2D1_POINT_2F m{c.x + side * s * 1.05f, c.y};
@@ -769,7 +769,7 @@ D2D1_POINT_2F DotAt(const Particle& p, D2D1_RECT_F cube) {
       return {u * u * a.x + 2 * u * p.t * m.x + p.t * p.t * b.x, u * u * a.y + 2 * u * p.t * m.y + p.t * p.t * b.y};
     }
     case Stream::Blocked:
-      // Up at the cube, as far as its lower face.
+      // Up at the box, as far as its lower face.
       return {c.x + p.offset * s * 0.2f, bottom + (c.y + s * 0.22f - bottom) * p.t};
     case Stream::Spark:
       return {p.at.x + p.v.x * p.t, p.at.y + p.v.y * p.t + 90 * p.t * p.t};
@@ -777,9 +777,9 @@ D2D1_POINT_2F DotAt(const Particle& p, D2D1_RECT_F cube) {
   return c;
 }
 
-// One step of `dt` seconds round `cube`: the dots move, new ones come by the
-// rates (none unless `on`), a blocked ad that reached the cube breaks up.
-void StepLive(LiveTraffic& live, const UiContent& c, bool on, float dt, D2D1_RECT_F cube) {
+// One step of `dt` seconds round `box`: the dots move, new ones come by the
+// rates (none unless `on`), a blocked ad that reached the box breaks up.
+void StepLive(LiveTraffic& live, const UiContent& c, bool on, float dt, D2D1_RECT_F box) {
   std::vector<Particle> sparks;
   for (Particle& p : live.particles) {
     if (p.stream == Stream::Spark) {
@@ -790,7 +790,7 @@ void StepLive(LiveTraffic& live, const UiContent& c, bool on, float dt, D2D1_REC
     if (p.stream == Stream::Blocked && p.t >= 1) {
       Particle hit = p;
       hit.t = 1;
-      const D2D1_POINT_2F at = DotAt(hit, cube);
+      const D2D1_POINT_2F at = DotAt(hit, box);
       for (int i = 0; i < 6 && live.particles.size() + sparks.size() < kMaxParticles; ++i) {
         // Down and out, as from a blow from below.
         const float angle = std::numbers::pi_v<float> * (0.1f + 0.8f * live.Random());
@@ -842,7 +842,7 @@ struct Interaction {
   // ringed in the way's colour; what it covers (the "+", a chip) is not drawn. editWay -1: no colour of its own.
   std::optional<D2D1_RECT_F> edit;
   int editWay = -1;
-  std::optional<CubePose> cube;  // the switch mid-motion (cube.h); none: at rest in its state's pose
+  std::optional<VitrineFrame> vitrine;  // the switch mid-motion (vitrine.h); none: at rest in its state's pose
 };
 
 bool Contains(const D2D1_RECT_F& r, float x, float y) { return x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
@@ -969,7 +969,7 @@ bool Interactive(const Item& item) { return item.action != ItemAction::None && i
 
 std::wstring StateDetailBase(const UiContent& c);
 
-// The overview's words over the cube - the cube's pose says the state, so
+// The overview's words over the case - the case's pose says the state, so
 // only what it can't: what's wrong and what to do about it, and when the
 // kill switch holds the internet closed, that. Empty while all is well.
 std::wstring StateDetail(const UiContent& c) {
@@ -1482,7 +1482,7 @@ class Painter {
     if (FAILED(t->CreateSolidColorBrush(Rgb(0, 0, 0), brush.put()))) {
       return;
     }
-    Canvas k{t, brush.get(), dwrite_.get(), Flags(t), in.cube ? &*in.cube : nullptr};
+    Canvas k{t, brush.get(), dwrite_.get(), Flags(t), in.vitrine ? &*in.vitrine : nullptr};
     const D2D1_SIZE_F size = t->GetSize();
     t->Clear(FromColorRef(ui::kWindowColor));
     if (l.glow) {
@@ -1785,6 +1785,7 @@ class Painter {
     logos_.clear();
     flags_.reset();
     flagsLoaded_ = false;
+    vitrine_.reset();  // its bitmaps hold the old target
   }
 
  private:
@@ -1839,7 +1840,7 @@ class Painter {
     ID2D1SolidColorBrush* b;
     IDWriteFactory* dwrite;  // for text with flags in it
     ID2D1Bitmap* sprite;     // the flags (flags.h); null if it couldn't be had
-    const CubePose* cube;    // the switch's pose mid-motion; null: its state's (cube.h)
+    const VitrineFrame* vitrine;  // the switch's frame mid-motion; null: its state's at rest (vitrine.h)
 
     ID2D1Brush* Color(D2D1_COLOR_F c) const { return SetColor(b, c); }
     void Fill(D2D1_RECT_F r, D2D1_COLOR_F c) const { t->FillRectangle(r, Color(c)); }
@@ -2002,23 +2003,35 @@ class Painter {
     return flags_.get();
   }
 
+  // An RCDATA resource of the exe, as it lies there; empty if there's none
+  // (a test's exe without the .rc).
+  static std::span<const std::byte> ResourceBytes(int id) {
+    HMODULE module = GetModuleHandleW(nullptr);
+    HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10));  // RT_RCDATA
+    HGLOBAL data = resource != nullptr ? LoadResource(module, resource) : nullptr;
+    const void* bytes = data != nullptr ? LockResource(data) : nullptr;
+    if (bytes == nullptr) {
+      return {};
+    }
+    return {static_cast<const std::byte*>(bytes), SizeofResource(module, resource)};
+  }
+
   // A picture in the exe's resources (RCDATA: PNG or JPEG) as a bitmap of
   // `target` at 96 DPI - its pixels are DIPs. Null if it can't be had.
   wil::com_ptr<ID2D1Bitmap> ResourceBitmap(ID2D1RenderTarget* target, int id) const {
     wil::com_ptr<ID2D1Bitmap> bitmap;
-    HMODULE module = GetModuleHandleW(nullptr);
-    HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10));  // RT_RCDATA
-    HGLOBAL data = resource != nullptr ? LoadResource(module, resource) : nullptr;
-    void* bytes = data != nullptr ? LockResource(data) : nullptr;
-    if (bytes == nullptr || !wic_) {
+    const std::span<const std::byte> bytes = ResourceBytes(id);
+    if (bytes.empty() || !wic_) {
       return bitmap;
     }
     wil::com_ptr<IWICStream> stream;
     wil::com_ptr<IWICBitmapDecoder> decoder;
     wil::com_ptr<IWICBitmapFrameDecode> frame;
     wil::com_ptr<IWICFormatConverter> converter;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): WIC reads the bytes, never writes them
+    auto* first = const_cast<BYTE*>(reinterpret_cast<const BYTE*>(bytes.data()));
     if (SUCCEEDED(wic_->CreateStream(stream.put())) &&
-        SUCCEEDED(stream->InitializeFromMemory(static_cast<BYTE*>(bytes), SizeofResource(module, resource))) &&
+        SUCCEEDED(stream->InitializeFromMemory(first, static_cast<DWORD>(bytes.size()))) &&
         SUCCEEDED(wic_->CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnLoad, decoder.put())) &&
         SUCCEEDED(decoder->GetFrame(0, frame.put())) && SUCCEEDED(wic_->CreateFormatConverter(converter.put())) &&
         SUCCEEDED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
@@ -2804,7 +2817,7 @@ class Painter {
   // with its fix). The rest of the window - routing, the log, the kill
   // switch - is in the settings, a key in the title bar.
   float Overview(Layout& l, const UiContent& c, float x0, float x1, float y, float bottom) const {
-    // The state is the cube's: words only when there's something to say.
+    // The state is the case's: words only when there's something to say.
     // What's wrong is one quiet line, the whole of it in the log (Issues).
     if (const std::vector<Issue> issues = Issues(c); !issues.empty()) {
       std::wstring brief = issues.front().brief;
@@ -2871,24 +2884,29 @@ class Painter {
       y += h + kGap;
     }
 
-    // The server at the foot; the switch in the middle of what's between,
-    // big, a light behind it (DrawBackdrop) and the live traffic round it -
-    // no words: its light and the streams say the state.
+    // The server at the foot; the switch in the middle of what's between:
+    // the relic under glass (vitrine.h), as big as the room lets its whole
+    // scene be - the spiral's top to the plinth's foot - a light behind it
+    // (DrawBackdrop) and the live traffic round its box. No words: the glass
+    // says the state. The button is the hood.
     // The switch's room no more than its least size wants: more, and two
     // subscriptions on a short window made the page scroll by a few pixels.
     constexpr float kServerCard = 60;
-    constexpr float kLeastCube = 88;
-    const float serverTop = std::max(y + kLeastCube + 40, bottom - kServerCard);
+    constexpr float kLeastCase = 130;
+    constexpr float kSpan = vitrine::kDrawnBottom - vitrine::kDrawnTop;
+    const float serverTop = std::max(y + kLeastCase + 24, bottom - kServerCard);
     const float room = serverTop - y;
-    const float size = std::clamp(std::min(room - 40, (x1 - x0) * 0.6f), kLeastCube, 220.0f);
-    const float top = y + std::max(0.0f, (room - size) / 2);
-    const float mid = (x0 + x1) / 2;
-    const D2D1_RECT_F cube{mid - size / 2, top, mid + size / 2, top + size};
-    Item power = CommandItem(Kind::Power, cube, {}, kGlyphPower, UiCommand::Toggle);
+    const float scale = std::clamp(std::min((room - 16) / kSpan, (x1 - x0) / 480), 0.2f, 0.5f);
+    const float drawnTop = y + std::max(0.0f, (room - kSpan * scale) / 2);
+    const D2D1_RECT_F hood = vitrine::HoodBounds();
+    VitrinePlace place;
+    place.scale = scale;
+    place.origin = {(x0 + x1) / 2 - (hood.left + hood.right) / 2 * scale, drawnTop - vitrine::kDrawnTop * scale};
+    Item power = CommandItem(Kind::Power, FromScene(place, hood), {}, kGlyphPower, UiCommand::Toggle);
     power.checked = c.on;
     power.tip = c.on ? L"Отключить VPN" : L"Подключить VPN";
     l.items.push_back(std::move(power));
-    l.glow = cube;
+    l.glow = FromScene(place, vitrine::BoxBounds());
     return ServerCard(l, c, x0, x1, serverTop);
   }
 
@@ -6077,10 +6095,10 @@ class Painter {
     k.Text(it.text, body_.get(), textBox, ink);
   }
 
-  // The live traffic's dots round the switch's square `cube`: each with a
+  // The live traffic's dots round the box's bounds `box`: each with a
   // soft halo and a short trail behind it, fading in and out along its path;
   // sparks fade as they fly.
-  void DrawLive(const Canvas& k, const LiveTraffic& live, D2D1_RECT_F cube) const {
+  void DrawLive(const Canvas& k, const LiveTraffic& live, D2D1_RECT_F box) const {
     for (const Particle& p : live.particles) {
       D2D1_COLOR_F color = FromColorRef(ui::kVpn);
       float alpha = std::sin(std::numbers::pi_v<float> * std::clamp(p.t, 0.0f, 1.0f));
@@ -6100,14 +6118,14 @@ class Painter {
       if (alpha <= 0.01f) {
         continue;
       }
-      const D2D1_POINT_2F at = DotAt(p, cube);
+      const D2D1_POINT_2F at = DotAt(p, box);
       // The trail: where it was a moment ago, fainter.
       if (p.stream != Stream::Spark) {
         for (int i = 1; i <= 3; ++i) {
           Particle back = p;
           back.t -= 0.018f * static_cast<float>(i);
           if (back.t > 0) {
-            const D2D1_POINT_2F was = DotAt(back, cube);
+            const D2D1_POINT_2F was = DotAt(back, box);
             color.a = alpha * 0.45f / static_cast<float>(i);
             k.t->FillEllipse(D2D1::Ellipse(was, p.size * 0.8f, p.size * 0.8f), k.Color(color));
           }
@@ -6496,10 +6514,15 @@ class Painter {
       k.Text(it.glyph, glyph_.get(), r, ink);
     }
   }
-  // The switch is a cube (cube.h): in the pose the window animates it
-  // through, or - a still picture, a snapshot - the state's own.
+  // The switch is the relic under glass (vitrine.h): in the frame the window
+  // animates it through, or - a still picture, a snapshot - the state's own
+  // at rest. Its button is the hood; the scene round it is placed from it.
   void DrawPower(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed) const {
-    DrawCube(k.t, k.cube != nullptr ? *k.cube : CubePoseFor(c.display), it.rect, hovered, pressed);
+    if (!vitrine_) {
+      vitrine_ = std::make_unique<VitrineArt>(wic_.get(), ResourceBytes(IDR_VITRINE_BOX));
+    }
+    vitrine_->Draw(k.t, k.vitrine != nullptr ? *k.vitrine : VitrineRest(c.display), VitrinePlaceFor(it.rect), hovered,
+                   pressed);
   }
 
   wil::com_ptr<ID2D1Factory> d2d_;
@@ -6536,6 +6559,7 @@ class Painter {
   mutable std::map<std::string, wil::com_ptr<ID2D1Bitmap>> logos_;  // Logo's, by service; ForgetIcons too
   mutable wil::com_ptr<ID2D1Bitmap> flags_;  // Flags'
   mutable bool flagsLoaded_ = false;
+  mutable std::unique_ptr<VitrineArt> vitrine_;  // DrawPower's; ForgetIcons too
 };
 
 int Scale(float dip, UINT dpi) { return static_cast<int>(std::lround(dip * static_cast<float>(dpi) / 96.0f)); }
@@ -6562,6 +6586,44 @@ bool CopyToClipboard(HWND owner, const std::wstring& text) {
   }
   CloseClipboard();
   return copied;
+}
+
+// The case mid-motion, for a snapshot: "off@0,starting!@1,on@4;4.3" - the states at their seconds
+// ("!": a click struck the glass), then the moment drawn.
+VitrineFrame VitrineScript(std::wstring_view script) {
+  const std::size_t semicolon = script.find(L';');
+  THROW_HR_IF(E_INVALIDARG, semicolon == std::wstring_view::npos);
+  const auto seconds = [](std::wstring_view words) {
+    const std::wstring copy(words);
+    wchar_t* end = nullptr;
+    const double value = std::wcstod(copy.c_str(), &end);
+    THROW_HR_IF(E_INVALIDARG, copy.empty() || end != copy.c_str() + copy.size());
+    return value;
+  };
+  Vitrine v;
+  std::wstring_view steps = script.substr(0, semicolon);
+  while (!steps.empty()) {
+    const std::size_t comma = steps.find(L',');
+    std::wstring_view step = steps.substr(0, comma);
+    steps = comma == std::wstring_view::npos ? std::wstring_view() : steps.substr(comma + 1);
+    const std::size_t at = step.find(L'@');
+    THROW_HR_IF(E_INVALIDARG, at == std::wstring_view::npos);
+    std::wstring_view name = step.substr(0, at);
+    std::optional<vitrine::Point> hit;
+    if (name.ends_with(L'!')) {
+      name.remove_suffix(1);
+      hit = vitrine::Point{215, 250};
+    }
+    static constexpr std::pair<std::wstring_view, Display> kNames[] = {
+        {L"down", Display::ServiceDown}, {L"off", Display::Off},     {L"starting", Display::Starting},
+        {L"on", Display::On},            {L"error", Display::Error},
+    };
+    const auto* named = std::find_if(std::begin(kNames), std::end(kNames),
+                                     [&](const auto& pair) { return pair.first == name; });
+    THROW_HR_IF(E_INVALIDARG, named == std::end(kNames));
+    v.To(named->second, seconds(step.substr(at + 1)), hit, true);
+  }
+  return v.At(seconds(script.substr(semicolon + 1)));
 }
 
 }  // namespace
@@ -6617,48 +6679,39 @@ struct MainWindow::Impl {
   wil::com_ptr<ID2D1HwndRenderTarget> target;
   ULONGLONG deactivatedAt = 0;  // GetTickCount64 when the window last lost the focus
 
-  // The connect cube (cube.h): from the pose it was in to its state's since
-  // cubeStart, turning while it connects. A timer only while it moves and
-  // the window shows.
-  CubePose cubeFrom;
-  CubePose cubeTo;
-  ULONGLONG cubeStart = 0;
-  Display cubeDisplay = Display::Starting;
-  bool cubeKnown = false;
+  // The connect case (vitrine.h): its motion from state to state, on the
+  // clock of GetTickCount64 in seconds. A click on the glass leaves its spot
+  // (pendingHit) for the state it asks for: the crack starts there. A timer
+  // only while it moves or idles and the window shows.
+  Vitrine showcase;
+  std::optional<vitrine::Point> pendingHit;
+  ULONGLONG pendingHitAt = 0;
 
   // Windows' "animation effects" (Accessibility > Visual effects): off, the
-  // cube takes each pose at once.
+  // case takes each state at once.
   static bool Motion() {
     BOOL on = TRUE;
     return SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0) == FALSE || on != FALSE;
   }
 
-  // Where the turn has got to, without the idle life - what a new turn starts from.
-  CubePose CubeBase(ULONGLONG now) const {
-    if (!Motion()) {
-      return cubeTo;
-    }
-    const auto since = static_cast<float>(now - cubeStart);
-    CubePose pose = BlendPose(cubeFrom, cubeTo, EaseOut(since / static_cast<float>(kCubeTurnMs)));
-    if (cubeDisplay == Display::Starting) {
-      pose.yaw = cubeFrom.yaw + since * kCubeSpin;
-    }
-    return pose;
+  static double Clock(ULONGLONG now) { return static_cast<double>(now) / 1000.0; }
+
+  // What's drawn: the motion, or with animations off the state at rest.
+  VitrineFrame VitrineAt(ULONGLONG now) const {
+    return Motion() ? showcase.At(Clock(now)) : VitrineRest(showcase.Shown());
   }
 
-  // What's drawn: the turn, and over it the small idle life (Idle).
-  CubePose CubeAt(ULONGLONG now) const {
-    const CubePose base = CubeBase(now);
-    return Motion() ? Idle(base, cubeDisplay, static_cast<double>(now) / 1000.0) : base;
+  bool VitrineMoving(ULONGLONG now) const { return Motion() && showcase.Moving(Clock(now)); }
+
+  // Quick frames while the glass moves, and while the spiral flows - its
+  // strand turns too fast for 30 a second.
+  UINT VitrineFrameMs(ULONGLONG now) const {
+    return VitrineMoving(now) || showcase.Shown() == Display::On ? kVitrineFrameMs : kVitrineIdleFrameMs;
   }
 
-  bool CubeMoving(ULONGLONG now) const {
-    return Motion() && (cubeDisplay == Display::Starting || now - cubeStart < kCubeTurnMs);
-  }
-
-  // Alive at rest too (Idle): while the overview shows the cube, on screen.
-  bool CubeIdling() const {
-    return Motion() && cubeKnown && cubeDisplay != Display::ServiceDown && page == UiPage::Overview &&
+  // Alive at rest too (the gloss, the motes): while the overview shows the case, on screen.
+  bool VitrineIdling() const {
+    return Motion() && showcase.Known() && showcase.Shown() != Display::ServiceDown && page == UiPage::Overview &&
            hwnd != nullptr && IsWindowVisible(hwnd) != FALSE && IsIconic(hwnd) == FALSE && !Blocked();
   }
 
@@ -6681,32 +6734,27 @@ struct MainWindow::Impl {
     DwmSetWindowAttribute(hwnd, kBorderColor, &value, sizeof value);
   }
 
-  // A new state: a turn from wherever the cube is into its pose - forward,
-  // to the next square-on yaw (askew by the pose's own offset).
-  void CubeTo(Display display) {
+  // A new state: the case moves from wherever it is - the glass cracks
+  // where it was clicked (a fresh click's spot, if the state is one it asks
+  // for), shatters, mends.
+  void VitrineTo(Display display) {
     const ULONGLONG now = GetTickCount64();
-    if (cubeKnown && display == cubeDisplay) {
+    if (showcase.Known() && display == showcase.Shown()) {
       return;
     }
-    CubePose to = CubePoseFor(display);
-    if (!cubeKnown) {
-      cubeKnown = true;
-      cubeFrom = to;
-      cubeStart = display == Display::Starting ? now : now - kCubeTurnMs;
-    } else {
-      cubeFrom = CubeBase(now);
-      cubeFrom.yaw = std::fmod(cubeFrom.yaw, 360.0f);
-      to.yaw = NextRestYaw(cubeFrom.yaw) + (to.yaw - 45);
-      cubeStart = now;
+    std::optional<vitrine::Point> hit;
+    if ((display == Display::Starting || display == Display::On) && pendingHit && now - pendingHitAt < kVitrineHitMs) {
+      hit = pendingHit;
     }
-    cubeTo = to;
-    cubeDisplay = display;
-    KickCube();
+    pendingHit.reset();
+    showcase.To(display, Clock(now), hit, Motion());
+    KickVitrine();
   }
 
-  void KickCube() {
-    if (hwnd != nullptr && IsWindowVisible(hwnd) != FALSE && (CubeMoving(GetTickCount64()) || CubeIdling())) {
-      SetTimer(hwnd, kCubeTimer, CubeMoving(GetTickCount64()) ? kCubeFrameMs : kCubeIdleFrameMs, nullptr);
+  void KickVitrine() {
+    const ULONGLONG now = GetTickCount64();
+    if (hwnd != nullptr && IsWindowVisible(hwnd) != FALSE && (VitrineMoving(now) || VitrineIdling())) {
+      SetTimer(hwnd, kVitrineTimer, VitrineFrameMs(now), nullptr);
     }
   }
 
@@ -7572,7 +7620,7 @@ struct MainWindow::Impl {
     }
     Relayout();
     KickLive();
-    KickCube();  // back on the overview, the cube's idle life starts again
+    KickVitrine();  // back on the overview, the case's idle life starts again
   }
 
   // The routing mode's menu dropped or put away; the focus, on an item of the page, would
@@ -8170,7 +8218,7 @@ struct MainWindow::Impl {
         }
         Relayout();
         if (wParam != SIZE_MINIMIZED) {
-          KickCube();  // restored from the taskbar: the idle timer stopped while it was minimized
+          KickVitrine();  // restored from the taskbar: the idle timer stopped while it was minimized
         }
         return 0;
       case WM_GETMINMAXINFO: {
@@ -8234,14 +8282,15 @@ struct MainWindow::Impl {
         Hover(-1);
         return 0;
       case WM_TIMER:
-        if (wParam == kCubeTimer) {
-          // One more frame after the last move: it lands on the pose exactly.
-          // At rest the timer slows to the idle life's pace (and a turn
-          // begun meanwhile is KickCube's, back at the quick one).
-          if (IsWindowVisible(w) == FALSE || (!CubeMoving(GetTickCount64()) && !CubeIdling())) {
-            KillTimer(w, kCubeTimer);
-          } else if (!CubeMoving(GetTickCount64())) {
-            SetTimer(w, kCubeTimer, kCubeIdleFrameMs, nullptr);
+        if (wParam == kVitrineTimer) {
+          // One more frame after the last move: it lands on its rest exactly.
+          // At rest the timer slows to the idle life's pace (and a move
+          // begun meanwhile is KickVitrine's, back at the quick one).
+          const ULONGLONG now = GetTickCount64();
+          if (IsWindowVisible(w) == FALSE || (!VitrineMoving(now) && !VitrineIdling())) {
+            KillTimer(w, kVitrineTimer);
+          } else {
+            SetTimer(w, kVitrineTimer, VitrineFrameMs(now), nullptr);
           }
           InvalidateRect(w, nullptr, FALSE);
           return 0;
@@ -8338,6 +8387,12 @@ struct MainWindow::Impl {
         if (h >= 0 && h == pressed) {
           in.focus = h;
           const Item item = layout.items[static_cast<std::size_t>(h)];  // a copy: the command may relayout
+          if (item.kind == Kind::Power) {
+            // Where the glass was struck: the crack starts there (VitrineTo).
+            pendingHit = ToScene(VitrinePlaceFor(item.rect),
+                                 {ToDip(GET_X_LPARAM(lParam)), ToDip(GET_Y_LPARAM(lParam))});
+            pendingHitAt = GetTickCount64();
+          }
           Activate(item);
         }
         return 0;
@@ -8554,7 +8609,7 @@ struct MainWindow::Impl {
       }
       target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
     }
-    in.cube = cubeKnown ? std::optional(CubeAt(GetTickCount64())) : std::nullopt;
+    in.vitrine = showcase.Known() ? std::optional(VitrineAt(GetTickCount64())) : std::nullopt;
     target->BeginDraw();
     painter.Draw(target.get(), layout, content, in, log, &live);
     if (target->EndDraw() == D2DERR_RECREATE_TARGET) {
@@ -8599,7 +8654,7 @@ void MainWindow::Show(UiPage page) {
   m.Go(page);
   ShowWindow(m.hwnd, IsIconic(m.hwnd) ? SW_RESTORE : SW_SHOW);
   SetForegroundWindow(m.hwnd);
-  m.KickCube();  // turning while it connects: the timer stopped while hidden
+  m.KickVitrine();  // breaking or flowing while it was hidden: the timer stopped
   m.KickLive();
 }
 
@@ -8621,7 +8676,7 @@ bool MainWindow::IsVisible() const { return impl_->hwnd != nullptr && IsWindowVi
 
 void MainWindow::Update(const UiContent& content) {
   Impl& m = *impl_;
-  m.CubeTo(content.display);
+  m.VitrineTo(content.display);
   m.ApplyBorder(content);
   const bool sameList = content.protocols == m.content.protocols && content.autoOption == m.content.autoOption &&
                         content.serversByDelay == m.content.serversByDelay;
@@ -8719,7 +8774,7 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
   if (layout.logBox) {  // at the newest, as the window follows them
     log.scroll = std::max(0.0f, log.Height() - (layout.logBox->bottom - layout.logBox->top));
   }
-  // The live traffic as it would be a few seconds in, an ad broken on the cube among it.
+  // The live traffic as it would be a few seconds in, an ad broken by the case among it.
   LiveTraffic live;
   if (layout.glow) {
     for (int i = 0; i < 100; ++i) {
@@ -8730,7 +8785,10 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
   }
   Interaction in;
   constexpr std::wstring_view kEditPrefix = L"edit:";
-  if (tipFor.starts_with(kEditPrefix)) {
+  constexpr std::wstring_view kVitrinePrefix = L"vitrine:";
+  if (tipFor.starts_with(kVitrinePrefix)) {
+    in.vitrine = VitrineScript(tipFor.substr(kVitrinePrefix.size()));
+  } else if (tipFor.starts_with(kEditPrefix)) {
     // A way's line typed over (the box itself is a window: only its plate shows here).
     const std::wstring_view words = tipFor.substr(kEditPrefix.size());
     const auto it = std::find_if(layout.items.begin(), layout.items.end(), [&](const Item& item) {

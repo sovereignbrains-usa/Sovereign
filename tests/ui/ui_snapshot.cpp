@@ -583,6 +583,43 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\profile-merged.png");
   });
 
+  // The connect case mid-motion: struck, cracking, shattering, open, mending; red, dim.
+  struct Moment {
+    const wchar_t* name;
+    sovereign::tray::Display display;
+    const wchar_t* script;
+  };
+  using sovereign::tray::Display;
+  static constexpr Moment kMoments[] = {
+      {L"vitrine-off", Display::Off, L"off@0;3.2"},
+      {L"vitrine-struck", Display::Starting, L"off@0,starting!@1;1.06"},
+      {L"vitrine-cracked", Display::Starting, L"off@0,starting!@1;3"},
+      {L"vitrine-shatter", Display::On, L"off@0,starting!@1,on@3;3.12"},
+      {L"vitrine-flying", Display::On, L"off@0,starting!@1,on@3;3.45"},
+      {L"vitrine-rising", Display::On, L"off@0,starting!@1,on@3;4.1"},
+      {L"vitrine-open", Display::On, L"off@0,starting!@1,on@3;12"},
+      {L"vitrine-mending", Display::Off, L"off@0,starting!@1,on@3,off@12;12.35"},
+      {L"vitrine-mended", Display::Off, L"off@0,starting!@1,on@3,off@12;13.2"},
+      {L"vitrine-error", Display::Error, L"off@0,starting!@1,error@3;7"},
+      {L"vitrine-down", Display::ServiceDown, L"down@0;3"},
+  };
+  for (const Moment& moment : kMoments) {
+    variant([&](UiContent& shown) {
+      shown.display = moment.display;
+      sovereign::tray::RenderMainWindowSnapshot(shown, UiPage::Overview, logs, 400, 620, 96,
+                                                dir + L"\\" + moment.name + L".png",
+                                                std::wstring(L"vitrine:") + moment.script);
+    });
+  }
+  variant([&](UiContent& shown) {
+    shown.display = Display::On;
+    sovereign::tray::RenderMainWindowSnapshot(shown, UiPage::Overview, logs, 600, 930, 144,
+                                              dir + L"\\vitrine-open-150.png", L"vitrine:on@0;12");
+    sovereign::tray::RenderMainWindowSnapshot(shown, UiPage::Overview, logs, 600, 930, 144,
+                                              dir + L"\\vitrine-shatter-150.png",
+                                              L"vitrine:off@0,starting!@1,on@3;3.2");
+  });
+
   // Every service's logo draws (assets/services: what Direct2D's SVG can't
   // draw comes out empty) - at the menus' 16 px and at 150 %.
   std::vector<std::string_view> logos = {"lan", "russia", "ads", "cookies", "trackers", "malware", "hysteria", "cloudflare", "quad9"};  // the board's, the settings'

@@ -77,7 +77,10 @@ class MainWindow {
 // Draws `page` with `content` into a PNG of `width` x `height` pixels at
 // `dpi`, with no window - for tests/ui's snapshots, which let a change to the
 // window be looked at without a desktop. `logs` are the log page's lines;
-// `tipFor`, if any: the tip shown is the first item's whose tip starts so.
+// `tipFor`, if any: the tip shown is the first item's whose tip starts so;
+// "edit:" and a way's words: that line typed over; "vitrine:" and a script
+// ("off@0,starting!@1,on@4;4.3" - states at seconds, "!" a click on the
+// glass, then the moment drawn): the connect case mid-motion.
 // Throws on failure, and if no tip starts so.
 void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::vector<std::wstring>& logs,
                               UINT width, UINT height, float dpi, const std::wstring& pngPath,

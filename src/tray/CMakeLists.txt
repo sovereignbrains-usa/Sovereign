@@ -78,8 +78,8 @@ target_link_libraries(sovereign_tray_lib PUBLIC sovereign_common PRIVATE ZXing::
 add_library(sovereign_tray_ui STATIC
   main_window.cpp
   main_window.h
-  cube.cpp
-  cube.h
+  vitrine.cpp
+  vitrine.h
   icons.cpp
   icons.h
   ui_content.h

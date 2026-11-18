@@ -7,3 +7,5 @@
 #define IDR_FLAGS 101
 // The font (assets/fonts, OFL): Geist.
 #define IDR_FONT_TEXT 102
+// The sing-box box the connect case shows under its glass (vitrine.h).
+#define IDR_VITRINE_BOX 103

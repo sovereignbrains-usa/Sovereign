@@ -110,7 +110,7 @@ wil::unique_hicon IconFromPixels(const Pixels& pixels, int size) {
 
 }  // namespace
 
-// On is the VPN's blue, as the cube's light (ui_style.h: one colour, one meaning).
+// On is the VPN's blue, as the case's light (ui_style.h: one colour, one meaning).
 COLORREF StateColor(Display display) {
   switch (display) {
     case Display::ServiceDown: return RGB(150, 150, 150);

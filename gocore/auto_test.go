@@ -240,6 +240,37 @@ func TestAutoFailsOver(t *testing.T) {
 	}
 }
 
+// A connection no way opens (a site that is down, a closed address: every way
+// says "refused") is no failure of any of them. 18.11.2026: such connections
+// painted five of seven servers yellow, "не открыл соединение - взял другой",
+// while the one in use stayed in use and all of them worked.
+func TestAutoNoBlameWhenNothingOpens(t *testing.T) {
+	measure(t)
+	a := testAuto(nil, newFake("a", "refused", 0), newFake("b", "refused", 0))
+	if _, _, err := dialAuto(t, a); err == nil {
+		t.Fatal("nothing can open, and a connection came")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if len(a.down[a.network]) != 0 {
+		t.Fatalf("ways blamed for a connection none could open: %v", a.down)
+	}
+	if got := tagsOf(a.order(N.NetworkTCP, time.Now())); got != "a,b" {
+		t.Fatalf("order after it: %s", got)
+	}
+
+	// With one opening, the ways that failed before it are the ones to blame.
+	a = testAuto(nil, newFake("a", "refused", 0), newFake("b", "refused", 0), newFake("c", "open", 0))
+	if tag, _, err := dialAuto(t, a); err != nil || tag != "c" {
+		t.Fatalf("third opens: %s %v", tag, err)
+	}
+	if len(a.down[a.network]) != 2 {
+		t.Fatalf("a and b failed while c opened: %v", a.down)
+	}
+	if got := tagsOf(a.order(N.NetworkTCP, time.Now())); got != "c,a,b" {
+		t.Fatalf("order after it: %s", got)
+	}
+}
+
 func TestAutoRaceLoserClosed(t *testing.T) {
 	measure(t)
 	slow, fast := newFake("slow", "open", autoStagger+400*time.Millisecond), newFake("fast", "open", 0)

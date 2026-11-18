@@ -434,6 +434,7 @@ type autoAttempt[T io.Closer] struct {
 
 // autoRace opens `ways` in turn, the next one `stagger` after the one before
 // or as soon as it failed, and returns the first that opened (and its tag).
+// The ways that failed before it are reported then, not when none opens.
 // The others go on by themselves - what they open is closed, what they say
 // is reported - up to autoDialMax; the caller giving up stops them all.
 func autoRace[T io.Closer](ctx context.Context, ways []adapter.Outbound, stagger time.Duration,
@@ -466,6 +467,14 @@ func autoRace[T io.Closer](ctx context.Context, ways []adapter.Outbound, stagger
 		}
 		report(ways[answer.index], answer.err)
 	}
+	// What ways said before one opened. A way is blamed for it only when
+	// another opened the same connection: with none opening, the fault is the
+	// target's (a site that is down, a closed address - every way answers
+	// "connection refused") or the network's, and blaming every way for it
+	// painted five of seven servers yellow, "не открыл соединение - взял
+	// другой", while the one in use stayed in use and all of them worked
+	// (18.11.2026).
+	var failed []autoAttempt[T]
 	next()
 	timer := time.NewTimer(stagger)
 	defer timer.Stop()
@@ -474,11 +483,15 @@ func autoRace[T io.Closer](ctx context.Context, ways []adapter.Outbound, stagger
 		select {
 		case answer := <-answers:
 			pending--
-			tell(answer)
 			if answer.err == nil {
+				for _, before := range failed {
+					tell(before)
+				}
+				tell(answer)
 				go autoDrain(answers, pending, tell, cancel)
 				return answer.value, ways[answer.index].Tag(), nil
 			}
+			failed = append(failed, answer)
 			last = answer.err
 			next()
 			timer.Reset(stagger)

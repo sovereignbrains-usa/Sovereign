@@ -4,10 +4,17 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
-## 0.6.21 — 15.11.2026
+## 0.6.21 — 18.11.2026
 
 - **Microsoft Store apps are in the list of programs**: "Программа…" on the routing page, in "Из запущенных", offered ApplicationFrameHost for every Store (UWP) app — the window on the screen is its, and a rule on that name matches nothing. The app is listed under its own exe now (Безопасность Windows → SecHealthUI.exe, and the like). A Store app that is suspended, with only an empty frame left, is not offered at all.
 - **Routing page, a calmer look**: the mode's pill is a plate with the chevron in a round knob of its own (it was an outline that read as a field to type in). The title bar's switches (the routing page's detail, the servers' full figures, auto) are lit as a pressed-in key when on, no longer a window with a lamp like the version's key beside them. The route check («Куда пойдёт сайт?») is no card with a dot and an icon any more: a search well and its «Проверить» on one line, the answer under them with a dot of its verdict.
+
+- **Security, the control channel**: the channel between the tray and the service refuses remote clients and anyone but the tray or an administrator; before, any signed-in user, and any account over the network share, could open it.
+- **Security, the kill switch**: the "local network allowed" list takes only local ranges (a `0.0.0.0/0` there used to open the closed network to the internet); the local network's name services (DNS over TLS on 853, mDNS, LLMNR) stay shut with the network closed; a lone leftover of the kill switch no longer counts as an armed one; the tray asks for the kill switch before the tunnel starts, and retries every 2 seconds.
+- **Security, the updater**: it hashes the downloaded installer again right before the elevated launch, with the file held open meanwhile - nothing in the temp folder can be swapped in between the check and the click.
+- **Security, the install**: the service looks for DLLs only in its own folder and System32. The installer takes the inherited rights off its folder (SYSTEM and administrators full, users read and run), so a folder picked outside Program Files is as closed as Program Files. The log folder in ProgramData is for SYSTEM and administrators only: the logs hold hosts and the core's errors.
+- **Security, the servers test**: a test address that points inside the machine is refused.
+- **The release build**: actions pinned to a commit, vcpkg and sing-box taken at a fixed commit, read-only tokens, and the signing key is in a job of its own that does not run the build.
 
 ## 0.6.20 — 15.11.2026
 

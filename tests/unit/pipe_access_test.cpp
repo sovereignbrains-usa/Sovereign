@@ -104,8 +104,9 @@ std::optional<std::string> Request(const std::wstring& pipeName, const std::stri
 struct Served {
   std::atomic<int> calls{0};
   std::jthread thread;
-  Served(const std::wstring& pipeName, std::optional<std::wstring> trusted) {
-    thread = std::jthread([this, pipeName, trusted](const std::stop_token& stop) {
+  Served(const std::wstring& pipeName, const std::optional<std::wstring>& trusted) {
+    // An exception out of the server ends the run (std::terminate) - loud, as it should be.
+    thread = std::jthread([this, pipeName, trusted](const std::stop_token& stop) {  // NOLINT(bugprone-exception-escape)
       PipeServer server(
           pipeName,
           [this](const std::string&) {
@@ -158,7 +159,7 @@ void TestServer() {
 
 }  // namespace
 
-int main() {
+int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
   try {
     TestDecision();
     TestServer();

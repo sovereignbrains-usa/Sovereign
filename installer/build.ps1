@@ -46,14 +46,14 @@ try {
   # The flags in the tray's resources are flag-icons' (MIT): its notice ships too.
   Copy-Item 'assets/flags/LICENSE' (Join-Path $stage 'LICENSE-flag-icons.txt')
 
-  # A path either way: where it's in PATH, or where its installer puts it.
+  # A path either way: where it's in PATH, or where its installer puts it. Not fetched here: a
+  # release build that installed the package manager's latest Inno Setup would trust whoever can
+  # change that package (CI's runner image ships Inno Setup 6; a developer installs it from
+  # jrsoftware.org).
   $iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
   if (-not $iscc) {
     $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-    if (-not (Test-Path $iscc)) {
-      choco install innosetup -y --no-progress
-      if ($LASTEXITCODE -ne 0) { throw "installing Inno Setup failed" }
-    }
+    if (-not (Test-Path $iscc)) { throw "Inno Setup 6 isn't installed (ISCC.exe not in PATH, nor at $iscc): get it from https://jrsoftware.org/isdl.php" }
   }
 
   New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

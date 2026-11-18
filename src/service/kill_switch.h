@@ -72,6 +72,12 @@ struct Prefix {
 // "172.19.0.1/30", "fdfe:dcba:9876::1/126"; a bare address is a /32 (/128).
 std::optional<Prefix> ParsePrefix(std::string_view text);
 
+// Whether `prefix` lies wholly inside the local network's ranges (private,
+// shared 100.64/10, link-local, multicast; fc00::/7, fe80::/10, ff00::/8).
+// A lan_allowed entry must: `0.0.0.0/0` there would open a "closed" network to
+// the whole internet.
+bool IsLanPrefix(const Prefix& prefix);
+
 // The addresses of the config's TUN inbounds: "address" (sing-box 1.10+),
 // and the older "inet4_address"/"inet6_address"; strings or lists of them.
 // What doesn't parse is skipped.
@@ -100,7 +106,7 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
 
 // The settings as the filters keep them (IKillSwitch::Apply's `kept`), and
 // back: nullopt for what isn't such a text - a field missing or of another
-// type, a lan_allowed entry that isn't ParsePrefix's or more than
+// type, a lan_allowed entry that isn't ParsePrefix's and IsLanPrefix's or more than
 // kMaxLanAllowed of them.
 std::string KillSwitchSettingsText(const KillSwitchSettings& settings);
 std::optional<KillSwitchSettings> ParseKillSwitchSettings(std::string_view text);

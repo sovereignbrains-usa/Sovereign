@@ -637,6 +637,12 @@ void TestKillSwitch() {
   // the switch itself reported off; the addresses let in come back as sent.
   CHECK(IsError(Send(handler, R"({"cmd":"kill_switch","enabled":false,"lan_closed":true,"lan_allowed":["nope"]})"),
                 "every lan_allowed entry must be an address or a subnet"));
+  // Not the internet: an entry outside the local network would outrank the block.
+  for (const char* outside : {"0.0.0.0/0", "8.8.8.8", "192.168.0.0/15", "::/0", "2001:db8::1"}) {
+    CHECK(IsError(Send(handler, std::string(R"({"cmd":"kill_switch","enabled":false,"lan_closed":true,"lan_allowed":[")") +
+                                    outside + R"("]})"),
+                  "every lan_allowed entry must be in the local network (private, link-local or shared ranges)"));
+  }
   answer = Send(handler,
                 R"({"cmd":"kill_switch","enabled":false,"lan_closed":true,"lan_allowed":["192.168.31.1"]})");
   CHECK(answer.value("active", true) == false && answer.value("lan_closed", false) == true);

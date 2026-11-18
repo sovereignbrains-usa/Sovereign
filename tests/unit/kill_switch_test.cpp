@@ -14,6 +14,7 @@ namespace {
 using sovereign::service::BuildKillSwitchRules;
 using sovereign::service::KillSwitchRule;
 using sovereign::service::KillSwitchSettings;
+using sovereign::service::IsLanPrefix;
 using sovereign::service::ParsePrefix;
 using sovereign::service::Prefix;
 using sovereign::service::TunPrefixes;
@@ -238,6 +239,47 @@ void TestLanClosed() {
 
 // What the filters keep of the settings, back as it went in; anything else
 // isn't taken.
+bool InLan(const char* text) {
+  const auto prefix = ParsePrefix(text);
+  return prefix && IsLanPrefix(*prefix);
+}
+
+// lan_allowed holds only what lies wholly inside the local network: `0.0.0.0/0`
+// there opened the "closed" network to the whole internet.
+void TestLanAllowedStaysLocal() {
+  for (const char* ok : {"192.168.31.1", "192.168.0.0/16", "10.0.0.0/8", "10.1.2.3/24", "172.16.0.0/12", "172.31.255.1",
+                         "100.64.0.1", "169.254.1.1", "224.0.0.251", "fe80::1", "fe80::/10", "fd00::1/64", "ff02::fb"}) {
+    CHECK(InLan(ok));
+  }
+  for (const char* bad : {"0.0.0.0/0", "0.0.0.0", "8.8.8.8", "1.1.1.1/32", "192.168.0.0/15", "192.0.0.0/8", "10.0.0.0/7",
+                          "172.32.0.1", "172.0.0.0/8", "100.128.0.1", "::/0", "::", "2001:db8::1", "2a00:1450::/32",
+                          "fe00::/8", "fc00::/6", "::1"}) {
+    CHECK(!InLan(bad));
+  }
+
+  // However it got in, the rules carry none of it: a "let in" rule with the
+  // internet in it would outrank the block.
+  const auto rules = BuildKillSwitchRules({.enabled = false,
+                                           .allowLan = true,
+                                           .lanClosed = true,
+                                           .lanAllowed = {"0.0.0.0/0", "8.8.8.8", "::/0", "2001:db8::1", "192.168.31.1"}},
+                                          {});
+  for (const bool v6 : {false, true}) {
+    for (const bool inbound : {false, true}) {
+      const KillSwitchRule* let = LanRule(rules, v6, inbound, "let in");
+      if (v6) {
+        CHECK(let == nullptr);
+        continue;
+      }
+      CHECK(let != nullptr);
+      if (let != nullptr) {
+        CHECK(let->remotePrefixes.size() == 1 && AnyCovers(let->remotePrefixes, "192.168.31.1") &&
+              !AnyCovers(let->remotePrefixes, "8.8.8.8") && !AnyCovers(let->remotePrefixes, "1.1.1.1"));
+      }
+    }
+  }
+}
+
 void TestKeptSettings() {
   using sovereign::service::KillSwitchSettingsText;
   using sovereign::service::ParseKillSwitchSettings;
@@ -249,8 +291,10 @@ void TestKeptSettings() {
   for (const char* bad :
        {"", "not json", "[]", R"({"enabled":true})", R"({"enabled":1,"allow_lan":true,"lan_closed":false,"lan_allowed":[]})",
         R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["nope"]})",
+        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["0.0.0.0/0"]})",
+        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["192.168.1.1","8.8.8.8"]})",
         R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":"192.168.1.1"})",
-        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["1.1.1.1","1.1.1.2","1.1.1.3","1.1.1.4","1.1.1.5","1.1.1.6","1.1.1.7","1.1.1.8","1.1.1.9","1.1.1.10","1.1.1.11","1.1.1.12","1.1.1.13"]})"}) {
+        R"({"enabled":true,"allow_lan":true,"lan_closed":true,"lan_allowed":["10.0.0.1","10.0.0.2","10.0.0.3","10.0.0.4","10.0.0.5","10.0.0.6","10.0.0.7","10.0.0.8","10.0.0.9","10.0.0.10","10.0.0.11","10.0.0.12","10.0.0.13"]})"}) {
     CHECK(!ParseKillSwitchSettings(bad));
   }
 }
@@ -263,6 +307,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestTunPrefixes();
     TestRules();
     TestLanClosed();
+    TestLanAllowedStaysLocal();
     TestKeptSettings();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

@@ -459,8 +459,12 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
                                 .lanClosed = lanClosed.get<bool>(),
                                 .lanAllowed = {}};
     for (const Json& address : lanAllowed) {
-      if (!address.is_string() || !ParsePrefix(address.get<std::string>())) {
+      const auto prefix = address.is_string() ? ParsePrefix(address.get<std::string>()) : std::nullopt;
+      if (!prefix) {
         return fail("every lan_allowed entry must be an address or a subnet");
+      }
+      if (!IsLanPrefix(*prefix)) {
+        return fail("every lan_allowed entry must be in the local network (private, link-local or shared ranges)");
       }
       settings.lanAllowed.push_back(address.get<std::string>());
     }

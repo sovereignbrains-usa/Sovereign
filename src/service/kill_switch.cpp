@@ -192,6 +192,23 @@ std::optional<Prefix> ParsePrefix(std::string_view text) {
   return prefix;
 }
 
+bool IsLanPrefix(const Prefix& prefix) {
+  const auto ranges = LanPrefixes(prefix.v6);
+  return std::any_of(ranges.begin(), ranges.end(), [&](const Prefix& range) {
+    if (prefix.bits < range.bits) {
+      return false;
+    }
+    for (int bit = 0; bit < range.bits; ++bit) {
+      const auto byte = static_cast<std::size_t>(bit / 8);
+      const int mask = 0x80 >> (bit % 8);
+      if ((prefix.bytes[byte] & mask) != (range.bytes[byte] & mask)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 std::vector<Prefix> TunPrefixes(std::string_view config) {
   std::vector<Prefix> prefixes;
   const auto json = nlohmann::json::parse(config, nullptr, /*allow_exceptions=*/false);
@@ -235,7 +252,7 @@ std::vector<KillSwitchRule> BuildKillSwitchRules(const KillSwitchSettings& setti
     if (settings.lanClosed) {
       std::vector<Prefix> allowed;
       for (const std::string& text : settings.lanAllowed) {
-        if (const auto p = ParsePrefix(text); p && p->v6 == v6 && allowed.size() < kMaxLanAllowed) {
+        if (const auto p = ParsePrefix(text); p && p->v6 == v6 && IsLanPrefix(*p) && allowed.size() < kMaxLanAllowed) {
           allowed.push_back(*p);
         }
       }
@@ -362,7 +379,8 @@ std::optional<KillSwitchSettings> ParseKillSwitchSettings(std::string_view text)
   }
   KillSwitchSettings settings{.enabled = *enabled, .allowLan = *allowLan, .lanClosed = *lanClosed, .lanAllowed = {}};
   for (const auto& address : *allowed) {
-    if (!address.is_string() || !ParsePrefix(address.get<std::string>())) {
+    const auto prefix = address.is_string() ? ParsePrefix(address.get<std::string>()) : std::nullopt;
+    if (!prefix || !IsLanPrefix(*prefix)) {
       return std::nullopt;
     }
     settings.lanAllowed.push_back(address.get<std::string>());

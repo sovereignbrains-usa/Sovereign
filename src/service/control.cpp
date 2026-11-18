@@ -5,6 +5,7 @@
 #include "sha256.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -82,8 +83,75 @@ Json LogsResponse(const LogRing& log, std::uint64_t since) {
   return response;
 }
 
-// A URL for box_urltest: http(s), with a host, nothing that could split a
-// request line - the core dials it as given.
+bool EndsWith(std::string_view text, std::string_view suffix) {
+  return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
+}
+
+// A host the service may dial for a latency test: a name of the public
+// internet or a public IPv4 address. The core dials from the machine, as
+// SYSTEM, through any outbound - "direct" included - so a test URL pointing
+// inside (loopback, the router, a cloud's metadata address 169.254.169.254, a
+// service on a private network) would turn the answer's timing into a probe
+// of what only this machine can reach. Names are judged by their form: one a
+// resolver turns into a private address isn't caught here.
+bool IsPublicTestHost(std::string_view host) {
+  if (host.empty() || host.front() == '[') {
+    return false;  // IPv6 literals: no probe site needs one
+  }
+  std::string lower(host);
+  std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  while (!lower.empty() && lower.back() == '.') {
+    lower.pop_back();  // "localhost." is localhost
+  }
+  if (lower.empty() || lower.find('.') == std::string::npos) {
+    return false;  // "localhost", "router", a NetBIOS name
+  }
+  for (const std::string_view suffix : {".localhost", ".local", ".internal", ".lan", ".home", ".corp", ".intranet",
+                                         ".localdomain", ".home.arpa"}) {
+    if (EndsWith(lower, suffix)) {
+      return false;
+    }
+  }
+  const std::size_t lastLabel = lower.rfind('.') + 1;
+  const bool numeric = std::isdigit(static_cast<unsigned char>(lower[lastLabel])) != 0;
+  if (!numeric) {
+    return true;  // a name: no TLD starts with a digit
+  }
+  // Numeric: only plain dotted-quad is understood (not 2130706433, 0x7f.1, 017.0.0.1 - which
+  // a resolver reads as an address too), and only a public one.
+  std::vector<unsigned> octet;
+  for (std::size_t at = 0; at <= lower.size();) {
+    const std::size_t dot = lower.find('.', at);
+    const std::string_view part =
+        std::string_view(lower).substr(at, dot == std::string::npos ? std::string::npos : dot - at);
+    if (part.empty() || part.size() > 3 || (part.size() > 1 && part.front() == '0') ||
+        !std::all_of(part.begin(), part.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
+      return false;
+    }
+    octet.push_back(static_cast<unsigned>(std::stoul(std::string(part))));
+    if (octet.back() > 255 || octet.size() > 4) {
+      return false;
+    }
+    at = dot == std::string::npos ? lower.size() + 1 : dot + 1;
+  }
+  if (octet.size() != 4) {
+    return false;
+  }
+  const unsigned a = octet[0];
+  const unsigned b = octet[1];
+  const unsigned c = octet[2];
+  const bool notPublic = a == 0 || a == 10 || a == 127 || a >= 224 ||  // "this" network, private, loopback, multicast, reserved
+                         (a == 100 && b >= 64 && b <= 127) ||          // carrier-grade NAT
+                         (a == 169 && b == 254) ||                     // link-local: cloud metadata
+                         (a == 172 && b >= 16 && b <= 31) ||           // private
+                         (a == 192 && b == 168) ||                     // private
+                         (a == 192 && b == 0 && c == 0) ||             // IETF protocol assignments
+                         (a == 198 && (b == 18 || b == 19));           // benchmarking: some VPNs' tunnels
+  return !notPublic;
+}
+
+// A URL for box_urltest: http(s), with a public host (IsPublicTestHost) and no
+// user info, nothing that could split a request line - the core dials it as given.
 bool IsTestUrl(const Json& url) {
   if (!url.is_string()) {
     return false;
@@ -101,8 +169,28 @@ bool IsTestUrl(const Json& url) {
   } else {
     return false;
   }
-  return view.size() > host && view[host] != '/' &&
-         std::none_of(view.begin(), view.end(), [](char c) { return static_cast<unsigned char>(c) <= ' ' || c == 0x7F; });
+  if (std::any_of(view.begin(), view.end(), [](char c) { return static_cast<unsigned char>(c) <= ' ' || c == 0x7F; })) {
+    return false;
+  }
+  // The authority: up to the first '/', '?' or '#'. "user@host" and a backslash
+  // are what URL parsers read differently from one another - not accepted.
+  const std::size_t authorityEnd = view.find_first_of("/?#\\", host);
+  std::string_view authority = view.substr(host, authorityEnd == std::string_view::npos ? std::string_view::npos : authorityEnd - host);
+  if (authority.empty() || authority.find('@') != std::string_view::npos) {
+    return false;
+  }
+  if (authority.front() == '[') {
+    return false;
+  }
+  const std::size_t colon = authority.find(':');
+  if (colon != std::string_view::npos) {
+    const std::string_view port = authority.substr(colon + 1);
+    if (port.empty() || port.size() > 5 || !std::all_of(port.begin(), port.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
+      return false;
+    }
+    authority = authority.substr(0, colon);
+  }
+  return IsPublicTestHost(authority);
 }
 
 }  // namespace

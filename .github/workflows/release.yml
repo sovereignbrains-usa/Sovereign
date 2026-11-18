@@ -13,16 +13,19 @@ on:
         description: 'Version, MAJOR.MINOR.PATCH (the tag v<version> is created on the chosen branch)'
         required: true
 
+# Two jobs, so that the key that signs updates never shares a machine with the build - the build runs
+# other people's code (the toolchain actions, vcpkg ports, Go modules, sing-box); the job holding
+# the key runs only this repository's scripts, GitHub's own actions, and what the build handed over.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
       - name: Locate MinGW-w64 gcc (needed for gocore's cgo build; MSVC can't compile cgo's C side)
         shell: pwsh
@@ -42,21 +45,13 @@ jobs:
             throw "no gcc found on PATH or at C:\mingw64\bin"
           }
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (gocore depends on it via go.mod replace)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       - name: Fetch pinned wintun.dll (sing-tun loads it at runtime; see tools/codegen/wintun.version)
         shell: pwsh
@@ -99,6 +94,39 @@ jobs:
         shell: pwsh
         run: pwsh installer/smoke.ps1 -Installer "out/Sovereign-Setup-$env:VERSION.exe"
 
+      # What the build made, to the job that signs and publishes it.
+      - name: Hand the installer over
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-files
+          path: out
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Version
+        shell: pwsh
+        env:
+          # Through the environment, not pasted into the script: the input is free text.
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME.TrimStart('v') }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "not a MAJOR.MINOR.PATCH version: '$version'" }
+          Add-Content -Path $env:GITHUB_ENV -Value "VERSION=$version"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-files
+          path: out
       # update.json names this release and where the next one is. The secret is the primary key
       # (src/tray/update.h, kUpdateKeys); a key the client doesn't carry fails the script, so a
       # release is never published unsigned.

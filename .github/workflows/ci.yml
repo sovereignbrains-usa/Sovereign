@@ -8,6 +8,11 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
 
+# Nothing here writes to the repository or the releases: the token reads, and a step
+# (or an action it runs) can't do more with it.
+permissions:
+  contents: read
+
 jobs:
   # The generated option structs (src/generated) against the pinned sing-box:
   # regenerated here from its sources, they must come out as committed. A field
@@ -15,17 +20,15 @@ jobs:
   codegen-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: tools/codegen/go.mod
           cache-dependency-path: tools/codegen/go.sum
 
       - name: Fetch pinned sing-box
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       # UTF-8 Russian read as another code page and written back (a script without
       # a BOM did that to the Services section, 06.10.2026): "Ð¡ÐµÑ€..." in the UI.
@@ -54,9 +57,9 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
       - name: Locate MinGW-w64 gcc (needed for gocore's cgo build; MSVC can't compile cgo's C side)
         shell: pwsh
@@ -76,21 +79,13 @@ jobs:
             throw "no gcc found on PATH or at C:\mingw64\bin"
           }
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (gocore depends on it via go.mod replace)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       - name: Fetch pinned wintun.dll (sing-tun loads it at runtime; see tools/codegen/wintun.version)
         shell: pwsh
@@ -142,7 +137,7 @@ jobs:
       # change to the window can be looked at without building it.
       - name: Keep the UI snapshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ui-snapshots
           path: build/ci/tests/ui/snapshots
@@ -168,9 +163,9 @@ jobs:
   installer:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
       - name: Locate MinGW-w64 gcc (needed for gocore's cgo build; MSVC can't compile cgo's C side)
         shell: pwsh
@@ -190,21 +185,13 @@ jobs:
             throw "no gcc found on PATH or at C:\mingw64\bin"
           }
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (gocore depends on it via go.mod replace)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       - name: Fetch pinned wintun.dll (sing-tun loads it at runtime; see tools/codegen/wintun.version)
         shell: pwsh
@@ -237,7 +224,7 @@ jobs:
 
       - name: Keep the installer
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: installer
           path: out
@@ -246,9 +233,9 @@ jobs:
   analyze:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
       - name: Locate MinGW-w64 gcc (needed for gocore's cgo build; MSVC can't compile cgo's C side)
         shell: pwsh
@@ -262,21 +249,13 @@ jobs:
             throw "no gcc found on PATH or at C:\mingw64\bin"
           }
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (gocore depends on it via go.mod replace)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       - name: Fetch pinned wintun.dll (sing-tun loads it at runtime; see tools/codegen/wintun.version)
         shell: pwsh
@@ -305,9 +284,9 @@ jobs:
   asan:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
       - name: Locate MinGW-w64 gcc (needed for gocore's cgo build; MSVC can't compile cgo's C side)
         shell: pwsh
@@ -321,21 +300,13 @@ jobs:
             throw "no gcc found on PATH or at C:\mingw64\bin"
           }
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (gocore depends on it via go.mod replace)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       - name: Fetch pinned wintun.dll (sing-tun loads it at runtime; see tools/codegen/wintun.version)
         shell: pwsh
@@ -393,9 +364,9 @@ jobs:
   clang-tidy:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
       - name: Locate clang-tidy bundled with this VS install
         shell: pwsh
@@ -409,26 +380,18 @@ jobs:
           if (-not $clangTidy) { throw "clang-tidy.exe not found under VS install; Clang tools component missing" }
           Add-Content -Path $env:GITHUB_PATH -Value $clangTidy.DirectoryName
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (CMake configure reads gocore's build tags from it)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
       - name: Configure (generates compile_commands.json)
         run: cmake --preset ci
 
       - name: clang-tidy
-        run: clang-tidy -p build/ci src/service/main.cpp src/service/pipe_server.cpp src/service/go_core.cpp src/service/trace.cpp src/service/autologger.cpp src/service/control.cpp src/service/log_ring.cpp src/service/kill_switch.cpp src/service/kill_switch_wfp.cpp src/service/boot_store.cpp src/tray/main.cpp tests/golden/anytls_outbound_test.cpp tests/golden/anytls_inbound_padding_test.cpp tests/golden/duration_test.cpp tests/golden/integer_test.cpp tests/unit/log_ring_test.cpp tests/unit/control_test.cpp tests/unit/boot_store_test.cpp tests/tsan/stress_test.cpp tests/tsan/tray_stress_test.cpp tests/unit/kill_switch_test.cpp tests/unit/go_core_test.cpp tests/unit/gocore_stub.cpp tests/unit/tray_model_test.cpp tests/unit/subscription_test.cpp tests/unit/app_rules_test.cpp tests/unit/protocol_choice_test.cpp tests/unit/log_lines_test.cpp tests/unit/cache_file_test.cpp tests/unit/delays_test.cpp tests/unit/update_test.cpp tests/unit/config_sync_test.cpp tests/unit/exit_ip_test.cpp tests/unit/log_level_test.cpp tests/unit/share_links_test.cpp tests/unit/import_formats_test.cpp tests/unit/qr_codes_test.cpp tests/unit/capture_test.cpp tests/unit/profiles_test.cpp tests/unit/settings_test.cpp tests/unit/combine_test.cpp tests/unit/routing_test.cpp tests/unit/diagnostics_test.cpp tests/unit/diagnose_probe.cpp src/tray/profiles.cpp src/tray/combine.cpp src/tray/routing.cpp src/tray/relay.cpp tests/unit/relay_test.cpp tests/unit/relay_probe.cpp src/tray/diagnostics.cpp src/tray/support_report.cpp tests/unit/support_report_test.cpp src/tray/problem_report.cpp tests/unit/problem_report_test.cpp src/tray/diagnose.cpp src/tray/share_links.cpp src/tray/import_formats.cpp src/tray/qr_codes.cpp src/tray/capture.cpp src/tray/cache_file.cpp src/tray/config_sync.cpp src/tray/exit_ip.cpp src/tray/log_level.cpp src/tray/delays.cpp src/tray/update.cpp src/tray/updater.cpp src/tray/tray_model.cpp src/tray/subscription.cpp src/tray/app_rules.cpp src/tray/protocol_choice.cpp src/tray/fetch.cpp src/tray/pipe_client.cpp src/tray/settings.cpp src/tray/icons.cpp src/tray/log_lines.cpp src/tray/autostart.cpp src/tray/autostart_command.cpp tests/unit/autostart_test.cpp src/tray/main_window.cpp tests/ui/ui_snapshot.cpp src/conformance/client_hello.cpp tests/conformance/client_hello_test.cpp tests/conformance/harness.cpp tests/fuzz/client_hello_fuzz.cpp tests/fuzz/config_fuzz.cpp tests/fuzz/tray_input_fuzz.cpp tests/fuzz/control_fuzz.cpp
+        run: clang-tidy -p build/ci src/service/main.cpp src/service/pipe_server.cpp src/service/pipe_access.cpp src/service/go_core.cpp src/service/trace.cpp src/service/autologger.cpp src/service/control.cpp src/service/log_ring.cpp src/service/kill_switch.cpp src/service/kill_switch_wfp.cpp src/service/boot_store.cpp src/tray/main.cpp tests/golden/anytls_outbound_test.cpp tests/golden/anytls_inbound_padding_test.cpp tests/golden/duration_test.cpp tests/golden/integer_test.cpp tests/unit/log_ring_test.cpp tests/unit/control_test.cpp tests/unit/pipe_access_test.cpp tests/unit/boot_store_test.cpp tests/tsan/stress_test.cpp tests/tsan/tray_stress_test.cpp tests/unit/kill_switch_test.cpp tests/unit/go_core_test.cpp tests/unit/gocore_stub.cpp tests/unit/tray_model_test.cpp tests/unit/subscription_test.cpp tests/unit/app_rules_test.cpp tests/unit/protocol_choice_test.cpp tests/unit/log_lines_test.cpp tests/unit/cache_file_test.cpp tests/unit/delays_test.cpp tests/unit/update_test.cpp tests/unit/config_sync_test.cpp tests/unit/exit_ip_test.cpp tests/unit/log_level_test.cpp tests/unit/share_links_test.cpp tests/unit/import_formats_test.cpp tests/unit/qr_codes_test.cpp tests/unit/capture_test.cpp tests/unit/profiles_test.cpp tests/unit/settings_test.cpp tests/unit/combine_test.cpp tests/unit/routing_test.cpp tests/unit/diagnostics_test.cpp tests/unit/diagnose_probe.cpp src/tray/profiles.cpp src/tray/combine.cpp src/tray/routing.cpp src/tray/relay.cpp tests/unit/relay_test.cpp tests/unit/relay_probe.cpp src/tray/diagnostics.cpp src/tray/support_report.cpp tests/unit/support_report_test.cpp src/tray/problem_report.cpp tests/unit/problem_report_test.cpp src/tray/diagnose.cpp src/tray/share_links.cpp src/tray/import_formats.cpp src/tray/qr_codes.cpp src/tray/capture.cpp src/tray/cache_file.cpp src/tray/config_sync.cpp src/tray/exit_ip.cpp src/tray/log_level.cpp src/tray/delays.cpp src/tray/update.cpp src/tray/updater.cpp src/tray/tray_model.cpp src/tray/subscription.cpp src/tray/app_rules.cpp src/tray/protocol_choice.cpp src/tray/fetch.cpp src/tray/pipe_client.cpp src/tray/settings.cpp src/tray/icons.cpp src/tray/log_lines.cpp src/tray/autostart.cpp src/tray/autostart_command.cpp tests/unit/autostart_test.cpp src/tray/main_window.cpp tests/ui/ui_snapshot.cpp src/conformance/client_hello.cpp tests/conformance/client_hello_test.cpp tests/conformance/harness.cpp tests/fuzz/client_hello_fuzz.cpp tests/fuzz/config_fuzz.cpp tests/fuzz/tray_input_fuzz.cpp tests/fuzz/control_fuzz.cpp
 
   # libFuzzer targets (tests/fuzz): a minute each on every push, twenty minutes each
   # in the nightly run. A finding fails the job and its inputs are kept as an artifact;
@@ -436,25 +399,17 @@ jobs:
   fuzz:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
-      - uses: seanmiddleditch/gha-setup-ninja@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: seanmiddleditch/gha-setup-ninja@8b297075da4cd2a5f1fd21fe011b499edf06e9d2 # v4
 
-      - name: Bootstrap vcpkg
+      - name: Bootstrap vcpkg (the pinned commit)
         shell: pwsh
-        run: |
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            if (-not (Test-Path "C:\vcpkg\.git")) {
-              git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
-            }
-            C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
-          }
+        run: pwsh tools/ci/bootstrap-vcpkg.ps1
 
       - name: Fetch pinned sing-box (CMake configure reads gocore's build tags from it)
         shell: pwsh
-        run: |
-          $tag = (Get-Content tools/codegen/sing-box.version)[0]
-          git clone --depth 1 --branch $tag https://github.com/SagerNet/sing-box.git vendor/sing-box
+        run: pwsh tools/ci/fetch-singbox.ps1
 
       - name: Configure
         run: cmake --preset ci-fuzz
@@ -468,7 +423,7 @@ jobs:
 
       - name: Keep the inputs that failed
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-findings
           path: fuzz-artifacts
@@ -480,7 +435,7 @@ jobs:
   tsan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Newer kernels randomize mmap more than TSan's shadow memory layout allows
       # ("FATAL: ThreadSanitizer: unexpected memory mapping"); 28 bits is what it expects.

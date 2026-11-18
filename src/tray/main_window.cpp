@@ -167,6 +167,7 @@ constexpr const wchar_t* kGlyphPaste = L"\xE77F";
 constexpr const wchar_t* kGlyphRefresh = L"\xE72C";
 constexpr const wchar_t* kGlyphRemove = L"\xE711";
 constexpr const wchar_t* kGlyphAdd = L"\xE710";
+constexpr const wchar_t* kGlyphPlus = L"\xE109";  // the configurations' head's "+": ours, bolder and smaller than kGlyphAdd (DrawLineIcon)
 constexpr const wchar_t* kGlyphFile = L"\xE8E5";
 constexpr const wchar_t* kGlyphFolder = L"\xE8B7";
 constexpr const wchar_t* kGlyphCopy = L"\xE8C8";
@@ -847,6 +848,16 @@ struct Interaction {
 bool Contains(const D2D1_RECT_F& r, float x, float y) { return x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
 
 D2D1_RECT_F Inflate(const D2D1_RECT_F& r, float by) { return {r.left - by, r.top - by, r.right + by, r.bottom + by}; }
+
+// What a key shows of itself: the head's "+" is a 28 px zone to hit but a 22 px plate to see (hover, focus ring).
+D2D1_RECT_F Plate(const Item& it) {
+  if (it.glyph != kGlyphPlus) {
+    return it.rect;
+  }
+  const float mx = (it.rect.left + it.rect.right) / 2;
+  const float my = (it.rect.top + it.rect.bottom) / 2;
+  return {std::floor(mx - 11), std::floor(my - 11), std::floor(mx - 11) + 22, std::floor(my - 11) + 22};
+}
 
 // The calendar on a question's card (UiCalendar): dates as days since
 // 1970-01-01 in the Gregorian calendar, to move by days and by months.
@@ -1545,7 +1556,7 @@ class Painter {
       if (n == in.focus && in.focusVisible) {
         // A title bar key's ring goes round its pill: the cell runs to the window's edges.
         const float radius = it.chrome ? 10 : it.kind == Kind::ModePill ? (it.rect.bottom - it.rect.top) / 2 + 2 : kRadius;
-        t->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(it.chrome ? KeyPill(it) : it.rect, 2), radius, radius),
+        t->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(it.chrome ? KeyPill(it) : Plate(it), 2), radius, radius),
                                 SetColor(brush.get(), Rgb(255, 255, 255, 0.9f)), 2);
       }
       if (layer) {
@@ -2931,7 +2942,8 @@ class Painter {
     // эти кнопки", no circle round it). The label stays while all fits; else it fades as they roll out, and
     // then they lose their words. On the right, what's wrong: a refresh that failed.
     const float open = FoldOf(c.addOpen, c.addFold);
-    const std::wstring labelText = std::format(L"КОНФИГУРАЦИИ · {}", shown.size());
+    // No dot between the word and the count (18.11.2026, his: "а че жа точка между словом и 1?").
+    const std::wstring labelText = std::format(L"КОНФИГУРАЦИИ  {}", shown.size());
     const float labelWidth = std::ceil(TextWidth(Spaced(labelText), engraved_.get())) + 2;
     constexpr float kPlusZone = 28;   // the "+"'s zone (its ink 11, the zone reaches past it)
     constexpr float kChipHeight = 24;
@@ -2950,7 +2962,7 @@ class Painter {
     const float plusLeft = allFits ? plusByLabel : plusByLabel + (plusAtEdge - plusByLabel) * open;
     // A square of its own, 28: pointed at, its plate lights alone (the card's no longer does over the head).
     Item plus = Make(Kind::IconButton, {plusLeft, y + 6, plusLeft + kPlusZone, y + kHeader - 6},
-                     L"Добавить конфигурацию", kGlyphAdd);
+                     L"Добавить конфигурацию", kGlyphPlus);
     plus.action = ItemAction::ToggleAdd;
     plus.fold = open;
     plus.tip = c.addOpen ? L"Свернуть"
@@ -5343,9 +5355,12 @@ class Painter {
           break;
         }
         if (hoverAlpha > 0 && it.enabled) {
-          k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
+          k.Round(Plate(it), 6, Rgb(255, 255, 255, hoverAlpha));
         }
-        DrawIcon(k, it.glyph, r, !it.enabled ? FromColorRef(ui::kSecondaryText, 0.4f) : (hovered ? primary : secondary),
+        // The head's "+" rests in the bright ink: it is the one key of the card.
+        DrawIcon(k, it.glyph, r,
+                 !it.enabled ? FromColorRef(ui::kSecondaryText, 0.4f)
+                             : (hovered || it.glyph == kGlyphPlus ? primary : secondary),
                  std::max(it.fold, 0.0f));  // a "+" that opens something turns into a cross by it
         if (it.checked) {
           k.t->FillEllipse(D2D1::Ellipse({r.right - 9, r.top + 9}, 4, 4), k.Color(lit));
@@ -6366,6 +6381,17 @@ class Painter {
       const float cosine = std::cos(angle);
       line(-5.5f * cosine, -5.5f * sine, 5.5f * cosine, 5.5f * sine);
       line(5.5f * sine, -5.5f * cosine, -5.5f * sine, 5.5f * cosine);
+    } else if (glyph == kGlyphPlus) {
+      // The head's "+": shorter and thicker than the add key's, turned like it into a cross where it opens something.
+      const float angle = turn * 0.78539816f;
+      const float sine = std::sin(angle);
+      const float cosine = std::cos(angle);
+      constexpr float kHalf = 4.5f;
+      constexpr float kStroke = 1.9f;
+      k.t->DrawLine({cx - kHalf * cosine, cy - kHalf * sine}, {cx + kHalf * cosine, cy + kHalf * sine}, k.Color(ink),
+                    kStroke, roundCaps_.get());
+      k.t->DrawLine({cx + kHalf * sine, cy - kHalf * cosine}, {cx - kHalf * sine, cy + kHalf * cosine}, k.Color(ink),
+                    kStroke, roundCaps_.get());
     } else if (glyph == kGlyphRefresh) {
       // Three quarters of a ring and its arrowhead at the open end, up right.
       wil::com_ptr<ID2D1PathGeometry> arc;

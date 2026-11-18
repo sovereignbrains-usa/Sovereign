@@ -4,6 +4,11 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.24 — 18.11.2026
+
+- В шапке карточки конфигураций между словом и числом больше нет точки: «КОНФИГУРАЦИИ 2».
+- «+» там же стал чуть меньше, толще и всегда яркий; плашка при наведении и рамка фокуса — по его размеру (22 пикселя), а нажимается он по-прежнему на 28.
+
 ## 0.6.23 — 18.11.2026
 
 - **The log's key is on the left, by «Сообщить о проблеме»**: both are about what went wrong, and the right side of the title bar keeps the routes, the settings and the window's own keys. While the main screen says something is wrong (the same words as its banner), the log's key is a window with an amber lamp, and its tip says what.

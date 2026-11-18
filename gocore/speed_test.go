@@ -31,6 +31,35 @@ func TestSpeedFigure(t *testing.T) {
 	}
 }
 
+// Cloudflare's 403 for a piece over 50 MB (18.11.2026) made every run say
+// "HTTP 403": a refusal of the first request halves the piece, a refusal
+// after data came, or one at the smallest piece, ends the run.
+func TestNextPiece(t *testing.T) {
+	if speedPiece > 50_000_000 {
+		t.Fatalf("a piece of %d bytes is over what Cloudflare's test file gives (50 MB)", speedPiece)
+	}
+	cases := []struct {
+		name   string
+		size   int64
+		status int
+		total  int64
+		want   int64
+		again  bool
+	}{
+		{"first piece refused: halved", 40_000_000, 403, 0, 20_000_000, true},
+		{"too much asked lately, nothing yet: halved", 40_000_000, 429, 0, 20_000_000, true},
+		{"refused after data came: the run ends with it", 40_000_000, 429, 9_000_000, 40_000_000, false},
+		{"the smallest piece refused: error stands", 8_000_000, 403, 0, 8_000_000, false},
+		{"not a refusal of size", 40_000_000, 500, 0, 40_000_000, false},
+	}
+	for _, c := range cases {
+		got, again := nextPiece(c.size, c.status, c.total)
+		if got != c.want || again != c.again {
+			t.Errorf("%s: nextPiece(%d, %d, %d) = %d, %v; want %d, %v", c.name, c.size, c.status, c.total, got, again, c.want, c.again)
+		}
+	}
+}
+
 func TestSiteJudges(t *testing.T) {
 	cases := []struct {
 		judge  func(int, string) (string, string)

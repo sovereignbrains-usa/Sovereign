@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.25 — 18.11.2026
+
+- «Замерить» на странице «Серверы» снова работает. Cloudflare перестал отдавать 100 МБ одним запросом (отвечал «HTTP 403»), и замер не выходил у всех серверов сразу. Теперь он читает его кусками по 40 МБ подряд, по одному соединению, те же 8 секунд; цифра считается как раньше.
+
 ## 0.6.24 — 18.11.2026
 
 - В шапке карточки конфигураций между словом и числом больше нет точки: «КОНФИГУРАЦИИ 2».

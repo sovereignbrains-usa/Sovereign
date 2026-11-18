@@ -2,7 +2,8 @@ package main
 
 // The speed of a way, by the user's click ("замерить" on the servers page):
 // eight seconds of a download through the outbound itself from Cloudflare's
-// speed test (up to ~100 MB, so only on a click). The figure is the best
+// speed test (pieces of it one after another over one connection, a few
+// hundred MB on a fast line, so only on a click). The figure is the best
 // three seconds of the run, the first second (the window still growing)
 // left out - what a long download would get, not what a small page shows.
 // Like box_exitip it only starts the run and reports what it knows, one run
@@ -32,12 +33,31 @@ import (
 )
 
 const (
-	speedURL      = "https://speed.cloudflare.com/__down?bytes=100000000"
-	speedDuration = 8 * time.Second
-	speedWarmup   = time.Second
-	speedWindow   = 3 * time.Second
-	speedMaxTags  = 512
+	// Cloudflare's test file refuses more than 50 MB in one request with a
+	// 403: a single 100 MB one worked until 18.11.2026, then every run on
+	// the page said "замер не вышел: HTTP 403". So a run reads pieces of
+	// speedPiece one after another until the time is up; a 403 on the first
+	// one (the limit moved again) halves the piece, down to speedPieceLeast.
+	speedURL        = "https://speed.cloudflare.com/__down?bytes=%d"
+	speedPiece      = 40_000_000
+	speedPieceLeast = 5_000_000
+	speedDuration   = 8 * time.Second
+	speedWarmup     = time.Second
+	speedWindow     = 3 * time.Second
+	speedMaxTags    = 512
 )
+
+// nextPiece: what to ask after the answer `status` to a piece of `size`
+// when `total` bytes have come in the run so far: the piece halved for a
+// refusal (403, 429) of the run's very first request - the size is what
+// they dislike - or false: a refusal later on (the lately-asked-too-much
+// kind) ends the run with what it has, not a smaller piece.
+func nextPiece(size int64, status int, total int64) (int64, bool) {
+	if total > 0 || (status != http.StatusForbidden && status != http.StatusTooManyRequests) || size/2 < speedPieceLeast {
+		return size, false
+	}
+	return size / 2, true
+}
 
 // The tray's name for the line without the VPN ("Напрямую" on the servers
 // page): the config's direct outbound, whatever its tag.
@@ -198,35 +218,24 @@ func speedOutbound(instance *box.Box, tag string) (adapter.Outbound, bool) {
 func runSpeed(ctx context.Context, outbound adapter.Outbound, progress func(kbps int64)) speedState {
 	ctx, cancel := context.WithTimeout(ctx, speedDuration+10*time.Second)
 	defer cancel()
-	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				conn, err := outbound.DialContext(ctx, "tcp", M.ParseSocksaddr(addr))
-				if err != nil {
-					return nil, err
-				}
-				return eofConn{conn}, nil
-			},
-			TLSClientConfig: &tls.Config{
-				Time:    ntp.TimeFuncFromContext(ctx),
-				RootCAs: adapter.RootPoolFromContext(ctx),
-			},
-			DisableKeepAlives: true,
+	// Keep-alive stays on: the next piece goes over the connection the last
+	// one used, not through a new handshake with the outbound.
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := outbound.DialContext(ctx, "tcp", M.ParseSocksaddr(addr))
+			if err != nil {
+				return nil, err
+			}
+			return eofConn{conn}, nil
+		},
+		TLSClientConfig: &tls.Config{
+			Time:    ntp.TimeFuncFromContext(ctx),
+			RootCAs: adapter.RootPoolFromContext(ctx),
 		},
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, speedURL, nil)
-	if err != nil {
-		return speedState{Error: err.Error()}
-	}
-	request.Header.Set("User-Agent", "sing-box "+constant.Version)
-	response, err := client.Do(request)
-	if err != nil {
-		return speedState{Error: shortSiteError(err)}
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return speedState{Error: fmt.Sprintf("HTTP %d", response.StatusCode)}
-	}
+	defer transport.CloseIdleConnections()
+	client := http.Client{Transport: transport}
+
 	start := time.Now()
 	var at []time.Duration
 	var counts []int64
@@ -235,27 +244,59 @@ func runSpeed(ctx context.Context, outbound adapter.Outbound, progress func(kbps
 	var readErr error
 	var told time.Duration
 	back := 0 // the earliest sample within the last second
+	size := int64(speedPiece)
+pieces:
 	for time.Since(start) < speedDuration {
-		n, err := response.Body.Read(buffer)
-		total += int64(n)
-		now := time.Since(start)
-		at = append(at, now)
-		counts = append(counts, total)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf(speedURL, size), nil)
 		if err != nil {
-			readErr = err
+			return speedState{Error: err.Error()}
+		}
+		request.Header.Set("User-Agent", "sing-box "+constant.Version)
+		response, err := client.Do(request)
+		if err != nil {
+			if total == 0 {
+				return speedState{Error: shortSiteError(err)}
+			}
+			break // a later piece failed: the figure is of what came
+		}
+		if response.StatusCode != http.StatusOK {
+			response.Body.Close()
+			if smaller, again := nextPiece(size, response.StatusCode, total); again {
+				size = smaller
+				continue
+			}
+			if total == 0 {
+				return speedState{Error: fmt.Sprintf("HTTP %d", response.StatusCode)}
+			}
 			break
 		}
-		for back < len(at)-1 && now-at[back+1] >= time.Second {
-			back++
+		for time.Since(start) < speedDuration {
+			n, err := response.Body.Read(buffer)
+			total += int64(n)
+			now := time.Since(start)
+			at = append(at, now)
+			counts = append(counts, total)
+			if err != nil {
+				if err != io.EOF {
+					readErr = err
+					response.Body.Close()
+					break pieces
+				}
+				break // the piece came whole: the next one
+			}
+			for back < len(at)-1 && now-at[back+1] >= time.Second {
+				back++
+			}
+			if now-told >= 250*time.Millisecond && now-at[back] >= 500*time.Millisecond {
+				told = now
+				progress((total - counts[back]) * 8 / int64((now-at[back])/time.Millisecond))
+			}
 		}
-		if now-told >= 250*time.Millisecond && now-at[back] >= 500*time.Millisecond {
-			told = now
-			progress((total - counts[back]) * 8 / int64((now-at[back])/time.Millisecond))
-		}
+		response.Body.Close()
 	}
 	kbps := speedFigure(at, counts)
 	if kbps == 0 {
-		if readErr != nil && readErr != io.EOF {
+		if readErr != nil {
 			return speedState{Error: shortSiteError(readErr)}
 		}
 		return speedState{Error: "too little came through to say"}

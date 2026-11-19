@@ -156,6 +156,7 @@ struct VitrineFrame {
   float crackAlpha = 0;
   float shatter = -1;      // seconds since the blow for the shards, the dust, the ring; <0 none
   bool shardsBack = false; // the shards fly back (shatter counts down)
+  float dustIn = 1;        // 0..1: their dust, fading in as they start back - not standing in the air before
   float flash = -1;        // seconds since the blow for its flash; <0 none
   float mendFlash = -1;    // seconds since the glass mended, for its soft flash; <0 none
   vitrine::Opened opened;
@@ -215,7 +216,7 @@ class Vitrine {
   float DimAt(double now) const;
   float TrafficAt(double now) const;
   double TrafficSum(double now) const;  // the eased traffic's integral: the spiral's extra clock
-  float MendTau(double now) const;  // the shards' time flying back; <= 0: whole again
+  float MendTau(double now) const;  // the shards' time flying back, easing to 0: whole again
   double MendedAt() const;
   // Where the box is: its flight (AfterBreak's u) and how open (its k).
   struct Box {

@@ -198,6 +198,39 @@ void TestMatchingOrUnknownConfigLeftAlone() {
   CHECK(off.OnPoll(RunningWith("old"), t0) == Action::None);  // off: not ours to manage
 }
 
+// Off shows from the click, not from the service's answer: box_stop waits for
+// the core to close, and the window stood that long (19.11.2026). A stop that
+// failed leaves the box running: on again. A config restart's stop isn't the
+// user's: on through it.
+void TestOffShownBeforeTheStopAnswers() {
+  TrayModel m(true);
+  m.OnPoll(Stopped(), t0);
+  m.OnStartResult("", t0);
+  m.OnPoll(Running(0, 0), t0 + 1s);
+  CHECK(m.GetDisplay() == Display::On);
+
+  CHECK(m.SetWantOn(false, t0 + 2s) == Action::Stop);
+  CHECK(m.GetDisplay() == Display::Off);  // the box still runs
+  m.OnStopResult("pipe busy", t0 + 2s);
+  CHECK(m.GetDisplay() == Display::On);  // it does: said so
+  CHECK(m.LastError() == "pipe busy");
+
+  CHECK(m.SetWantOn(false, t0 + 3s) == Action::Stop);
+  CHECK(m.GetDisplay() == Display::Off);
+  m.OnStopResult("", t0 + 3s);
+  CHECK(m.GetDisplay() == Display::Off);
+  CHECK(m.OnPoll(Stopped(), t0 + 4s) == Action::None);
+  CHECK(m.GetDisplay() == Display::Off);
+
+  CHECK(m.SetWantOn(true, t0 + 5s) == Action::Start);
+  CHECK(m.GetDisplay() == Display::Starting);  // shown before the start answers too
+
+  TrayModel restart(true);
+  restart.SetExpectedConfig("new");
+  CHECK(restart.OnPoll(RunningWith("old"), t0) == Action::Stop);
+  CHECK(restart.GetDisplay() == Display::On);
+}
+
 void TestFlowStreams() {
   using sovereign::tray::FlowWay;
   using sovereign::tray::FlowWayOf;
@@ -238,6 +271,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestServiceRestartRestartsTheBox();
     TestServiceDownOnlyAfterGrace();
     TestOffStopsOnceAndStaysOff();
+    TestOffShownBeforeTheStopAnswers();
     TestOffWhileServiceDownDoesNothing();
     TestAlreadyStartedElsewhereCountsAsOn();
     TestStartsOffAndStaysOff();

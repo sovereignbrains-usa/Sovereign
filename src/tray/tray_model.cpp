@@ -27,8 +27,10 @@ Action TrayModel::SetWantOn(bool on, Clock::time_point now) {
   wantOn_ = on;
   retryAt_.reset();
   lastError_.clear();
+  stopping_ = false;
   if (!on) {
     // Stop once; a box nobody runs is fine to stop again (box_stop succeeds).
+    stopping_ = serviceUp_;
     return serviceUp_ ? Action::Stop : Action::None;
   }
   return Decide(now);
@@ -97,6 +99,7 @@ void TrayModel::OnStartResult(const std::string& error, Clock::time_point now) {
 }
 
 void TrayModel::OnStopResult(const std::string& error, Clock::time_point now) {
+  stopping_ = false;
   if (!error.empty()) {
     lastError_ = error;
     if (!restartedFor_.empty()) {
@@ -120,6 +123,9 @@ Display TrayModel::GetDisplay() const {
       return Display::ServiceDown;
     }
     return wantOn_ ? Display::Starting : Display::Off;  // a few seconds away: an update, a restart
+  }
+  if (stopping_) {
+    return Display::Off;  // the user's stop on its way: the box still runs till the service answers
   }
   if (last_ && last_->running) {
     return Display::On;

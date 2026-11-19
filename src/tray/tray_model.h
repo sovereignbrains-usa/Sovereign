@@ -127,6 +127,11 @@ class TrayModel {
   std::optional<Clock::time_point> downSince_;  // the first poll it didn't answer, since it last did
   bool downLong_ = false;                       // ...and that was kServiceGrace ago or more
   bool startInFlight_ = false;
+  // The user turned it off and the stop isn't answered yet: shown off from
+  // the click, not from the service's answer (box_stop waits for the core to
+  // close - the window turned only after that, 19.11.2026); on again if the
+  // stop fails.
+  bool stopping_ = false;
   std::optional<Clock::time_point> retryAt_;
   std::optional<Stats> last_;
   std::optional<Clock::time_point> lastAt_;

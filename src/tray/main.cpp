@@ -833,8 +833,10 @@ class Worker {
       }
       if (want) {
         settings_.wantOn = *want;
+        const Action action = model_.SetWantOn(*want, TrayModel::Clock::now());
+        PublishToggle();  // the window turns now; the service's stop or start may take a moment
         Save();
-        Execute(model_, model_.SetWantOn(*want, TrayModel::Clock::now()), EffectiveConfig(), AtBoot());
+        Execute(model_, action, EffectiveConfig(), AtBoot());
       }
       if (local) {
         AddLocal(local->text, local->name);
@@ -3449,15 +3451,7 @@ class Worker {
     {
       const std::scoped_lock lock(shared.mutex);
       View& v = shared.view;
-      v.display = model_.GetDisplay();
-      // Connected since: from the first poll that saw it on.
-      if (v.display != Display::On) {
-        onSince_ = 0;
-      } else if (onSince_ == 0) {
-        onSince_ = static_cast<std::int64_t>(std::time(nullptr));
-      }
-      v.onSince = onSince_;
-      v.wantOn = model_.WantOn();
+      ShowState(v);
       v.down = model_.DownRate();
       v.up = model_.UpRate();
       v.flowVpn = model_.FlowRate(sovereign::tray::FlowWay::Vpn);
@@ -3465,7 +3459,6 @@ class Worker {
       v.flowWarp = model_.FlowRate(sovereign::tray::FlowWay::Warp);
       v.blockedCount = blockedCount_;
       v.connections = model_.Connections();
-      v.error = model_.LastError();
       v.hasConfig = combined_.has_value();
       v.combineError = combineError_;
       v.combineNotes = combineNotes_;
@@ -3619,6 +3612,34 @@ class Worker {
       window = shared.window;
     }
     PostMessageW(window, kViewChangedMessage, 0, 0);
+  }
+
+  // The toggle's state alone, before it's carried out: box_stop waits for the
+  // core to close, and the window turned only after it and the rest of the
+  // round - the vitrine stood a moment after the click (19.11.2026).
+  void PublishToggle() {
+    auto& shared = State();
+    HWND window = nullptr;
+    {
+      const std::scoped_lock lock(shared.mutex);
+      ShowState(shared.view);
+      window = shared.window;
+    }
+    PostMessageW(window, kViewChangedMessage, 0, 0);
+  }
+
+  // Under the lock: what the model shows and since when.
+  void ShowState(View& v) {
+    v.display = model_.GetDisplay();
+    // Connected since: from the first poll that saw it on.
+    if (v.display != Display::On) {
+      onSince_ = 0;
+    } else if (onSince_ == 0) {
+      onSince_ = static_cast<std::int64_t>(std::time(nullptr));
+    }
+    v.onSince = onSince_;
+    v.wantOn = model_.WantOn();
+    v.error = model_.LastError();
   }
 
   TraySettings settings_;

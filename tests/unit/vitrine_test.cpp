@@ -161,6 +161,53 @@ void TestConnectAndBack() {
   CHECK(!v.Moving(40));
 }
 
+// Off answers on the click's next frames - the spiral going in and the light
+// dimming at once, not after a slow start (19.11.2026: it stood a moment) -
+// then the parts in turn: the spiral, the flaps, the box down, the glass. The
+// shards settle into their places, they don't slam into them.
+void TestClosingAnswersAtOnce() {
+  using vitrine::kCrackTime;
+  using vitrine::kHold;
+  Vitrine v;
+  v.To(Display::On, 0, std::nullopt, true);
+  const VitrineFrame open = v.At(10);
+  v.To(Display::Off, 10, std::nullopt, true);
+  const VitrineFrame first = v.At(10);
+  CHECK(Close(first.opened.stream, open.opened.stream) && Close(first.opened.open, open.opened.open, 0.02f) &&
+        Close(first.opened.lift, open.opened.lift, 0.05f));  // from where it was: no jump
+  const VitrineFrame soon = v.At(10.033);                    // two frames on
+  CHECK(soon.opened.stream < open.opened.stream - 0.08f && soon.opened.cone < open.opened.cone - 0.03f);
+  // The dust not standing in the air before the shards start back; in with them.
+  CHECK(soon.shardsBack && Close(soon.dustIn, 0) && v.At(10.35).dustIn > 0.2f && Close(v.At(10.6).dustIn, 1));
+
+  double streamIn = -1;
+  double flapsShut = -1;
+  double boxDown = -1;
+  double landed = -1;
+  for (int step = 0; step <= 400; ++step) {
+    const double t = 10 + step * 0.005;
+    const VitrineFrame f = v.At(t);
+    if (streamIn < 0 && f.opened.stream < 0.01f) {
+      streamIn = t;
+    }
+    if (flapsShut < 0 && std::abs(f.opened.open) < 0.01f) {
+      flapsShut = t;
+    }
+    if (boxDown < 0 && f.opened.lift < 0.1f) {
+      boxDown = t;
+    }
+    if (landed < 0 && f.glass > 0) {
+      landed = t;
+    }
+  }
+  CHECK(streamIn > 10 && streamIn < flapsShut && flapsShut < boxDown && boxDown < landed && landed < 11.1);
+  // Flying back, slower near their places than on the way.
+  const auto tau = [&](double t) { return v.At(t).shatter - kCrackTime - kHold; };
+  CHECK(v.At(landed - 0.1).shardsBack && tau(landed - 0.1) > 0 && tau(landed - 0.1) < 0.05f);
+  CHECK(tau(10.3) - tau(10.4) > 3 * (tau(landed - 0.15) - tau(landed - 0.05)));
+  CHECK(v.At(landed + 0.5).glass == 1 && !v.Moving(12));
+}
+
 void TestTurnedOnWhileMending() {
   Vitrine v;
   v.To(Display::On, 0, std::nullopt, true);  // learnt on: broken long ago
@@ -337,6 +384,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestRest();
     TestNoMotion();
     TestConnectAndBack();
+    TestClosingAnswersAtOnce();
     TestTurnedOnWhileMending();
     TestGaveUpBeforeBreaking();
     TestMissedTheGlass();

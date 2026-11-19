@@ -304,7 +304,10 @@ Opened AfterBreak(double u, float k) {
   const double kk = k;
   const double kLift = Smooth(k / 0.6f);
   const double kOpen = Smooth((k - 0.2f) / 0.6f);
-  const double kStream = Smooth((k - 0.45f) / 0.55f);
+  // The spiral answers at once - no slow start at the top of its stretch, the
+  // click's first frames move it - and settles into the box softly.
+  const double sx = std::clamp((kk - 0.45) / 0.55, 0.0, 1.0);
+  const double kStream = sx * sx * (2 - sx);
   // The light comes at once; the box has weight: it starts up from rest
   // (critically damped), then floats, bobbing.
   const double e = (1 - std::exp(-u * 3.2)) * kk;
@@ -364,9 +367,10 @@ constexpr float kCrackFirst = 140;  // units the cracks run at the blow
 constexpr float kCrackMore = 220;   // and creep on while it connects
 constexpr float kHealFade = 0.45f;  // cracks fading when it gave up before breaking
 constexpr float kMendClose = 0.8f;  // the box closing and sinking (AfterBreak's parts in turn)
-constexpr float kMendDelay = 0.25f; // before the shards start back
-constexpr float kMendRate = 1.6f;   // their flight's seconds per second, backwards
-constexpr float kMendCap = 1.25f;   // from no further than this (all faded by then)
+constexpr float kMendDelay = 0.2f;  // before the shards start back
+constexpr float kMendRate = 1.6f;   // their flight's seconds per second, backwards, on average
+constexpr float kMendCap = 1.16f;   // from no further than this (the last faded by then: vanish 0.88 + 0.28)
+constexpr float kMendDustIn = 0.3f; // their dust fading in as they start
 constexpr float kMendFade = 0.3f;   // the whole glass fading in over them
 constexpr float kMendGlow = 0.5f;   // its soft flash
 constexpr float kTint = 0.45f;      // the error's red, the dimming, the flow easing
@@ -521,7 +525,17 @@ bool Vitrine::Touch(bool hovered, bool pressed, double now, bool motion) {
 }
 
 float Vitrine::MendTau(double now) const {
-  return mendTau_ - kMendRate * std::max(0.0f, static_cast<float>(now - mendAt_) - kMendDelay);
+  // Back fast, slowing as they reach their places: they settle, not slam.
+  const float span = mendTau_ / kMendRate;
+  const float back = static_cast<float>(now - mendAt_) - kMendDelay;
+  if (back <= 0) {
+    return mendTau_;
+  }
+  if (back >= span) {
+    return 0;
+  }
+  const float left = 1 - back / span;
+  return mendTau_ * left * left;
 }
 
 double Vitrine::MendedAt() const { return mendAt_ + kMendDelay + mendTau_ / kMendRate; }
@@ -535,8 +549,13 @@ Vitrine::Box Vitrine::BoxAt(double now) const {
                 reopenK_ + (1 - reopenK_) * Smooth01(static_cast<float>(since) / kMendClose)};
       }
       return {std::max(0.0, now - breakAt_ - kHold), 1};
-    case Glass::Mending:
-      return {mendU_, mendK_ * (1 - Smooth01(static_cast<float>(now - mendAt_) / kMendClose))};
+    case Glass::Mending: {
+      // The click's first frames move it: the closing starts at speed, not
+      // from rest as a smoothstep did (it stood a moment, 19.11.2026), and
+      // lands softly - 1.5x - 0.5x^3, slope 1.5 at the start, 0 at the end.
+      const float x = std::clamp(static_cast<float>(now - mendAt_) / kMendClose, 0.0f, 1.0f);
+      return {mendU_, mendK_ * (1 - (1.5f * x - 0.5f * x * x * x))};
+    }
     case Glass::Whole:
     case Glass::Cracking:
       break;
@@ -745,8 +764,10 @@ VitrineFrame Vitrine::At(double now) const {
         f.glass = 0;
         f.shatter = kCrackTime + kHold + tau;
         f.shardsBack = true;
+        // Not all at once in mid-air, standing through the delay (19.11.2026): in as it moves.
+        f.dustIn = Smooth01((static_cast<float>(now - mendAt_) - kMendDelay) / kMendDustIn);
       } else {
-        const float whole = -tau / kMendRate;
+        const auto whole = static_cast<float>(std::max(0.0, now - MendedAt()));
         f.glass = Smooth01(whole / kMendFade);
         if (whole < kMendFade) {
           f.crack = 1000;
@@ -2223,7 +2244,7 @@ struct VitrineArt::Impl {
         const float shardAlpha = f.shardsBack ? (1 - f.glass) * (1 - f.glass) : 1.0f;
         Shards(f.shards, f.shatter, shardAlpha, scene);
         if (!f.shardsBack || f.glass <= 0) {
-          Dust(*f.shards, f.shatter, shardAlpha);
+          Dust(*f.shards, f.shatter, shardAlpha * f.dustIn);
         }
       }
       Impact(f, f.shards->impact);

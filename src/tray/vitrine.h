@@ -127,8 +127,14 @@ struct StreamPoint {
   float z = 0;
 };
 StreamPoint StreamAt(float h, float phi);
-// How much of the spiral shows at height `h`: it rises out of the box and fades at the top.
-float StreamFade(float h);
+// The spiral's ceiling, units over the box's mouth: as high as it gets.
+inline constexpr float kStreamTop = 232;
+// How high it reaches with the traffic (TrafficLevel, 0..1): low in the
+// quiet - half the ceiling - and up to it at full.
+float StreamTop(float traffic);
+// How much of the spiral shows at height `h`: it rises out of the box and
+// fades at its top (StreamTop).
+float StreamFade(float h, float top = kStreamTop);
 
 // The VPN's traffic, bytes a second, as the spiral's 0..1: a trickle a
 // little, a video or two most of it, 4 MB/s and more all of it.
@@ -137,16 +143,22 @@ float TrafficLevel(double bytesPerSecond);
 // second): the spiral's packets rising out of the box for it, falling into
 // it for the download. Half and half with next to nothing either way.
 float UpShare(double downBytesPerSecond, double upBytesPerSecond);
+// How badly the link stumbles, 0..1, from the server in use's last
+// measurement: the requests lost (percent), the round trips jumping (the
+// spread against the latency, ms), and connections it failed to open
+// lately. 0 for a steady one; the spiral trembles and tears by it.
+float LinkTrouble(int lossPercent, int jitterMs, int latencyMs, bool failing);
 
-// A blocked ad burning on the rim of the box's mouth: for so long, so many at once at most.
-inline constexpr float kSparkLife = 0.6f;
-inline constexpr std::size_t kSparks = 4;
+// A blocked ad: a red packet that rides up the spiral, is flung out of it
+// and burns - for so long, so many at once at most.
+inline constexpr float kSparkLife = 1.2f;
+inline constexpr std::size_t kSparks = 6;
 // The open box's warm light on the window behind the case: the vitrine's own
 // colour, not a flow's (ui_style.h).
 inline constexpr D2D1_COLOR_F kRoomLight{1.0f, 196.0f / 255, 136.0f / 255, 0.10f};
 struct Spark {
   float age = -1;  // seconds since it struck; <0 none
-  float at = 0;    // where on the mouth's front rim, 0 its left corner .. 1 its right
+  float lane = 0;  // 0.12..0.88: which ribbon it rides and how high before it is thrown off
 };
 
 }  // namespace vitrine
@@ -168,7 +180,8 @@ struct VitrineFrame {
   double flowClock = 0;    // seconds on the spiral's own clock: slow while it reconnects, fast with traffic
   float traffic = 0;       // 0..1: the VPN's traffic (TrafficLevel), eased - the spiral's packets
   float upShare = 0.5f;    // 0..1: the upload's share (UpShare), eased - the packets rising; the rest fall in
-  std::array<vitrine::Spark, vitrine::kSparks> sparks{};  // blocked ads burning on the box's rim
+  float shaky = 0;         // 0..1: the link stumbling (LinkTrouble), eased - the spiral trembles and tears
+  std::array<vitrine::Spark, vitrine::kSparks> sparks{};  // blocked ads flung out of the spiral
   float hover = -1;        // 0..1: the pointer on the case, eased; <0: the window's, at once
   float press = -1;        // 0..1: the case pressed, eased; <0: the window's, at once
   float danger = 0;        // 0..1: the error's red
@@ -202,8 +215,11 @@ class Vitrine {
   // The upload's share of it at `now` (UpShare): so many of the packets rise
   // out of the box, the rest fall into it - eased like the level.
   void Upload(float share, double now);
-  // `count` ads blocked at `now`: a red spark each on the box's rim, in turn,
-  // a few at most - more at once would only be a smear.
+  // How badly the link stumbles at `now` (LinkTrouble): the spiral trembles,
+  // tears and flickers by it - eased in and out over a second.
+  void Shaky(float level, double now);
+  // `count` ads blocked at `now`: a red packet each thrown out of the
+  // spiral, in turn, a few at most - more at once would only be a smear.
   void Blocked(std::uint64_t count, double now);
 
  private:
@@ -225,6 +241,7 @@ class Vitrine {
   float TrafficAt(double now) const;
   double TrafficSum(double now) const;  // the eased traffic's integral: the spiral's extra clock
   float UpAt(double now) const;
+  float ShakyAt(double now) const;
   float MendTau(double now) const;  // the shards' time flying back, easing to 0: whole again
   double MendedAt() const;
   // Where the box is: its flight (AfterBreak's u) and how open (its k).
@@ -265,9 +282,11 @@ class Vitrine {
   double trafficSum_ = 0;  // TrafficSum at trafficAt_
   float upFrom_ = 0.5f, upTo_ = 0.5f;
   double upAt_ = -100;
+  float shakyFrom_ = 0, shakyTo_ = 0;
+  double shakyAt_ = -100;
   struct Strike {
     double at = -1e9;
-    float where = 0;
+    float lane = 0;
   };
   // Twice the sparks a frame shows: the ones queued ahead never take the slot
   // of one still burning.

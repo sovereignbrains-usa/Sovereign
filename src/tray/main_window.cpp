@@ -138,6 +138,7 @@ constexpr UINT kMenuToggleExitIp = 114;
 constexpr UINT kMenuCopyValue = 115;
 constexpr UINT kMenuRefreshDirect = 116;
 constexpr UINT kMenuCheckProtection = 117;
+constexpr UINT kMenuBlockedApps = 118;
 constexpr UINT kMenuHysteriaSpeed = 120;  // + its index in kHysteriaSpeeds
 
 // A tip (TipText) shows when its item is pointed at this long; a "?"'s at once.
@@ -2765,7 +2766,10 @@ class Painter {
     place.origin = {(x0 + x1) / 2 - (hood.left + hood.right) / 2 * scale, drawnTop - vitrine::kDrawnTop * scale};
     Item power = CommandItem(Kind::Power, FromScene(place, hood), {}, kGlyphPower, UiCommand::Toggle);
     power.checked = c.on;
-    power.tip = c.on ? L"Отключить VPN" : L"Подключить VPN";
+    // On, how much goes through the box each way (all of it, as the case's spiral has it).
+    power.tip = c.display == Display::On ? L"Отключить VPN\n↓ " + FormatRate(c.down) + L" · ↑ " + FormatRate(c.up)
+                : c.on                   ? std::wstring(L"Отключить VPN")
+                                         : std::wstring(L"Подключить VPN");
     l.items.push_back(std::move(power));
     l.glow = FromScene(place, vitrine::BoxBounds());
     return ServerCard(l, c, x0, x1, serverTop);
@@ -6408,10 +6412,29 @@ bool CopyToClipboard(HWND owner, const std::wstring& text) {
   return copied;
 }
 
+// How badly the link stumbles, for the case's spiral (vitrine::LinkTrouble): the server in use's
+// delay - the pick, or the one auto runs on - and the user's own network bad around it.
+float LinkShaky(const UiContent& c) {
+  int shown = c.protocol;
+  if (c.protocol >= 0 && c.protocol == c.autoOption && !c.autoServer.empty()) {
+    const auto it = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
+    if (it != c.protocols.end()) {
+      shown = static_cast<int>(it - c.protocols.begin());
+    }
+  }
+  float trouble = 0;
+  if (shown >= 0 && static_cast<std::size_t>(shown) < c.delays.size()) {
+    const UiDelay& d = c.delays[static_cast<std::size_t>(shown)];
+    trouble = d.state == UiDelay::State::Ok ? vitrine::LinkTrouble(d.loss, d.jitter, d.ms, d.failedRecently)
+                                            : vitrine::LinkTrouble(0, 0, 1, d.failedRecently);
+  }
+  return c.localNetwork.empty() ? trouble : std::max(trouble, 0.7f);
+}
+
 // The case mid-motion, for a snapshot: "off@0,starting!@1,on@4;4.3" - the states at their seconds
 // ("!": a click struck the glass; "hover", "press", "leave": the pointer on the case; "traffic=0.8":
-// the VPN's traffic level; "up=0.2": the upload's share of it; "ad", "ads": one ad blocked, three),
-// then the moment drawn.
+// the VPN's traffic level; "up=0.2": the upload's share of it; "shaky=1": the link stumbling;
+// "ad", "ads": one ad blocked, three), then the moment drawn.
 VitrineFrame VitrineScript(std::wstring_view script) {
   const std::size_t semicolon = script.find(L';');
   THROW_HR_IF(E_INVALIDARG, semicolon == std::wstring_view::npos);
@@ -6443,6 +6466,11 @@ VitrineFrame VitrineScript(std::wstring_view script) {
     constexpr std::wstring_view kUp = L"up=";
     if (name.starts_with(kUp)) {
       v.Upload(static_cast<float>(seconds(name.substr(kUp.size()))), seconds(step.substr(at + 1)));
+      continue;
+    }
+    constexpr std::wstring_view kShaky = L"shaky=";
+    if (name.starts_with(kShaky)) {
+      v.Shaky(static_cast<float>(seconds(name.substr(kShaky.size()))), seconds(step.substr(at + 1)));
       continue;
     }
     if (name == L"ad" || name == L"ads") {
@@ -6598,9 +6626,10 @@ struct MainWindow::Impl {
     }
   }
 
-  // The VPN's traffic and the ads blocked, for the case: the spiral's pace,
-  // a spark on the box's rim for each new one. The count so far; empty: not
-  // known yet (the first one counts nothing).
+  // The VPN's traffic, the link and the ads blocked, for the case: the
+  // spiral's height and pace, its shaking, a red packet it throws out for
+  // each new one. The count so far; empty: not known yet (the first one
+  // counts nothing).
   std::optional<std::uint64_t> blockedSeen;
 
   void VitrineTraffic(const UiContent& c) {
@@ -6610,6 +6639,7 @@ struct MainWindow::Impl {
     // Which way it goes: the box's rates up and down (all of it, the direct
     // too - the streams don't split by way; the share is what counts).
     showcase.Upload(on ? vitrine::UpShare(c.down, c.up) : 0.5f, Clock(now));
+    showcase.Shaky(on && Motion() ? LinkShaky(c) : 0.0f, Clock(now));
     if (on && blockedSeen && c.blockedCount > *blockedSeen && Motion()) {
       showcase.Blocked(c.blockedCount - *blockedSeen, Clock(now));
     }
@@ -7239,7 +7269,7 @@ struct MainWindow::Impl {
       const Item& it = layout.items[i];
       const bool rowKind = it.kind == Kind::Choice || it.kind == Kind::ProfileRow || it.kind == Kind::CheckRow ||
                            it.kind == Kind::Switch || it.kind == Kind::AppRow ||
-                           it.kind == Kind::Field || it.kind == Kind::ServerCard;
+                           it.kind == Kind::Field || it.kind == Kind::ServerCard || it.kind == Kind::Power;
       if (rowKind && Contains(it.rect, x, y) && (!it.scrolls || (y >= layout.viewTop && y < layout.viewBottom))) {
         found = &it;
         break;
@@ -7340,6 +7370,11 @@ struct MainWindow::Impl {
       case Kind::Field:
         add(kMenuCopyValue, L"Копировать «" + item.detail + L"»", !item.detail.empty());
         break;
+      case Kind::Power:
+        // The case's click stays the switch: the rest of it here - the red
+        // packets the spiral throws out, whose they were.
+        add(kMenuBlockedApps, L"Кто обращается к закрытому…", content.on);
+        break;
       default: return;
     }
     const auto command = static_cast<UINT>(TrackPopupMenu(menu.get(), TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
@@ -7401,6 +7436,7 @@ struct MainWindow::Impl {
         break;
       }
       case kMenuToggleExitIp: onCommand(UiCommand::ToggleExitIp, args); break;
+      case kMenuBlockedApps: onCommand(UiCommand::BlockedApps, args); break;
       default: break;
     }
   }

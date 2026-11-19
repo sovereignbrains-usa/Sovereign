@@ -352,27 +352,72 @@ void TestSparks() {
   Vitrine v;
   v.To(Display::On, 0, std::nullopt, true);
   CHECK(Burning(v.At(10)) == 0);
-  // One ad blocked: one spark on the rim, burning out in kSparkLife.
+  // One ad blocked: one red packet up the spiral and out, burning out in kSparkLife.
   v.Blocked(1, 10);
   const VitrineFrame f = v.At(10.1);
-  CHECK(Burning(f) == 1 && Close(f.sparks[0].age, 0.1f) && f.sparks[0].at >= 0.12f && f.sparks[0].at <= 0.88f);
-  CHECK(v.Moving(10.3) && Burning(v.At(10.7)) == 0 && !v.Moving(11));
+  CHECK(Burning(f) == 1 && Close(f.sparks[0].age, 0.1f) && f.sparks[0].lane >= 0.12f && f.sparks[0].lane <= 0.88f);
+  CHECK(v.Moving(10.6) && Burning(v.At(11.25)) == 0 && !v.Moving(11.3));
   // A burst: in turn, kSparkGap apart, no more queued than burn out in kSparkLife.
   Vitrine w;
   w.To(Display::On, 0, std::nullopt, true);
-  w.Blocked(50, 10);
-  CHECK(Burning(w.At(10)) == 1 && Burning(w.At(10.5)) == 4 && Burning(w.At(11.1)) == 0);
+  w.Blocked(50, 10);  // at 10, 10.2 ... 11.0
+  CHECK(Burning(w.At(10)) == 1 && Burning(w.At(10.5)) == 3 && Burning(w.At(11.1)) == 6 && Burning(w.At(12.25)) == 0);
   // More while they burn: the new ones wait their turn; none put out early.
-  w.Blocked(3, 10.2);  // two fit (10.6, 10.75), the third would wait too long
-  CHECK(Burning(w.At(10.35)) == 3 && Burning(w.At(10.55)) == 4);
-  CHECK(Burning(w.At(10.65)) == 4 && Burning(w.At(10.8)) == 4 && Burning(w.At(11.0)) == 3);
-  // Each one somewhere else on the rim.
-  const VitrineFrame four = w.At(10.5);
-  for (std::size_t i = 0; i < four.sparks.size(); ++i) {
-    for (std::size_t j = i + 1; j < four.sparks.size(); ++j) {
-      CHECK(std::abs(four.sparks.at(i).at - four.sparks.at(j).at) > 0.05f);
+  w.Blocked(3, 10.3);  // two fit (11.2, 11.4), the third would wait too long
+  CHECK(Burning(w.At(11.3)) == 6 && Burning(w.At(11.5)) == 6);
+  CHECK(Burning(w.At(12.5)) == 1 && Burning(w.At(12.7)) == 0);
+  // Each one on another strand or at another height.
+  const VitrineFrame six = w.At(11.1);
+  for (std::size_t i = 0; i < six.sparks.size(); ++i) {
+    for (std::size_t j = i + 1; j < six.sparks.size(); ++j) {
+      CHECK(std::abs(six.sparks.at(i).lane - six.sparks.at(j).lane) > 0.05f);
     }
   }
+}
+
+void TestStreamTop() {
+  // Half the ceiling in the quiet, all of it at full, higher with more.
+  CHECK(Close(vitrine::StreamTop(0), vitrine::kStreamTop / 2) && Close(vitrine::StreamTop(1), vitrine::kStreamTop));
+  CHECK(Close(vitrine::StreamTop(-1), vitrine::StreamTop(0)) && Close(vitrine::StreamTop(3), vitrine::StreamTop(1)));
+  CHECK(vitrine::StreamTop(0.3f) < vitrine::StreamTop(0.6f));
+  // A low one fades out at its own top, whole below it.
+  const float low = vitrine::StreamTop(0);
+  CHECK(vitrine::StreamFade(low, low) < 0.01f && vitrine::StreamFade(low / 3, low) > 0.85f);
+  CHECK(Close(vitrine::StreamFade(100), vitrine::StreamFade(100, vitrine::kStreamTop)));
+}
+
+void TestLinkTrouble() {
+  // A good link is calm; losses from a few percent, all of it by 15.
+  CHECK(Close(vitrine::LinkTrouble(0, 5, 60, false), 0));
+  CHECK(vitrine::LinkTrouble(10, 0, 60, false) > 0.5f && Close(vitrine::LinkTrouble(20, 0, 60, false), 1));
+  float was = 0;
+  for (int loss = 0; loss <= 30; ++loss) {
+    const float now = vitrine::LinkTrouble(loss, 0, 60, false);
+    CHECK(now >= was);
+    was = now;
+  }
+  // The latency jumping: 40 ms of 80 is bad, 40 of 400 a far server.
+  CHECK(vitrine::LinkTrouble(0, 40, 80, false) > 0.9f && Close(vitrine::LinkTrouble(0, 40, 400, false), 0));
+  // A connection it couldn't open lately: a good part.
+  CHECK(vitrine::LinkTrouble(0, 0, 60, true) >= 0.7f && vitrine::LinkTrouble(-5, -5, 0, false) == 0);
+}
+
+void TestShaky() {
+  // Eased in and out, still once it's there.
+  Vitrine v;
+  v.To(Display::On, 0, std::nullopt, true);
+  CHECK(Close(v.At(10).shaky, 0) && !v.Moving(10));
+  v.Shaky(1, 10);
+  const float midway = v.At(10.4).shaky;
+  CHECK(midway > 0 && midway < 1 && v.Moving(10.4));
+  CHECK(Close(v.At(11).shaky, 1) && !v.Moving(11));
+  v.Shaky(1, 12);
+  CHECK(!v.Moving(12.1));
+  v.Shaky(5, 13);  // no more than all
+  CHECK(Close(v.At(14).shaky, 1));
+  v.Shaky(0, 20);
+  CHECK(v.At(20.4).shaky > 0 && Close(v.At(21).shaky, 0));
+  CHECK(Close(VitrineRest(Display::On).shaky, 0));
 }
 
 void TestPlace() {
@@ -412,6 +457,9 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestTraffic();
     TestUpload();
     TestSparks();
+  TestStreamTop();
+  TestLinkTrouble();
+  TestShaky();
     TestPlace();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

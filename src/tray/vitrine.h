@@ -130,6 +130,21 @@ StreamPoint StreamAt(float h, float phi);
 // How much of the spiral shows at height `h`: it rises out of the box and fades at the top.
 float StreamFade(float h);
 
+// The VPN's traffic, bytes a second, as the spiral's 0..1: a trickle a
+// little, a video or two most of it, 4 MB/s and more all of it.
+float TrafficLevel(double bytesPerSecond);
+
+// A blocked ad burning on the rim of the box's mouth: for so long, so many at once at most.
+inline constexpr float kSparkLife = 0.6f;
+inline constexpr std::size_t kSparks = 4;
+// The open box's warm light on the window behind the case: the vitrine's own
+// colour, not a flow's (ui_style.h).
+inline constexpr D2D1_COLOR_F kRoomLight{1.0f, 196.0f / 255, 136.0f / 255, 0.10f};
+struct Spark {
+  float age = -1;  // seconds since it struck; <0 none
+  float at = 0;    // where on the mouth's front rim, 0 its left corner .. 1 its right
+};
+
 }  // namespace vitrine
 
 // One frame of the case, all the drawing needs.
@@ -145,7 +160,9 @@ struct VitrineFrame {
   float mendFlash = -1;    // seconds since the glass mended, for its soft flash; <0 none
   vitrine::Opened opened;
   float flow = 1;          // the spiral's and the spotlight's strength (weak while it reconnects)
-  double flowClock = 0;    // seconds on the spiral's own clock: it slows while it reconnects
+  double flowClock = 0;    // seconds on the spiral's own clock: slow while it reconnects, fast with traffic
+  float traffic = 0;       // 0..1: the VPN's traffic (TrafficLevel), eased - the spiral's packets
+  std::array<vitrine::Spark, vitrine::kSparks> sparks{};  // blocked ads burning on the box's rim
   float hover = -1;        // 0..1: the pointer on the case, eased; <0: the window's, at once
   float press = -1;        // 0..1: the case pressed, eased; <0: the window's, at once
   float danger = 0;        // 0..1: the error's red
@@ -172,6 +189,13 @@ class Vitrine {
   // The pointer on the case and its press at `now`, eased in and out (with
   // `motion` false at once); true if either changed.
   bool Touch(bool hovered, bool pressed, double now, bool motion);
+  // The VPN's traffic at `now` (TrafficLevel): the more, the faster the
+  // spiral turns and the more packets it carries - eased, the rates come
+  // once a second.
+  void Traffic(float level, double now);
+  // `count` ads blocked at `now`: a red spark each on the box's rim, in turn,
+  // a few at most - more at once would only be a smear.
+  void Blocked(std::uint64_t count, double now);
 
  private:
   enum class Glass : std::uint8_t { Whole, Cracking, Broken, Mending };
@@ -189,6 +213,8 @@ class Vitrine {
   float FlowAt(double now) const;
   double FlowClock(double now) const;
   float DimAt(double now) const;
+  float TrafficAt(double now) const;
+  double TrafficSum(double now) const;  // the eased traffic's integral: the spiral's extra clock
   float MendTau(double now) const;  // the shards' time flying back; <= 0: whole again
   double MendedAt() const;
   // Where the box is: its flight (AfterBreak's u) and how open (its k).
@@ -224,6 +250,18 @@ class Vitrine {
   Ease hover_, press_;
   float dimFrom_ = 0, dimTo_ = 0;
   double dimAt_ = -100;
+  float trafficFrom_ = 0, trafficTo_ = 0;
+  double trafficAt_ = -100;
+  double trafficSum_ = 0;  // TrafficSum at trafficAt_
+  struct Strike {
+    double at = -1e9;
+    float where = 0;
+  };
+  // Twice the sparks a frame shows: the ones queued ahead never take the slot
+  // of one still burning.
+  std::array<Strike, 2 * vitrine::kSparks> strikes_{};
+  double lastStrike_ = -1e9;
+  std::uint32_t struck_ = 0;  // sparks so far: the next one's slot and place
 };
 
 // Where the scene goes in the window: a scale and the place its origin lands (DIPs).

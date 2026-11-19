@@ -237,6 +237,77 @@ void TestTints() {
   CHECK(Close(w.At(10).flow, 1));
 }
 
+void TestTraffic() {
+  // The VPN's rate as the spiral's 0..1: nothing for none, ~0.35 for 64 KB/s, full by 4 MB/s.
+  CHECK(vitrine::TrafficLevel(0) == 0 && vitrine::TrafficLevel(-5) == 0 && vitrine::TrafficLevel(std::nan("")) == 0);
+  CHECK(Close(vitrine::TrafficLevel(64.0 * 1024), 0.352f) && Close(vitrine::TrafficLevel(4e6), 1, 0.02f));
+  float last = 0;
+  for (int step = 1; step < 40; ++step) {
+    const float level = vitrine::TrafficLevel(std::pow(2.0, step * 0.5));
+    CHECK(level >= last && level <= 1);
+    last = level;
+  }
+  // Busy, the spiral runs faster; no jump where the traffic comes or goes.
+  Vitrine calm;
+  calm.To(Display::On, 0, std::nullopt, true);
+  Vitrine busy;
+  busy.To(Display::On, 0, std::nullopt, true);
+  busy.Traffic(1, 10);
+  CHECK(std::abs(busy.At(10).flowClock - calm.At(10).flowClock) < 1e-6);
+  CHECK(busy.Moving(10.5) && !busy.Moving(20));
+  double was = busy.At(10).flowClock;
+  bool smooth = true;
+  for (int step = 1; step < 200; ++step) {
+    const double now = 10 + step * 0.015;
+    const double clock = busy.At(now).flowClock;
+    smooth = smooth && clock > was && clock - was < 0.015 * 2.3;
+    was = clock;
+  }
+  CHECK(smooth);
+  const double calmRun = calm.At(21).flowClock - calm.At(20).flowClock;
+  const double busyRun = busy.At(21).flowClock - busy.At(20).flowClock;
+  CHECK(Close(static_cast<float>(calmRun), 1) && busyRun > calmRun * 2);
+  CHECK(Close(busy.At(20).traffic, 1) && Close(calm.At(20).traffic, 0));
+  busy.Traffic(0, 30);
+  CHECK(busy.At(30.6).traffic > 0 && busy.At(30.6).traffic < 1);
+  const double after = busy.At(41).flowClock - busy.At(40).flowClock;
+  CHECK(Close(busy.At(40).traffic, 0) && std::abs(after - calmRun) < 1e-6);
+  // The same level again changes nothing.
+  busy.Traffic(0, 50);
+  CHECK(!busy.Moving(50.1));
+}
+
+std::size_t Burning(const VitrineFrame& f) {
+  return static_cast<std::size_t>(std::count_if(f.sparks.begin(), f.sparks.end(), [](const vitrine::Spark& s) { return s.age >= 0; }));
+}
+
+void TestSparks() {
+  Vitrine v;
+  v.To(Display::On, 0, std::nullopt, true);
+  CHECK(Burning(v.At(10)) == 0);
+  // One ad blocked: one spark on the rim, burning out in kSparkLife.
+  v.Blocked(1, 10);
+  const VitrineFrame f = v.At(10.1);
+  CHECK(Burning(f) == 1 && Close(f.sparks[0].age, 0.1f) && f.sparks[0].at >= 0.12f && f.sparks[0].at <= 0.88f);
+  CHECK(v.Moving(10.3) && Burning(v.At(10.7)) == 0 && !v.Moving(11));
+  // A burst: in turn, kSparkGap apart, no more queued than burn out in kSparkLife.
+  Vitrine w;
+  w.To(Display::On, 0, std::nullopt, true);
+  w.Blocked(50, 10);
+  CHECK(Burning(w.At(10)) == 1 && Burning(w.At(10.5)) == 4 && Burning(w.At(11.1)) == 0);
+  // More while they burn: the new ones wait their turn; none put out early.
+  w.Blocked(3, 10.2);  // two fit (10.6, 10.75), the third would wait too long
+  CHECK(Burning(w.At(10.35)) == 3 && Burning(w.At(10.55)) == 4);
+  CHECK(Burning(w.At(10.65)) == 4 && Burning(w.At(10.8)) == 4 && Burning(w.At(11.0)) == 3);
+  // Each one somewhere else on the rim.
+  const VitrineFrame four = w.At(10.5);
+  for (std::size_t i = 0; i < four.sparks.size(); ++i) {
+    for (std::size_t j = i + 1; j < four.sparks.size(); ++j) {
+      CHECK(std::abs(four.sparks.at(i).at - four.sparks.at(j).at) > 0.05f);
+    }
+  }
+}
+
 void TestPlace() {
   VitrinePlace place;
   place.scale = 0.4f;
@@ -270,6 +341,8 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestGaveUpBeforeBreaking();
     TestMissedTheGlass();
     TestTints();
+    TestTraffic();
+    TestSparks();
     TestPlace();
   } catch (const std::exception& e) {
     std::cerr << "unexpected exception: " << e.what() << "\n";

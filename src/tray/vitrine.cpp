@@ -341,6 +341,14 @@ float StreamFade(float h) {
   return Smooth((h + 25) / 55) * Smooth((kStreamTop - h) / 95);
 }
 
+// On a log scale from 8 KB/s: 64 KB/s about a third, 512 KB/s two thirds, 4 MB/s all.
+float TrafficLevel(double bytesPerSecond) {
+  if (!(bytesPerSecond > 0)) {  // NaN too
+    return 0;
+  }
+  return std::clamp(static_cast<float>(std::log2(1 + bytesPerSecond / 8192) / 9), 0.0f, 1.0f);
+}
+
 }  // namespace vitrine
 
 // ---------------------------------------------------------------------------
@@ -350,6 +358,7 @@ namespace {
 
 using vitrine::kCrackTime;
 using vitrine::kHold;
+using vitrine::kSparkLife;
 
 constexpr float kCrackFirst = 140;  // units the cracks run at the blow
 constexpr float kCrackMore = 220;   // and creep on while it connects
@@ -367,6 +376,9 @@ constexpr float kHoverIn = 0.2f;    // the pointer coming onto the case, leaving
 constexpr float kHoverOut = 0.35f;
 constexpr float kPressIn = 0.07f;   // the press taking, letting go
 constexpr float kPressOut = 0.3f;
+constexpr float kTrafficEase = 1.2f; // the traffic's level easing: the rates come once a second
+constexpr float kBusyPace = 1.2f;    // the spiral's speed added at full traffic (its own is 1)
+constexpr float kSparkGap = 0.15f;   // blocked ads at once: their sparks this far apart
 constexpr float kFlightEnd = 3.6f;  // the last dust gone
 constexpr double kNever = -1e9;
 // A flight at rest on: the box up, open, between two bobs.
@@ -388,8 +400,16 @@ float Smooth01(float x) {
   return x * x * (3 - 2 * x);
 }
 
-float Eased(float from, float to, double at, double now) {
-  return from + (to - from) * Smooth01(static_cast<float>(now - at) / kTint);
+float Eased(float from, float to, double at, double now, float span = kTint) {
+  return from + (to - from) * Smooth01(static_cast<float>(now - at) / span);
+}
+
+// Eased's integral from `at` to `now`: how far a clock running at its speed goes.
+double EasedSum(float from, float to, double at, double now, float span = kTint) {
+  const double d = std::max(0.0, now - at);
+  const double x = std::min(1.0, d / span);
+  const double eased = span * (x * x * x - x * x * x * x / 2) + std::max(0.0, d - span);  // Smooth01's integral
+  return from * d + (to - from) * eased;
 }
 
 std::shared_ptr<const vitrine::Shatter> MakeShatter(vitrine::Point impact, std::uint32_t seed) {
@@ -411,6 +431,7 @@ VitrineFrame VitrineRest(Display display) {
   f.display = display;
   f.idle = 1.3;
   f.flowClock = f.idle;
+  f.traffic = 0.3f;  // a page or two loading
   f.shards = rest;
   switch (display) {
     case Display::On:
@@ -442,10 +463,40 @@ float Vitrine::DimAt(double now) const { return Eased(dimFrom_, dimTo_, dimAt_, 
 // full: the flow's easing integrated, so a change of speed never jumps it.
 double Vitrine::FlowClock(double now) const {
   const double d = std::max(0.0, now - flowAt_);
-  const double x = std::min(1.0, d / kTint);
-  const double eased = kTint * (x * x * x - x * x * x * x / 2) + std::max(0.0, d - kTint);  // Smooth01's integral
-  const double flowed = flowFrom_ * d + (flowTo_ - flowFrom_) * eased;
-  return flowClock_ + kFlowPace * d + (1 - kFlowPace) * flowed;
+  return flowClock_ + kFlowPace * d + (1 - kFlowPace) * EasedSum(flowFrom_, flowTo_, flowAt_, now);
+}
+
+float Vitrine::TrafficAt(double now) const { return Eased(trafficFrom_, trafficTo_, trafficAt_, now, kTrafficEase); }
+
+double Vitrine::TrafficSum(double now) const {
+  return trafficSum_ + EasedSum(trafficFrom_, trafficTo_, trafficAt_, now, kTrafficEase);
+}
+
+void Vitrine::Traffic(float level, double now) {
+  level = std::clamp(level, 0.0f, 1.0f);
+  if (level == trafficTo_) {
+    return;
+  }
+  trafficSum_ = TrafficSum(now);
+  trafficFrom_ = TrafficAt(now);
+  trafficTo_ = level;
+  trafficAt_ = now;
+}
+
+void Vitrine::Blocked(std::uint64_t count, double now) {
+  for (std::uint64_t i = 0; i < count; ++i) {
+    // After the ones still to come; none if they'd queue up past a spark's life.
+    const double at = std::max(now, lastStrike_ + kSparkGap);
+    if (at - now >= kSparkLife) {
+      return;
+    }
+    // Round the rim in golden steps: never twice in one spot, never bunched.
+    const double step = 0.381966 * struck_ + 0.3;
+    const auto where = static_cast<float>(0.12 + 0.76 * (step - std::floor(step)));
+    strikes_.at(struck_ % strikes_.size()) = {.at = at, .where = where};
+    lastStrike_ = at;
+    ++struck_;
+  }
 }
 
 float Vitrine::Ease::At(double now) const {
@@ -635,7 +686,15 @@ VitrineFrame Vitrine::At(double now) const {
   f.idle = now;
   f.danger = DangerAt(now);
   f.flow = FlowAt(now);
-  f.flowClock = FlowClock(now);
+  f.flowClock = FlowClock(now) + kBusyPace * TrafficSum(now);
+  f.traffic = TrafficAt(now);
+  std::size_t shown = 0;  // at most kSparks burn at once: they are kSparkGap apart
+  for (const Strike& s : strikes_) {
+    const double age = now - s.at;
+    if (age >= 0 && age < kSparkLife && shown < f.sparks.size()) {
+      f.sparks.at(shown++) = {.age = static_cast<float>(age), .at = s.where};
+    }
+  }
   f.hover = hover_.At(now);
   f.press = press_.At(now);
   f.dim = DimAt(now);
@@ -712,7 +771,7 @@ bool Vitrine::Moving(double now) const {
   }
   const auto since = [now](double at) { return now - at; };
   if (since(dangerAt_) < kTint || since(flowAt_) < kTint || since(dimAt_) < kTint || since(flashAt_) < 0.5 ||
-      hover_.Moving(now) || press_.Moving(now)) {
+      since(trafficAt_) < kTrafficEase || since(lastStrike_) < kSparkLife || hover_.Moving(now) || press_.Moving(now)) {
     return true;
   }
   switch (glass_) {
@@ -1102,7 +1161,7 @@ struct VitrineArt::Impl {
       warm, flapShadow;
   std::array<wil::com_ptr<ID2D1LinearGradientBrush>, 4> flaps;
   wil::com_ptr<ID2D1RadialGradientBrush> poolWarm, poolRed, shadow, bloom, insideGlow, insideCore, mouthBloom,
-      flash;
+      flash, ember;
   std::array<wil::com_ptr<ID2D1LinearGradientBrush>, kShardLooks * kShardHeats> shardFill;
 
   UINT pixels = 0;
@@ -1123,6 +1182,8 @@ struct VitrineArt::Impl {
 
   ID2D1RenderTarget* t = nullptr;  // while drawing
   float zk = 1;                    // units a line is at least: a pixel on screen
+  float busy = 0;                  // the frame's traffic (VitrineFrame::traffic): the spiral's packets
+  std::array<Spark, kSparks> sparks{};  // the frame's blocked ads
 
   ID2D1SolidColorBrush* Ink(D2D1_COLOR_F c) const {
     solid->SetColor(c);
@@ -1211,6 +1272,8 @@ struct VitrineArt::Impl {
     mouthBloom = Radial(target, {{0, Rgba(255, 226, 170, 0.30f)}, {0.45f, Rgba(255, 200, 130, 0.12f)}, {1, Rgba(255, 190, 110, 0)}},
                         {263, 140}, 230, 287.5f);
     flash = Radial(target, {{0, Rgba(255, 250, 240, 1)}, {0.35f, Rgba(255, 238, 210, 0.38f)}, {1, Rgba(255, 230, 190, 0)}});
+    // A blocked ad's burn: a deep warm red, its heart lighter - an ember, not a neon.
+    ember = Radial(target, {{0, Rgba(255, 168, 132, 0.85f)}, {0.3f, Rgba(236, 84, 60, 0.36f)}, {1, Rgba(214, 56, 44, 0)}});
     return true;
   }
 
@@ -1798,7 +1861,11 @@ struct VitrineArt::Impl {
     const float spin = static_cast<float>(std::fmod(clock * kTurn, static_cast<double>(kTwoPi)));
     constexpr float kSpan = kStreamTop + 25;
     constexpr float kFeather = 50;
-    constexpr int kSlots = 6;  // packets on a strand
+    constexpr int kSlots = 8;  // places for packets on a strand
+    // Taken in this order, those holding one spread evenly at any count.
+    constexpr std::array<int, kSlots> kOrder{0, 4, 2, 6, 1, 5, 3, 7};
+    // Packets on a strand by the traffic: two in the quiet, all at full; the next one fades in.
+    const float carried = 2 + 6 * busy;
     const float front = -25 + (kSpan + kFeather) * std::min(1.0f, grow);
     const auto shown = [front](float h) { return StreamFade(h) * Smooth01((front - h) / kFeather); };
     const float train = Phase(clock, 0.17);
@@ -1819,10 +1886,10 @@ struct VitrineArt::Impl {
         t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(Rgba(255, 214, 150, e * (0.20f + 0.26f * f))), (1.1f + 0.6f * f) * z,
                     round.get());
       }
-      const auto chevron = [&](float h) {
+      const auto chevron = [&](float h, float share) {
         const StreamPoint p = at(h);
         const StreamPoint p2 = at(h + 3);
-        const float e = shown(h) * a;
+        const float e = shown(h) * a * share;
         if (e < 0.02f) {
           return;
         }
@@ -1840,9 +1907,9 @@ struct VitrineArt::Impl {
         Line({p.x - dx * sz - dy * sz, p.y - dy * sz + dx * sz}, tip, ink, 1.4f * z, round.get());
         Line({p.x - dx * sz + dy * sz, p.y - dy * sz - dx * sz}, tip, ink, 1.4f * z, round.get());
       };
-      const auto cell = [&](float h) {
+      const auto cell = [&](float h, float share) {
         const StreamPoint p = at(h);
-        const float e = shown(h) * a;
+        const float e = shown(h) * a * share;
         if (e < 0.02f) {
           return;
         }
@@ -1852,14 +1919,20 @@ struct VitrineArt::Impl {
                          1.1f * z, round.get());
       };
       // The packets in even steps, a strand a third of a step after the one before;
-      // between two, by turns, a chevron the way it flows and a cell (a bit).
-      for (int i = 0; i < kSlots; ++i) {
+      // ahead of each, by turns, a chevron the way it flows and a cell (a bit).
+      for (int n = 0; n < kSlots; ++n) {
+        const float share = std::clamp(carried - static_cast<float>(n), 0.0f, 1.0f);
+        if (share <= 0) {
+          break;
+        }
+        const int i = kOrder.at(static_cast<std::size_t>(n));
         const float slot = (static_cast<float>(i) + static_cast<float>(j) / 3) / kSlots + train;
         const float hp = Fraction(slot) * kSpan - 25;
+        const float ka = a * share;
         for (int s = 0; s < 5; ++s) {
           const auto sf = static_cast<float>(s);
           const float h0 = hp - sf * 6;
-          const float e = shown(h0) * a * std::pow(1 - sf / 5, 1.4f);
+          const float e = shown(h0) * ka * std::pow(1 - sf / 5, 1.4f);
           if (e < 0.01f) {
             continue;
           }
@@ -1870,17 +1943,17 @@ struct VitrineArt::Impl {
                       (3.0f - sf * 0.3f) * z * (0.8f + 0.25f * f), round.get());
         }
         const StreamPoint head = at(hp);
-        const float e = shown(hp) * a;
+        const float e = shown(hp) * ka;
         if (e > 0.02f) {
           const float f = 0.5f + 0.5f * head.z;
           const float r = 2.6f * z * (0.75f + 0.3f * f);
           t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(head.x, head.y), r, r), Ink(Rgba(255, 248, 232, e * (0.7f + 0.3f * f))));
         }
         const float hm = Fraction(slot + 0.5f / kSlots) * kSpan - 25;
-        if (i % 2 == 0) {
-          chevron(hm);
+        if (n % 2 == 0) {
+          chevron(hm, share);
         } else {
-          cell(hm);
+          cell(hm, share);
         }
       }
       // its front while it comes up or goes back in
@@ -1894,6 +1967,48 @@ struct VitrineArt::Impl {
           t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(p.x, p.y), 2.2f * z, 2.2f * z),
                          Ink(Rgba(255, 246, 228, e * (0.6f + 0.4f * f))));
         }
+      }
+    }
+  }
+
+  // The ads blocked: each a red spark burning out on the front rim of the
+  // box's mouth - a short burn, a few embers thrown up off it that cool and
+  // fall back. Instead of the red dots that flew at the box from below.
+  void Sparks() const {
+    if (!ember) {
+      return;
+    }
+    const Lighter add(dc.get());
+    const float z = zk;
+    for (const Spark& s : sparks) {
+      if (s.age < 0 || s.age >= kSparkLife) {
+        continue;
+      }
+      const float u = s.age / kSparkLife;
+      const float fade = (1 - u) * (1 - u);
+      const Point p = s.at < 0.5f ? Lerp(kLidL, kLidF, s.at * 2) : Lerp(kLidF, kLidR, s.at * 2 - 1);
+      const float burn = std::min(1.0f, s.age / 0.04f) * fade;
+      const float r = 15 + 9 * u;
+      ember->SetCenter(P(p));
+      ember->SetRadiusX(r);
+      ember->SetRadiusY(r * 0.8f);
+      ember->SetOpacity(burn);
+      Ellipse(p, r, r * 0.8f, ember.get());
+      const float core = 2.4f * z * (1 - 0.5f * u);
+      t->FillEllipse(D2D1::Ellipse(P(p), core, core), Ink(Rgba(255, 226, 204, 0.9f * burn)));
+      // White-hot as they leave, red as they cool.
+      const D2D1_COLOR_F ink = Mix(Rgba(255, 216, 176), Rgba(232, 78, 56), std::min(1.0f, u * 2.5f));
+      for (int k = 0; k < 5; ++k) {
+        const auto kf = static_cast<float>(k);
+        const float wobble = std::sin(s.at * 37 + kf * 2.3f);
+        const float angle = -std::numbers::pi_v<float> / 2 + (kf - 2) * 0.5f + 0.15f * wobble;
+        const float speed = 60 + 22 * wobble;
+        const auto where = [&](float age) {
+          return Point{p.x + std::cos(angle) * speed * age, p.y + std::sin(angle) * speed * age + 140 * age * age};
+        };
+        D2D1_COLOR_F c = ink;
+        c.a = 0.85f * std::pow(1 - u, 1.5f);
+        Line(where(std::max(0.0f, s.age - 0.05f)), where(s.age), c, 1.3f * z, round.get());
       }
     }
   }
@@ -2002,6 +2117,7 @@ struct VitrineArt::Impl {
     std::swap(dc, glowDc);
     Inner(kScatterInner * gl, idle);
     Stream(grow, bright, clock);
+    Sparks();
     std::swap(dc, glowDc);
     t = main;
     if (FAILED(glowTarget->EndDraw())) {
@@ -2083,12 +2199,15 @@ struct VitrineArt::Impl {
 
     const bool opened = o.open > 0.003f && body;
     t->SetTransform(D2D1::Matrix3x2F::Translation(0, -lift) * scene);
+    busy = std::clamp(f.traffic, 0.0f, 1.0f);
+    sparks = f.sparks;
     if (opened) {
       OpenBox(o.open, o.stream, bright, f.flowClock, f.idle);
       Scatter(o.open, o.stream, bright, f.flowClock, f.idle);
     } else if (box) {
       t->DrawBitmap(box.get(), D2D1::RectF(0, 0, kScene, kScene), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
+    Sparks();
     TopLight(cone, opened, opened ? Share(o.open) : 0.0f);
     t->SetTransform(scene);
 

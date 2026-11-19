@@ -695,153 +695,6 @@ struct LogState {
   UiPage back = UiPage::Overview;  // where the log's "Назад" leads: the routing board's "ещё N" opened it from there
 };
 
-// The live traffic round the main screen's switch (UiContent::flow*): dots
-// along paths - up through the box for the VPN (WARP's in its own colour),
-// round its side for what goes directly - as many and as fast as the rates
-// say; a blocked ad flies at the box and breaks on it in red sparks. Moved
-// a frame a screen refresh while the overview shows (Impl::liveAt), never
-// with Windows' animations off.
-enum class Stream : std::uint8_t { Vpn, Warp, Direct, Blocked, Spark };
-
-struct Particle {
-  Stream stream = Stream::Vpn;
-  float t = 0;         // 0..1 along its path; a spark: its age, seconds
-  float speed = 0;     // t a second
-  float offset = 0;    // -1..1 across its path
-  float size = 2;      // DIPs
-  D2D1_POINT_2F at{};  // a spark: where it broke off
-  D2D1_POINT_2F v{};   // a spark: DIPs a second
-};
-
-struct LiveTraffic {
-  std::vector<Particle> particles;
-  std::array<float, 3> owed{};  // dots due a stream (Vpn, Warp, Direct), the fraction kept
-  std::array<float, 4> lane{};  // where a stream's (Vpn, Warp, Direct, Blocked) next dot goes across, 0..1
-  std::uint64_t blockedSeen = 0;
-  bool blockedKnown = false;
-  std::uint32_t seed = 0x2545F491u;
-
-  float Random() {  // 0..1
-    seed = seed * 1664525u + 1013904223u;
-    return static_cast<float>(seed >> 8) / 16777216.0f;
-  }
-  // The next lane across a stream: a golden-ratio step, so the dots spread
-  // evenly over its width and never bunch - a random one each looked like
-  // dust thrown at the box (19.11.2026).
-  float Lane(Stream stream) {
-    float& at = lane.at(std::min<std::size_t>(static_cast<std::size_t>(stream), lane.size() - 1));
-    at += 0.618034f;
-    at -= std::floor(at);
-    return at * 2 - 1;
-  }
-};
-
-constexpr std::size_t kMaxParticles = 600;
-constexpr float kSparkLife = 0.6f;
-
-// Dots a second for `rate` bytes a second: a few for a trickle, a river for
-// a video or two (about 130 at 1 MB/s, 160 at most); none for nothing.
-float DotsPerSecond(double rate) {
-  return rate < 64 ? 0.0f : std::min(160.0f, 3 + 26 * std::log2(1 + static_cast<float>(rate) / 32768));
-}
-
-// A dot's size: bigger as the stream swells, DIPs - the same for all of a
-// stream's dots at once, so it reads as one flow, not a scatter.
-float DotSize(double rate) {
-  return 1.5f + std::min(1.0f, std::log2(1 + static_cast<float>(rate) / 262144) * 0.4f);
-}
-
-// How fast: a trip of a little over two seconds, quicker as the rate grows.
-float DotSpeed(double rate) {
-  return 0.42f + 0.3f * std::min(1.0f, std::log2(1 + static_cast<float>(rate) / 65536) / 5);
-}
-
-// Where a dot is, round the box's bounds `box`: from under it up to over it.
-D2D1_POINT_2F DotAt(const Particle& p, D2D1_RECT_F box) {
-  const float s = box.right - box.left;
-  const D2D1_POINT_2F c{(box.left + box.right) / 2, (box.top + box.bottom) / 2};
-  const float bottom = c.y + s * 1.1f;
-  const float top = c.y - s * 1.1f;
-  switch (p.stream) {
-    case Stream::Vpn:
-    case Stream::Warp: {
-      // Up through the box, drawn in to its middle on the way.
-      const float squeeze = 1 - 0.75f * std::sin(std::numbers::pi_v<float> * std::clamp(p.t, 0.0f, 1.0f));
-      const float lane = p.stream == Stream::Warp ? s * 0.07f : 0.0f;
-      return {c.x + lane + p.offset * s * 0.22f * squeeze, bottom + (top - bottom) * p.t};
-    }
-    case Stream::Direct: {
-      // Up round the box's side - its own lane past the glass.
-      const float side = p.offset < 0 ? -1.0f : 1.0f;
-      const D2D1_POINT_2F a{c.x + p.offset * s * 0.18f, bottom};
-      const D2D1_POINT_2F m{c.x + side * s * 1.05f, c.y};
-      const D2D1_POINT_2F b{c.x + p.offset * s * 0.18f, top};
-      const float u = 1 - p.t;
-      return {u * u * a.x + 2 * u * p.t * m.x + p.t * p.t * b.x, u * u * a.y + 2 * u * p.t * m.y + p.t * p.t * b.y};
-    }
-    case Stream::Blocked:
-      // Up at the box, as far as its lower face.
-      return {c.x + p.offset * s * 0.2f, bottom + (c.y + s * 0.22f - bottom) * p.t};
-    case Stream::Spark:
-      return {p.at.x + p.v.x * p.t, p.at.y + p.v.y * p.t + 90 * p.t * p.t};
-  }
-  return c;
-}
-
-// One step of `dt` seconds round `box`: the dots move, new ones come by the
-// rates (none unless `on`), a blocked ad that reached the box breaks up.
-void StepLive(LiveTraffic& live, const UiContent& c, bool on, float dt, D2D1_RECT_F box) {
-  std::vector<Particle> sparks;
-  for (Particle& p : live.particles) {
-    if (p.stream == Stream::Spark) {
-      p.t += dt;
-      continue;
-    }
-    p.t += p.speed * dt;
-    if (p.stream == Stream::Blocked && p.t >= 1) {
-      Particle hit = p;
-      hit.t = 1;
-      const D2D1_POINT_2F at = DotAt(hit, box);
-      for (int i = 0; i < 6 && live.particles.size() + sparks.size() < kMaxParticles; ++i) {
-        // Down and out, as from a blow from below.
-        const float angle = std::numbers::pi_v<float> * (0.1f + 0.8f * live.Random());
-        const float speed = 50 + 80 * live.Random();
-        sparks.push_back({.stream = Stream::Spark, .t = 0, .speed = 0, .offset = 0, .size = 1.2f + live.Random(),
-                          .at = at, .v = {std::cos(angle) * speed, std::sin(angle) * speed * 0.6f - 40}});
-      }
-    }
-  }
-  std::erase_if(live.particles,
-                [](const Particle& p) { return p.stream == Stream::Spark ? p.t >= kSparkLife : p.t >= 1; });
-  live.particles.insert(live.particles.end(), sparks.begin(), sparks.end());
-
-  const auto spawn = [&](Stream stream, double rate) {
-    if (live.particles.size() < kMaxParticles) {
-      // A stream's dots keep one pace and evenly spread lanes: a river, not a swarm.
-      live.particles.push_back({.stream = stream, .t = 0, .speed = DotSpeed(rate), .offset = live.Lane(stream),
-                                .size = DotSize(rate), .at = {}, .v = {}});
-    }
-  };
-  const std::array<std::pair<Stream, double>, 3> streams = {
-      {{Stream::Vpn, c.flowVpn}, {Stream::Warp, c.flowWarp}, {Stream::Direct, c.flowDirect}}};
-  for (std::size_t i = 0; i < streams.size(); ++i) {
-    live.owed[i] = on ? live.owed[i] + DotsPerSecond(streams[i].second) * dt : 0.0f;
-    for (; live.owed[i] >= 1; live.owed[i] -= 1) {
-      spawn(streams[i].first, streams[i].second);
-    }
-  }
-  // The ads blocked since the last step: a dot each, a few at most at once.
-  if (!live.blockedKnown || c.blockedCount < live.blockedSeen) {
-    live.blockedKnown = true;
-    live.blockedSeen = c.blockedCount;
-  }
-  for (int n = 0; on && c.blockedCount > live.blockedSeen && n < 4; ++n) {
-    spawn(Stream::Blocked, 0);
-    live.particles.back().speed = 0.9f;
-  }
-  live.blockedSeen = c.blockedCount;
-}
-
 // What a paint depends on besides the layout.
 struct Interaction {
   int hover = -1;
@@ -1488,8 +1341,7 @@ class Painter {
   }
 
   // Draws a layout.
-  void Draw(ID2D1RenderTarget* t, const Layout& l, const UiContent& c, const Interaction& in, const LogView& log,
-            const LiveTraffic* live = nullptr) const {
+  void Draw(ID2D1RenderTarget* t, const Layout& l, const UiContent& c, const Interaction& in, const LogView& log) const {
     wil::com_ptr<ID2D1SolidColorBrush> brush;
     if (FAILED(t->CreateSolidColorBrush(Rgb(0, 0, 0), brush.put()))) {
       return;
@@ -1499,9 +1351,6 @@ class Painter {
     t->Clear(FromColorRef(ui::kWindowColor));
     if (l.glow) {
       DrawBackdrop(t, size, *l.glow, c.display == Display::On);
-      if (live != nullptr) {
-        DrawLive(k, *live, *l.glow);  // under everything else: behind the glass, under the cards
-      }
     }
 
     bool clipped = false;
@@ -2899,7 +2748,7 @@ class Painter {
     // The server at the foot; the switch in the middle of what's between:
     // the relic under glass (vitrine.h), as big as the room lets its whole
     // scene be - the spiral's top to the plinth's foot - a light behind it
-    // (DrawBackdrop) and the live traffic round its box. No words: the glass
+    // (DrawBackdrop); the traffic is the spiral's own. No words: the glass
     // says the state. The button is the hood.
     // The switch's room no more than its least size wants: more, and two
     // subscriptions on a short window made the page scroll by a few pixels.
@@ -6107,57 +5956,14 @@ class Painter {
     k.Text(it.text, body_.get(), textBox, ink);
   }
 
-  // The live traffic's dots round the box's bounds `box`: each with a
-  // soft halo and a short trail behind it, fading in and out along its path;
-  // sparks fade as they fly.
-  void DrawLive(const Canvas& k, const LiveTraffic& live, D2D1_RECT_F box) const {
-    for (const Particle& p : live.particles) {
-      D2D1_COLOR_F color = FromColorRef(ui::kVpn);
-      float alpha = std::sin(std::numbers::pi_v<float> * std::clamp(p.t, 0.0f, 1.0f));
-      switch (p.stream) {
-        case Stream::Vpn: break;
-        case Stream::Warp: color = FromColorRef(ui::kWarp); break;
-        case Stream::Direct: color = FromColorRef(ui::kDirect); alpha *= 0.7f; break;
-        case Stream::Blocked:
-          color = FromColorRef(ui::kDanger);
-          alpha = std::min(1.0f, p.t * 4);
-          break;
-        case Stream::Spark:
-          color = FromColorRef(ui::kDanger);
-          alpha = 1 - p.t / kSparkLife;
-          break;
-      }
-      if (alpha <= 0.01f) {
-        continue;
-      }
-      const D2D1_POINT_2F at = DotAt(p, box);
-      // The trail: where it was a moment ago, fainter.
-      if (p.stream != Stream::Spark) {
-        for (int i = 1; i <= 3; ++i) {
-          Particle back = p;
-          back.t -= 0.018f * static_cast<float>(i);
-          if (back.t > 0) {
-            const D2D1_POINT_2F was = DotAt(back, box);
-            color.a = alpha * 0.45f / static_cast<float>(i);
-            k.t->FillEllipse(D2D1::Ellipse(was, p.size * 0.8f, p.size * 0.8f), k.Color(color));
-          }
-        }
-      }
-      // A quiet halo: a glow round each read as cheap neon next to the box's own light.
-      color.a = alpha * 0.1f;
-      k.t->FillEllipse(D2D1::Ellipse(at, p.size * 2.4f, p.size * 2.4f), k.Color(color));
-      color.a = alpha * 0.8f;
-      k.t->FillEllipse(D2D1::Ellipse(at, p.size, p.size), k.Color(color));
-    }
-  }
-
   // The main screen's backdrop: the dark, and a light from behind the switch
-  // (`at`, its rect) - the VPN's blue while connected, a faint grey otherwise.
-  // A stage for the live traffic to come.
+  // (`at`, its rect) - while connected the warm of the box's own light, a
+  // faint grey otherwise. It was the VPN's blue: next to the golden spiral it
+  // read as a cold neon behind it (19.11.2026).
   void DrawBackdrop(ID2D1RenderTarget* t, D2D1_SIZE_F size, D2D1_RECT_F at, bool on) const {
     const D2D1_POINT_2F center{(at.left + at.right) / 2, (at.top + at.bottom) / 2};
     const float radius = std::max(size.width, at.bottom - at.top) * 0.75f;
-    const D2D1_COLOR_F light = on ? FromColorRef(ui::kVpn, 0.22f) : Rgb(255, 255, 255, 0.05f);
+    const D2D1_COLOR_F light = on ? vitrine::kRoomLight : Rgb(255, 255, 255, 0.05f);
     const std::array<D2D1_GRADIENT_STOP, 3> stops{
         {{0, light}, {0.45f, D2D1_COLOR_F{light.r, light.g, light.b, light.a * 0.35f}}, {1, D2D1_COLOR_F{light.r, light.g, light.b, 0}}}};
     wil::com_ptr<ID2D1GradientStopCollection> collection;
@@ -6603,7 +6409,8 @@ bool CopyToClipboard(HWND owner, const std::wstring& text) {
 }
 
 // The case mid-motion, for a snapshot: "off@0,starting!@1,on@4;4.3" - the states at their seconds
-// ("!": a click struck the glass; "hover", "press", "leave": the pointer on the case), then the moment drawn.
+// ("!": a click struck the glass; "hover", "press", "leave": the pointer on the case; "traffic=0.8":
+// the VPN's traffic level; "ad", "ads": one ad blocked, three), then the moment drawn.
 VitrineFrame VitrineScript(std::wstring_view script) {
   const std::size_t semicolon = script.find(L';');
   THROW_HR_IF(E_INVALIDARG, semicolon == std::wstring_view::npos);
@@ -6625,6 +6432,15 @@ VitrineFrame VitrineScript(std::wstring_view script) {
     std::wstring_view name = step.substr(0, at);
     if (name == L"hover" || name == L"press" || name == L"leave") {
       v.Touch(name != L"leave", name == L"press", seconds(step.substr(at + 1)), true);
+      continue;
+    }
+    constexpr std::wstring_view kTraffic = L"traffic=";
+    if (name.starts_with(kTraffic)) {
+      v.Traffic(static_cast<float>(seconds(name.substr(kTraffic.size()))), seconds(step.substr(at + 1)));
+      continue;
+    }
+    if (name == L"ad" || name == L"ads") {
+      v.Blocked(name == L"ad" ? 1 : 3, seconds(step.substr(at + 1)));
       continue;
     }
     std::optional<vitrine::Point> hit;
@@ -6682,7 +6498,7 @@ struct MainWindow::Impl {
   std::function<void(const UiCalendar&)> onDate;  // a calendar's yes (AskDate)
   std::chrono::steady_clock::time_point questionAt{};
   // When the pointer's wait for a tip is over. The timer alone isn't enough:
-  // while the live traffic keeps a WM_PAINT waiting, WM_TIMER is never
+  // while frames keep a WM_PAINT waiting (a fold, a question), WM_TIMER is never
   // handed out (a paint outranks it) and no tip showed on the main screen
   // (30.10.2026, he: 'при наводке на таракана подсказку бы'). The paint
   // looks at the clock too.
@@ -6776,15 +6592,21 @@ struct MainWindow::Impl {
     }
   }
 
-  // The live traffic (LiveTraffic): its timer runs while the overview shows
-  // and there's traffic to draw or dots still on their way; it stops itself.
-  LiveTraffic live;
-  // Frames as often as the screen shows them - 60, 144, whatever it runs at:
-  // each paint ends waiting for the screen's refresh (the render target's
-  // EndDraw) and asks for the next one, so no timer (Windows' can't go past
-  // 64 a second, and its 15.6 ms ticks made the dots jerk). The last step,
-  // by the precise clock; empty: not running.
-  std::optional<std::chrono::steady_clock::time_point> liveAt;
+  // The VPN's traffic and the ads blocked, for the case: the spiral's pace,
+  // a spark on the box's rim for each new one. The count so far; empty: not
+  // known yet (the first one counts nothing).
+  std::optional<std::uint64_t> blockedSeen;
+
+  void VitrineTraffic(const UiContent& c) {
+    const ULONGLONG now = GetTickCount64();
+    const bool on = c.display == Display::On;
+    showcase.Traffic(on ? vitrine::TrafficLevel(c.flowVpn + c.flowWarp) : 0.0f, Clock(now));
+    if (on && blockedSeen && c.blockedCount > *blockedSeen && Motion()) {
+      showcase.Blocked(c.blockedCount - *blockedSeen, Clock(now));
+    }
+    blockedSeen = c.blockedCount;
+    KickVitrine();
+  }
 
   // A fold opening or closing (the fine settings', the relay's): how open it is, eased over
   // kFoldMs from where it was; its flag in the content says where it goes.
@@ -6864,38 +6686,6 @@ struct MainWindow::Impl {
   // the disabled window looked hung (22.10.2026, the cross's question). No
   // frames are asked for meanwhile; WM_ENABLE starts them again.
   bool Blocked() const { return IsWindowEnabled(hwnd) == FALSE; }
-
-  void KickLive() {
-    if (!liveAt && hwnd != nullptr && IsWindowVisible(hwnd) != FALSE && page == UiPage::Overview && Motion() &&
-        (content.display == Display::On || !live.particles.empty())) {
-      liveAt = std::chrono::steady_clock::now();
-      InvalidateRect(hwnd, nullptr, FALSE);
-    }
-  }
-
-  // A step before a paint: whether to go on (the next frame asked for after it).
-  bool StepLiveTraffic() {
-    auto now = std::chrono::steady_clock::now();
-    if (liveAt && now - *liveAt < std::chrono::milliseconds(2)) {
-      // Faster than any screen: nothing waited for its refresh (a remote
-      // session, say) - wait for the compositor's, not spin.
-      DwmFlush();
-      now = std::chrono::steady_clock::now();
-    }
-    const float dt = liveAt ? std::min(0.1f, std::chrono::duration<float>(now - *liveAt).count()) : 0.0f;
-    liveAt = now;
-    const bool on = content.display == Display::On;
-    if (!layout.glow || page != UiPage::Overview || IsWindowVisible(hwnd) == FALSE || !Motion() || Blocked() ||
-        (!on && live.particles.empty())) {
-      liveAt.reset();
-      if (page != UiPage::Overview || IsWindowVisible(hwnd) == FALSE) {
-        live.particles.clear();  // shown again, it starts afresh
-      }
-      return false;
-    }
-    StepLive(live, content, on, dt, *layout.glow);
-    return true;
-  }
 
   Impl(HINSTANCE inst, CommandHandler handler) : instance(inst), onCommand(std::move(handler)) {
     WNDCLASSW wc{};
@@ -7637,7 +7427,6 @@ struct MainWindow::Impl {
       routeMenu = false;
     }
     Relayout();
-    KickLive();
     KickVitrine();  // back on the overview, the case's idle life starts again
   }
 
@@ -8175,21 +7964,20 @@ struct MainWindow::Impl {
             in.tip = in.hover;
           }
         }
-        const bool going = liveAt && StepLiveTraffic();
         const bool coming = StepQuestion();
         const bool folding = StepFold();
         PAINTSTRUCT ps;
         BeginPaint(w, &ps);
         Paint();
         EndPaint(w, &ps);
-        if (going || coming || folding) {
+        if (coming || folding) {
           InvalidateRect(w, nullptr, FALSE);  // the next frame: this one waited for the screen's refresh
         }
         return 0;
       }
       case WM_ENABLE:
         if (wParam != FALSE) {
-          KickLive();  // the modal box is gone (Blocked)
+          KickVitrine();  // the modal box is gone (Blocked)
         }
         return 0;
       case WM_ERASEBKGND: return 1;  // Direct2D paints everything
@@ -8634,7 +8422,7 @@ struct MainWindow::Impl {
     }
     in.vitrine = showcase.Known() ? std::optional(VitrineAt(now)) : std::nullopt;
     target->BeginDraw();
-    painter.Draw(target.get(), layout, content, in, log, &live);
+    painter.Draw(target.get(), layout, content, in, log);
     if (target->EndDraw() == D2DERR_RECREATE_TARGET) {
       target.reset();
       painter.ForgetIcons();
@@ -8678,7 +8466,6 @@ void MainWindow::Show(UiPage page) {
   ShowWindow(m.hwnd, IsIconic(m.hwnd) ? SW_RESTORE : SW_SHOW);
   SetForegroundWindow(m.hwnd);
   m.KickVitrine();  // breaking or flowing while it was hidden: the timer stopped
-  m.KickLive();
 }
 
 void MainWindow::Hide() { ShowWindow(impl_->hwnd, SW_HIDE); }
@@ -8700,6 +8487,7 @@ bool MainWindow::IsVisible() const { return impl_->hwnd != nullptr && IsWindowVi
 void MainWindow::Update(const UiContent& content) {
   Impl& m = *impl_;
   m.VitrineTo(content.display);
+  m.VitrineTraffic(content);
   m.ApplyBorder(content);
   const bool sameList = content.protocols == m.content.protocols && content.autoOption == m.content.autoOption &&
                         content.serversByDelay == m.content.serversByDelay;
@@ -8717,7 +8505,6 @@ void MainWindow::Update(const UiContent& content) {
   }
   if (IsVisible()) {
     m.Relayout();
-    m.KickLive();
   }
 }
 
@@ -8797,15 +8584,6 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
   if (layout.logBox) {  // at the newest, as the window follows them
     log.scroll = std::max(0.0f, log.Height() - (layout.logBox->bottom - layout.logBox->top));
   }
-  // The live traffic as it would be a few seconds in, an ad broken by the case among it.
-  LiveTraffic live;
-  if (layout.glow) {
-    for (int i = 0; i < 100; ++i) {
-      UiContent now = content;
-      now.blockedCount = i < 60 ? 0 : content.blockedCount;
-      StepLive(live, now, content.display == Display::On, 1.0f / 30, *layout.glow);
-    }
-  }
   Interaction in;
   constexpr std::wstring_view kEditPrefix = L"edit:";
   constexpr std::wstring_view kVitrinePrefix = L"vitrine:";
@@ -8831,7 +8609,7 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
     in.tip = TipText(*it).empty() ? -1 : in.hover;
   }
   target->BeginDraw();
-  painter.Draw(target.get(), layout, content, in, log, &live);
+  painter.Draw(target.get(), layout, content, in, log);
   THROW_IF_FAILED(target->EndDraw());
 
   wil::com_ptr<IWICStream> stream;

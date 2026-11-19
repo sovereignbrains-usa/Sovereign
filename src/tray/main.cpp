@@ -4458,6 +4458,7 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
   std::vector<std::string> lanAllowed;
   sovereign::tray::ExitIp vpn;
   bool selective = false;
+  bool on = false;
   // The speed test runs beside the others, not after them: the checks a connect
   // starts by itself held its button grey for a minute (05.11.2026).
   const bool speed = which.size() == 1 && which.front() == sovereign::tray::CheckId::Speed;
@@ -4466,7 +4467,8 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
     if (speed ? shared.view.speedRunning : shared.view.checksRunning) {
       return;
     }
-    if (shared.view.wantOn) {
+    on = shared.view.wantOn;
+    if (on) {
       vpn = shared.view.exitIp;  // the core's, through the server in use (UpdateExitIp)
     }
     // Only chosen things through the VPN: the checks' own requests go directly.
@@ -4484,7 +4486,7 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
   std::optional<std::jthread>& run = speed ? g_speed : g_checks;
   run.reset();  // the last run's thread, finished
   run.emplace([which = std::move(which), host = std::move(host), quiet, speed, routing, lanClosed,
-                    lanAllowed = std::move(lanAllowed), vpn = std::move(vpn), selective](const std::stop_token& stop) {
+                    lanAllowed = std::move(lanAllowed), vpn = std::move(vpn), selective, on](const std::stop_token& stop) {
     const auto post = [] {
       auto& s = State();
       HWND window = nullptr;
@@ -4523,7 +4525,8 @@ void StartChecks(std::vector<sovereign::tray::CheckId> which, std::string host, 
                                                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
                                                  }
                                                },
-                                               .selective = selective};
+                                               .selective = selective,
+                                               .on = on};
     sovereign::tray::RunChecks(stop, which, input,
                                [&](sovereign::tray::CheckId id, const sovereign::tray::CheckResult& result) {
                                  {
@@ -5735,6 +5738,15 @@ UiContent ContentFrom(const View& v) {
                                   .way = std::move(way)});
   }
   c.routing.board = BoardOf(v);
+  // WARP turned off in the settings with things still sent there: their rules wait (routing.cpp
+  // ApplyRouting) and they go where everything else goes - said by its name, not shown as if
+  // they went through it (20.11.2026, the routing page's audit).
+  if (!r.warp && std::any_of(c.routing.board.begin(), c.routing.board.end(), [](const sovereign::tray::UiChip& chip) {
+        return chip.bucket == sovereign::tray::kBucketWarp;
+      })) {
+    c.routing.warpState = L"выключен";  // its things quiet, their tips say they go as the rest does
+    c.routing.warpTone = -1;
+  }
   if (!v.listsError.empty() && v.listsReady < v.listsNeeded) {
     c.routing.lists = L"Списки правил не скачались: " + Widen(v.listsError) + L". Пока работают зоны .ru/.рф/.su.";
     c.routing.listsFailed = true;

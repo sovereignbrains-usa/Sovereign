@@ -51,6 +51,9 @@ struct DiagnoseInput {
   // May wait for the lookup to finish; empty answer: nothing newer is known.
   std::function<std::pair<std::string, std::string>()> vpnNow;
   bool selective = false;
+  // The connection wanted on. Off, nothing goes through the core - Route says so, not "no
+  // connection seen" as if a rule had cut the site (20.11.2026, the routing page's audit).
+  bool on = true;
 };
 
 // Each check as it starts (Running) and as it ends.

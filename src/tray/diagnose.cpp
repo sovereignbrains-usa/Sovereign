@@ -801,6 +801,20 @@ struct Run {
   // The address typed - or, with none, a Russian, a European and an American
   // site at once (kRouteProbes), judged against where each should go.
   CheckResult Route() const {
+    if (!input.on) {
+      // Nothing to ask the core: everything goes directly, as without the client.
+      std::string host = input.host;
+      if (const std::size_t scheme = host.find("://"); scheme != std::string::npos) {
+        host = host.substr(scheme + 3);
+      }
+      host = host.substr(0, host.find_first_of("/:?#"));
+      CheckResult r;
+      r.status = Status::Warn;
+      r.summary = host.empty() ? std::string("VPN выключен") : host + ": VPN выключен";
+      r.detail = "VPN выключен: всё идёт напрямую, как без клиента, и маршруты не действуют. Включи VPN и проверь снова.";
+      r.site = host;  // it can still be sent a way of its own under the result
+      return r;
+    }
     if (input.host.empty()) {
       std::vector<SiteWay> sites;
       sites.reserve(kRouteProbes.size());

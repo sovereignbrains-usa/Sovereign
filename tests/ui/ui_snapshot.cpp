@@ -306,6 +306,16 @@ int Snapshots(const std::wstring& dir) {
     routed.routing.warpTone = -1;
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-narrow.png");
+    // WARP off (in the JSON) with things on it (20.11.2026): an amber "выключен" and a key to turn it
+    // on beside the name, its things quiet (their tips: they go as the rest does).
+    routed.routing.warp = false;
+    routed.routing.warpState = L"выключен";
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96,
+                                              dir + L"\\routing-warp-off.png");
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
+                                              dir + L"\\routing-warp-off-narrow.png");
+    routed.routing.warp = true;
+    routed.routing.warpState = L"напрямую: через VPN не прошёл, пробуем «AnyTLS-Reality | Frankfurt №1»";
     // The mode's menu dropped from the sentence's pill, over the scheme.
     routed.routeMenu = true;
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,

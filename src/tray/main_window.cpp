@@ -2111,12 +2111,19 @@ class Painter {
     };
     // By bucket: direct, proxy, block, WARP.
     const std::array<Way, 4> ways = {{
-        {L"Напрямую", L"идёт напрямую", L"Мимо VPN, как без него. Для банков и сайтов, которым VPN мешает."},
-        {L"Через VPN", L"идёт через VPN", L"Через сервер VPN."},
+        {L"Напрямую", L"идёт напрямую",
+         r.smart ? std::wstring(L"Что названо здесь — мимо VPN, как без него, и без проверки на блокировку. Для банков "
+                                L"и сайтов, которым VPN мешает.\n\nВсё остальное клиент пробует напрямую, а что "
+                                L"закрыто — пускает через VPN.")
+                 : std::wstring(L"Мимо VPN, как без него. Для банков и сайтов, которым VPN мешает.")},
+        {L"Через VPN", L"идёт через VPN",
+         r.smart ? std::wstring(L"Всегда через сервер VPN, без проверки напрямую. Для сайтов, которые не должны видеть "
+                                L"твой настоящий адрес, или тех, что клиент не распознаёт как закрытые.")
+                 : std::wstring(L"Через сервер VPN: сайт видит адрес сервера, провайдер — только связь с ним.")},
         {L"Блок", L"заблокирован",
          L"Сайт или программа останутся без сети: не откроются ни через VPN, ни напрямую. Например, сайт, который не "
          L"хочешь открывать, или назойливый апдейтер.\n\nРеклама, трекеры, баннеры cookie и вредоносные сайты тоже здесь: их включают в «+» "
-         L"или в настройках.\n\nСайты, которые пропустил кнопкой «Сломалось только что?», стоят в строке «Не закрывать»: "
+         L"или в настройках.\n\nСайты, которые пропустил кнопкой «Сайт сломался только что?» в «Настройках», стоят в строке «Не закрывать»: "
          L"нажми на значок — и они снова закрыты.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
         {L"Через WARP", L"идёт через WARP",
          L"Через Cloudflare WARP поверх VPN. Для сайтов, которые не пускают с адреса VPN: сайт видит адрес "
@@ -2139,6 +2146,9 @@ class Painter {
       head.action = ItemAction::Hint;  // a tip, no key: the way lights while pointed at
       head.rail = id;
       head.tip = rest && idle > 0 ? way.hint + L"\n\n" + RestHint(idle) : way.hint;
+      if (id == kBucketWarp && !r.warp) {
+        head.tip += L"\n\nСейчас WARP выключен: то, что здесь, идёт как всё остальное.";
+      }
       l.items.push_back(std::move(head));
       float top = y + 28;
       // What's said by the name: the rest's "всё, что не попало выше", how WARP goes. Beside it while
@@ -2149,19 +2159,37 @@ class Painter {
                                  : id == kBucketBlock && c.blockedTotal > 0 && c.routeDetailed
                                      ? L"закрыто с подключения: " + Grouped(c.blockedTotal)
                                      : std::wstring();
+      // WARP off with things on it (turned off in the JSON): they go as the rest does, and a key turns it
+      // back on - nothing else on the page did (20.11.2026, the routing page's audit).
+      const bool warpIdle = id == kBucketWarp && !r.warp && !aside.empty();
+      const std::wstring turnOn = L"включить";
+      const float turnOnWidth = warpIdle ? std::ceil(TextWidth(turnOn, trailing_.get())) + 2 : 0.0f;
+      const auto turnOnKey = [&](float kx, float ky) {
+        Item key = CommandItem(Kind::Link, {kx, ky, kx + turnOnWidth, ky + 22}, turnOn, nullptr, UiCommand::ToggleWarp);
+        key.tip = L"Включить WARP: то, что в этом списке, снова пойдёт через него";
+        l.items.push_back(std::move(key));
+      };
       if (!aside.empty()) {
         const float asideLeft = left + nameWidth + 8;
         // WARP's state has a lamp: green while it answers, amber while it doesn't.
         const int lamp = id == kBucketWarp ? (r.warpTone > 0 ? 1 : r.warpTone < 0 ? 2 : 0) : 0;
         const float lampRoom = lamp > 0 ? kMutedLamp : 0.0f;
-        if (asideLeft + std::ceil(TextWidth(aside, caption_.get())) + lampRoom + 4 <= x1) {
-          Item note = Make(Kind::Muted, {asideLeft, y, x1, y + 28}, aside);
+        const float asideWidth = std::ceil(TextWidth(aside, caption_.get())) + lampRoom + 4;
+        if (asideLeft + asideWidth + (warpIdle ? 8 + turnOnWidth : 0.0f) <= x1) {
+          Item note = Make(Kind::Muted, {asideLeft, y, warpIdle ? asideLeft + asideWidth : x1, y + 28}, aside);
           note.lamp = lamp;
           l.items.push_back(std::move(note));
+          if (warpIdle) {
+            turnOnKey(asideLeft + asideWidth + 8, y + 3);
+          }
         } else {
           const float h = TextHeight(aside, captionWrap_.get(), x1 - left);
           l.items.push_back(Make(Kind::Caption, {left, top, x1, top + h}, aside));
           top += h;
+          if (warpIdle) {
+            turnOnKey(left, top);
+            top += 22;
+          }
         }
       }
       // Its things, then the "+", in rows from the left, wrapped at the right.
@@ -2202,7 +2230,9 @@ class Painter {
         const UiChip& chip = r.board[n];
         Item tag = CommandItem(Kind::Tag, at, chip.text, nullptr, UiCommand::ChipMenu, static_cast<int>(n));
         // What it does, read off its way; a program keeps the sites that have a way of their own.
-        tag.tip = !chip.icon.empty() && id != kBucketBlock  // (icon: a program's exe)
+        tag.tip = id == kBucketWarp && !r.warp  // (WARP off: it doesn't, it goes as the rest does)
+                      ? std::format(L"{} ждёт WARP: он выключен, пока идёт как всё остальное", chip.text)
+                  : !chip.icon.empty() && id != kBucketBlock  // (icon: a program's exe)
                       ? std::format(L"{} {}, кроме сайтов и сервисов, у которых свой путь", chip.text, way.verb)
                       : std::format(L"{} {}", chip.text, way.verb);
         if (chip.kind == UiChip::Kind::Ads) {
@@ -2224,7 +2254,7 @@ class Painter {
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
         tag.text2 = chip.icon;
         tag.logo = chip.logo;
-        tag.quiet = chip.idle;
+        tag.quiet = chip.idle || (id == kBucketWarp && !r.warp);  // (WARP off: they don't go through it)
         tag.rail = id;
         l.items.push_back(std::move(tag));
       }

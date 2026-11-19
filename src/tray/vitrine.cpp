@@ -6,6 +6,7 @@
 #include "vitrine.h"
 
 #include <d2d1_1.h>
+#include <d2d1effects.h>
 
 #include <algorithm>
 #include <cmath>
@@ -85,7 +86,7 @@ constexpr Point kLidW = Sub(kLidL, kLidT);
 constexpr float kFlapRise = 106;
 constexpr float kOpenBack = 108;   // degrees the back flaps open
 constexpr float kOpenFront = 118;  // the front ones
-constexpr float kPictureGlow = 0.35f;  // the flow's warmth over the opened picture's own
+constexpr float kPictureGlow = 0.28f;  // the flow's warmth over the opened picture's own
 
 // The spiral over the box's mouth.
 constexpr float kStreamX = 263;
@@ -950,7 +951,9 @@ std::vector<std::uint8_t> LightOnBox(const std::vector<std::uint8_t>& shape, UIN
 }
 
 // The spotlight's beam, 640 x 471 units from above the scene to under the box:
-// widening down, soft across with no edge, coming out of nothing at the top.
+// widening down, soft across with no edge, coming out of nothing at the top
+// and going back into it under the box (a cut there showed as a band under the
+// open box, its plinth gone).
 constexpr float kBeamWidth = 640;
 constexpr float kBeamTop = -70;
 constexpr float kBeamHeight = 471;
@@ -962,7 +965,8 @@ std::vector<std::uint8_t> Beam(UINT w, UINT h) {
     const float f = (static_cast<float>(j) + 0.5f) / static_cast<float>(h);
     const float half = 125 + 165 * f;
     const float s = std::min(1.0f, f / 0.3125f);
-    const float fade = s * s * (3 - 2 * s) * (0.8f + 0.2f * (1 - f));
+    const float e = std::min(1.0f, (1 - f) / 0.22f);
+    const float fade = s * s * (3 - 2 * s) * e * e * (3 - 2 * e) * (0.8f + 0.2f * (1 - f));
     for (std::size_t i = 0; i < w; ++i) {
       const float x = ((static_cast<float>(i) + 0.5f) / static_cast<float>(w) - 0.5f) * kBeamWidth;
       const float dx = std::abs(x) / half;
@@ -989,6 +993,20 @@ std::vector<std::uint8_t> Beam(UINT w, UINT h) {
 // kShaftHeight units: narrow at its foot in the box, wider and gone further up.
 constexpr float kShaftWidth = 110;
 constexpr float kShaftHeight = 260;
+
+// The light's scatter (Impl::Scatter): what glows drawn again on a bitmap of
+// half the pixels over this part of the scene (units: the spiral's top to
+// under the box's mouth), blurred twice - a tight halo round each line, a
+// wide haze in the air - and added on top.
+constexpr float kGlowLeft = 20;
+constexpr float kGlowTop = -175;
+constexpr float kGlowWidth = 490;
+constexpr float kGlowHeight = 540;
+constexpr float kHaloSigma = 3.5f;  // units
+constexpr float kHazeSigma = 16;
+constexpr float kHaloGain = 0.5f;
+constexpr float kHazeGain = 0.5f;
+constexpr float kScatterInner = 0.18f;  // the source in the box, of its full light
 
 std::vector<std::uint8_t> Shaft(UINT w, UINT h) {
   std::vector<std::uint8_t> out(static_cast<std::size_t>(w) * h * 4);
@@ -1083,7 +1101,7 @@ struct VitrineArt::Impl {
   wil::com_ptr<ID2D1LinearGradientBrush> plinthShade, plaqueBrass, rimBrass, gloss, insideLeftShade, insideRightShade,
       warm, flapShadow;
   std::array<wil::com_ptr<ID2D1LinearGradientBrush>, 4> flaps;
-  wil::com_ptr<ID2D1RadialGradientBrush> poolWarm, poolRed, shadow, floorGlow, bloom, insideGlow, insideCore, mouthBloom,
+  wil::com_ptr<ID2D1RadialGradientBrush> poolWarm, poolRed, shadow, bloom, insideGlow, insideCore, mouthBloom,
       flash;
   std::array<wil::com_ptr<ID2D1LinearGradientBrush>, kShardLooks * kShardHeats> shardFill;
 
@@ -1093,6 +1111,12 @@ struct VitrineArt::Impl {
   UINT pad = 0;  // the opened picture's pixels past the scene on each side
   wil::com_ptr<ID2D1Bitmap> openBox, lightOpenBox;
   wil::com_ptr<ID2D1Layer> flapsLayer;  // the drawn flaps giving way to the picture
+  // The scatter (Scatter): its bitmap, drawn on in turn, and the blurs with their warm tints.
+  wil::com_ptr<ID2D1BitmapRenderTarget> glowTarget;
+  wil::com_ptr<ID2D1DeviceContext> glowDc;
+  wil::com_ptr<ID2D1Bitmap> glowBitmap;
+  wil::com_ptr<ID2D1Effect> halo, haze, haloTint, hazeTint;
+  float glowK = 0;  // its pixels a unit
 
   std::shared_ptr<const Shatter> shapesFor;
   std::vector<wil::com_ptr<ID2D1PathGeometry>> shapes;
@@ -1124,6 +1148,19 @@ struct VitrineArt::Impl {
                                nullptr, 0, round.put());
     target->CreateLayer(layer.put());
     target->CreateLayer(flapsLayer.put());
+    if (dc) {
+      const auto blur = [this](wil::com_ptr<ID2D1Effect>& blurred, wil::com_ptr<ID2D1Effect>& tinted) {
+        if (SUCCEEDED(dc->CreateEffect(CLSID_D2D1GaussianBlur, blurred.put())) &&
+            SUCCEEDED(dc->CreateEffect(CLSID_D2D1ColorMatrix, tinted.put()))) {
+          tinted->SetInputEffect(0, blurred.get());
+        } else {
+          blurred.reset();
+          tinted.reset();
+        }
+      };
+      blur(halo, haloTint);
+      blur(haze, hazeTint);
+    }
     ID2D1Factory* f = factory.get();
     const std::array<Point, 6> outline = Hood();
     hood = Path(f, outline);
@@ -1164,8 +1201,6 @@ struct VitrineArt::Impl {
                      {kCx, kOy}, 250, 140);
     shadow = Radial(target, {{0, Rgba(0, 0, 0, 0.55f)}, {0.06f, Rgba(0, 0, 0, 0.55f)}, {1, Rgba(0, 0, 0, 0)}},
                     {kCx, kOy + 4}, 170, 85);
-    floorGlow = Radial(target, {{0, Rgba(255, 240, 218, 0.62f)}, {0.45f, Rgba(210, 170, 110, 0.26f)}, {1, Rgba(210, 170, 110, 0)}},
-                       {kCx, kOy + 30}, 190, 64.6f);
     bloom = Radial(target, {{0, Rgba(255, 238, 205, 0.34f)}, {0.4f, Rgba(255, 222, 170, 0.15f)}, {1, Rgba(255, 210, 150, 0)}},
                    {kCx, kBoxTop + kBoxH * 0.5f}, 330, 280.5f);
     insideGlow = Radial(target, {{0, Rgba(255, 214, 150, 0.95f)}, {0.4f, Rgba(255, 178, 92, 0.42f)}, {1, Rgba(255, 160, 70, 0)}},
@@ -1218,8 +1253,36 @@ struct VitrineArt::Impl {
                                                            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR),
                                lid.put());
     }
+    MakeGlow(n);
     pixels = n;
     return box && body && lid;
+  }
+
+  // The scatter's bitmap for `n` pixels across the scene; none where the target can't blur.
+  void MakeGlow(UINT n) {
+    glowTarget.reset();
+    glowDc.reset();
+    glowBitmap.reset();
+    if (!halo || !haze) {
+      return;
+    }
+    glowK = static_cast<float>(n) / kScene / 2;
+    const auto w = static_cast<UINT>(std::max(2L, std::lround(kGlowWidth * glowK)));
+    const auto h = static_cast<UINT>(std::max(2L, std::lround(kGlowHeight * glowK)));
+    if (FAILED(owner->CreateCompatibleRenderTarget(
+            D2D1::SizeF(static_cast<float>(w), static_cast<float>(h)), D2D1::SizeU(w, h),
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, glowTarget.put())) ||
+        FAILED(glowTarget->GetBitmap(glowBitmap.put()))) {
+      glowTarget.reset();
+      glowBitmap.reset();
+      return;
+    }
+    glowDc = glowTarget.try_query<ID2D1DeviceContext>();
+    halo->SetInput(0, glowBitmap.get());
+    haze->SetInput(0, glowBitmap.get());
+    halo->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, kHaloSigma * glowK);
+    haze->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, kHazeSigma * glowK);
   }
 
   bool Ensure(ID2D1RenderTarget* target, float span) {
@@ -1316,15 +1379,6 @@ struct VitrineArt::Impl {
     }
     shadow->SetOpacity(std::min(1.0f, a));
     Fill(plinthTop.get(), shadow.get());
-  }
-
-  void FloorGlow(float a, double idle) const {
-    if (a <= 0 || !floorGlow) {
-      return;
-    }
-    const Lighter add(dc.get());
-    floorGlow->SetOpacity(std::min(1.0f, a * (0.95f + 0.05f * Wave(idle * 2.2))));
-    Ellipse({kCx, kOy + 30}, 190, 64.6f, floorGlow.get());
   }
 
   void Back(float glass, float pa) const {
@@ -1879,7 +1933,7 @@ struct VitrineArt::Impl {
     }
     if (gl > 0 && mouthBloom) {
       const Lighter add(dc.get());
-      mouthBloom->SetOpacity(std::min(1.0f, gl * Breath(idle)));
+      mouthBloom->SetOpacity(std::min(1.0f, 0.5f * gl * Breath(idle)));  // the rest is the scatter's
       Ellipse({263, 140}, 230, 287.5f, mouthBloom.get());
     }
     Shafts(flow, idle);
@@ -1926,6 +1980,46 @@ struct VitrineArt::Impl {
       Fill(frontRight.get(), flapShadow.get());
     }
     FlapEdges(frontRight.get(), kLidR, kLidF, oFR, 0.6f);
+  }
+
+  // The light's scatter: the source in the box and the spiral drawn again
+  // small and blurred twice - a tight halo round each line, a wide haze in
+  // the air that spills over the flaps - and added on top, warmer than the
+  // light itself, as in dusty air. Without it the spiral was lines drawn on
+  // the box, not light (he, 19.11.2026). Nothing where the target can't blur.
+  void Scatter(float op, float grow, float bright, double clock, double idle) {
+    const float flow = std::min(1.0f, grow) * bright;
+    const float gl = std::min(1.0f, 0.3f * std::min(1.0f, op) + 0.7f * flow);
+    if (!glowTarget || !glowDc || !dc || !haloTint || !hazeTint || gl <= 0.003f) {
+      return;
+    }
+    ID2D1RenderTarget* const main = t;
+    glowTarget->BeginDraw();
+    glowTarget->Clear(D2D1::ColorF(0, 0, 0, 0));
+    glowTarget->SetTransform(D2D1::Matrix3x2F::Translation(-kGlowLeft, -kGlowTop) *
+                             D2D1::Matrix3x2F::Scale(glowK, glowK));
+    t = glowTarget.get();
+    std::swap(dc, glowDc);
+    Inner(kScatterInner * gl, idle);
+    Stream(grow, bright, clock);
+    std::swap(dc, glowDc);
+    t = main;
+    if (FAILED(glowTarget->EndDraw())) {
+      return;
+    }
+    const auto tint = [](ID2D1Effect* e, float gain, float green, float blue) {
+      e->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX,
+                  D2D1::Matrix5x4F(1, 0, 0, 0, 0, green, 0, 0, 0, 0, blue, 0, 0, 0, 0, std::min(1.0f, gain), 0, 0, 0, 0));
+    };
+    tint(haloTint.get(), kHaloGain, 0.92f, 0.8f);
+    tint(hazeTint.get(), kHazeGain * Breath(idle), 0.8f, 0.58f);
+    D2D1::Matrix3x2F was = D2D1::Matrix3x2F::Identity();
+    t->GetTransform(&was);
+    t->SetTransform(D2D1::Matrix3x2F::Scale(1 / glowK, 1 / glowK) * D2D1::Matrix3x2F::Translation(kGlowLeft, kGlowTop) *
+                    was);
+    dc->DrawImage(hazeTint.get(), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_PLUS);
+    dc->DrawImage(haloTint.get(), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_PLUS);
+    t->SetTransform(was);
   }
 
   void Draw(ID2D1RenderTarget* target, const VitrineFrame& f, const VitrinePlace& place, bool hovered, bool pressed) {
@@ -1982,9 +2076,6 @@ struct VitrineArt::Impl {
       Pool(pool, f.danger, f.idle, pa);
       Shadow(std::min(1.0f, lift / 10) * pa);
     }
-    if (pa < 1) {
-      FloorGlow(1 - pa, f.idle);
-    }
     Back(f.glass, pa);
     Bloom(std::min(1.0f, cone));
     Cone(cone);
@@ -1994,6 +2085,7 @@ struct VitrineArt::Impl {
     t->SetTransform(D2D1::Matrix3x2F::Translation(0, -lift) * scene);
     if (opened) {
       OpenBox(o.open, o.stream, bright, f.flowClock, f.idle);
+      Scatter(o.open, o.stream, bright, f.flowClock, f.idle);
     } else if (box) {
       t->DrawBitmap(box.get(), D2D1::RectF(0, 0, kScene, kScene), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }

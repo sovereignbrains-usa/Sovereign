@@ -6426,7 +6426,8 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
                                       : L"Сколько раз отказано — нажми, чтобы увидеть что:");
       const std::size_t first = items.size();
       for (const auto& program : apps) {
-        if (program.names.empty() && program.path.empty()) {
+        if (program.names.empty() &&
+            (program.path.empty() || _wcsicmp(Widen(program.app).c_str(), L"svchost.exe") == 0)) {
           labels.push_back(items.size());
         }
         items.push_back(title(program) + L" — " + std::to_wstring(program.count));
@@ -6454,15 +6455,20 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       }
       const std::size_t names = captions.empty() ? 0 : 2;
       std::size_t show = asked.size();  // "Показать файл", when there is one
-      if (!program.path.empty()) {
+      // Not Windows' DNS client's: System32 tells nothing - what it asked is the point.
+      const bool windowsDns = _wcsicmp(Widen(program.app).c_str(), L"svchost.exe") == 0;
+      if (!program.path.empty() && !windowsDns) {
         if (!asked.empty()) {
           asked.emplace_back(L"");
         }
         show = asked.size();
         asked.emplace_back(L"Показать файл в Проводнике");
       }
+      if (asked.empty()) {
+        break;  // svchost with nothing remembered yet
+      }
       const auto choice = PickFromMenu(owner, args.anchor, asked, -1, {}, captions);
-      if (choice && *choice == show && !program.path.empty()) {
+      if (choice && *choice == show && !program.path.empty() && !windowsDns) {
         const std::wstring select = L"/select,\"" + Widen(program.path) + L"\"";
         ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr, SW_SHOWNORMAL);
       } else if (choice && names > 0 && *choice >= names && *choice - names < program.names.size()) {

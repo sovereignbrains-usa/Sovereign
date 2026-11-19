@@ -72,6 +72,7 @@ struct BlockedApp {
   std::string app;   // the program's file name
   std::string path;  // and where it is
   std::uint64_t count = 0;
+  std::vector<std::string> names = {};  // what it was refused lately, newest first
 };
 struct BlockedWho {
   std::uint64_t cloaked = 0;  // refusals that were a name behind a CNAME

@@ -547,12 +547,16 @@ void TestSmart() {
   CHECK(answer["counts"].value("ads", 0) == 12 && answer["counts"].value("trackers", 0) == 3);
   // Who it was for: the programs and the names behind a CNAME.
   core.blockedWho.cloaked = 4;
-  core.blockedWho.apps = {{"brave.exe", "C:\\Brave\\brave.exe", 9}, {"svchost.exe", "", 2}};
+  core.blockedWho.apps = {{"brave.exe", "C:\\Brave\\brave.exe", 9, {"ads.example.com", "pixel.example.net"}},
+                          {"svchost.exe", "", 2}};
   answer = Send(handler, R"({"cmd":"box_blocked"})");
   CHECK(answer.value("cloaked", 0) == 4);
   CHECK(answer["apps"].size() == 2);
   CHECK(answer["apps"][0].value("app", "") == "brave.exe" && answer["apps"][0].value("count", 0) == 9);
   CHECK(answer["apps"][1].value("path", "x").empty());
+  // What each asked reaches the tray: under the program in "Кто обращается" (the service dropped it till 0.6.36).
+  CHECK(answer["apps"][0]["names"] == json::array({"ads.example.com", "pixel.example.net"}));
+  CHECK(answer["apps"][1]["names"] == json::array());
   // And what was refused just now, newest first.
   core.blockedWho.recent = {"ads.example.com", "pixel.example.net"};
   answer = Send(handler, R"({"cmd":"box_blocked"})");

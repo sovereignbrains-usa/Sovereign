@@ -250,7 +250,7 @@ std::map<std::string, std::uint64_t> GoCore::BlockedCounts() {
 }
 
 BlockedWho GoCore::BlockedByWho() {
-  // The same answer: "cloaked":n and "apps":[{"app","path","count"}]; an entry of the wrong shape is skipped.
+  // The same answer: "cloaked":n and "apps":[{"app","path","count","names"}]; an entry of the wrong shape is skipped.
   BlockedWho out;
   if (boxBlocked_ == nullptr) {
     return out;
@@ -268,8 +268,17 @@ BlockedWho GoCore::BlockedByWho() {
           !entry.value("count", nlohmann::json()).is_number_unsigned()) {
         continue;
       }
-      out.apps.push_back({entry["app"].get<std::string>(), entry.value("path", std::string()),
-                          entry["count"].get<std::uint64_t>()});
+      BlockedApp& app = out.apps.emplace_back(BlockedApp{.app = entry["app"].get<std::string>(),
+                                                         .path = entry.value("path", std::string()),
+                                                         .count = entry["count"].get<std::uint64_t>()});
+      // What it asked: the tray's "Кто обращается" lists it under the program (lost here till 0.6.36).
+      if (const auto asked = entry.find("names"); asked != entry.end() && asked->is_array()) {
+        for (const auto& name : *asked) {
+          if (name.is_string() && !name.get_ref<const std::string&>().empty()) {
+            app.names.push_back(name.get<std::string>());
+          }
+        }
+      }
     }
   }
   const auto names = [&json](const char* key, std::vector<std::string>& list) {

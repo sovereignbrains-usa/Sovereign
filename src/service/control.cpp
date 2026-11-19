@@ -779,7 +779,7 @@ std::string ControlHandler::Dispatch(const std::string& request, Outcome& outcom
     const auto who = core_->BlockedByWho();
     Json apps = Json::array();
     for (const auto& app : who.apps) {
-      apps.push_back({{"app", app.app}, {"path", app.path}, {"count", app.count}});
+      apps.push_back({{"app", app.app}, {"path", app.path}, {"count", app.count}, {"names", app.names}});
     }
     Json response;
     response["cmd"] = "box_blocked";

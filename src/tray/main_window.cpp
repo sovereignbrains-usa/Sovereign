@@ -4603,6 +4603,11 @@ class Painter {
         said = L"из сети можно подключиться к компьютеру";
       }
       const std::size_t at = head(y, L"Закрыть от локальной сети", std::move(said), lamp, 1);
+      // The narrow window cut it to "Закрыть от локальной с…" (20.11.2026): the short name there.
+      if (TextWidth(l.items[at].text, heading_.get()) >
+          l.items[at].rect.right - l.items[at].rect.left - kInstrumentText - InstrumentControl(l.items[at])) {
+        l.items[at].text = L"Закрыть от локалки";
+      }
       l.items[at].checked = c.lanClosed;
       l.items[at].loud = loud;
       l.items[at].action = ItemAction::Command;
@@ -4650,14 +4655,23 @@ class Painter {
           top += kSettingsRow + put(std::move(host));
         }
         // The rest around, counted: "Ещё" only under the ones let in, one said as a word.
-        std::wstring rest;
-        if (others == 0) {
-          rest = L"Других устройств в сети пока не видно";
-        } else if (others == 1) {
-          rest = allowed > 0 ? L"Ещё одно устройство в сети — вход закрыт" : L"Одно устройство в сети — вход закрыт";
-        } else {
-          rest = (allowed > 0 ? L"Ещё " : L"") + std::to_wstring(others) + L" " +
-                 Plural(others, L"устройство", L"устройства", L"устройств") + L" в сети — вход закрыт";
+        // The narrow window's words are shorter: the long ones went under the "+" (20.11.2026).
+        const float restRoom = (x1 - 4) - (x0 + 4) - 16 - 30 - kInstrumentIndent;
+        const auto restSaid = [&](bool brief) {
+          const std::wstring where = brief ? L"" : L" в сети";
+          if (others == 0) {
+            return brief ? std::wstring(L"Других устройств не видно") : std::wstring(L"Других устройств в сети пока не видно");
+          }
+          if (others == 1) {
+            return (allowed > 0 ? std::wstring(L"Ещё одно") : std::wstring(L"Одно")) + L" устройство" + where +
+                   L" — вход закрыт";
+          }
+          return (allowed > 0 ? std::wstring(L"Ещё ") : std::wstring()) + std::to_wstring(others) + L" " +
+                 Plural(others, L"устройство", L"устройства", L"устройств") + where + L" — вход закрыт";
+        };
+        std::wstring rest = restSaid(false);
+        if (TextWidth(rest, body_.get()) > restRoom) {
+          rest = restSaid(true);
         }
         line(top);
         Item add = CommandItem(Kind::ValueRow, row(top), std::move(rest), kGlyphAdd, UiCommand::LanAdd);
@@ -4799,10 +4813,26 @@ class Painter {
         line(top);
         Item broke = Make(Kind::ValueRow, row(top), L"Сайт сломался только что?");
         broke.indent = kInstrumentIndent;
-        l.items.push_back(std::move(broke));
         const std::size_t n = c.blockedJustNow;
-        const std::wstring pass = n > 0 ? L"Пропустить последние " + std::to_wstring(n) + L"…" : L"Пропускать нечего";
-        const float bw = std::ceil(TextWidth(pass, body_.get())) + 28;
+        // The button beside the question, shorter if that's what fits, else on a line of its own under it:
+        // on a narrow window "Пропустить последние 3…" lay over the question (20.11.2026).
+        const float asked = broke.rect.left + 16 + kInstrumentIndent + std::ceil(TextWidth(broke.text, body_.get())) + 12;
+        const auto label = [&](bool brief) {
+          return n == 0  ? std::wstring(L"Пропускать нечего")
+                 : brief ? L"Пропустить " + std::to_wstring(n) + L"…"
+                         : L"Пропустить последние " + std::to_wstring(n) + L"…";
+        };
+        std::wstring pass = label(false);
+        float bw = std::ceil(TextWidth(pass, body_.get())) + 28;
+        if (x1 - 20 - bw < asked) {
+          pass = label(true);
+          bw = std::ceil(TextWidth(pass, body_.get())) + 28;
+        }
+        const bool under = x1 - 20 - bw < asked;
+        l.items.push_back(std::move(broke));
+        if (under) {
+          top += kSettingsRow - 8;
+        }
         Item button = CommandItem(Kind::Button, {x1 - 20 - bw, top + 4, x1 - 20, top + kSettingsRow - 4}, pass, nullptr,
                                   UiCommand::PassJustNow);
         button.quiet = true;
@@ -5194,7 +5224,8 @@ class Painter {
         const bool tells = it.action == ItemAction::None && it.glyph.empty();
         if (it.stacked) {  // no room beside the title: the value under it, from the title's left
           const float line = r.bottom - kStackLine;  // the title's line is the row's own height, kStackLine above the foot
-          k.Text(it.text, body_.get(), {textLeft, r.top, valueLeft, line}, ink);
+          // Clear of the glyph on the right: a title too long went under the "+" (20.11.2026).
+          k.Text(it.text, body_.get(), {textLeft, r.top, std::min(valueLeft, r.right - (tells ? 16.0f : 30.0f)), line}, ink);
           k.Text(it.detail, trailing_.get(), {textLeft, line - 6, r.right - (tells ? 16.0f : 30.0f), r.bottom}, secondary);
         } else {
           k.Text(it.text, body_.get(), {textLeft, r.top, valueLeft, r.bottom}, ink);

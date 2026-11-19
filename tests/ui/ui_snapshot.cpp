@@ -355,6 +355,17 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Settings, logs, 360, 1100, 96,
                                               dir + L"\\settings-360.png");
   });
+  // His narrow window (20.11.2026): only the router let in and nobody else seen, ads blocked, three cut
+  // just now - the LAN card's name, "Других устройств…" and the "Пропустить" button all fit.
+  variant([&](UiContent& narrow) {
+    narrow.lanHosts.resize(1);
+    narrow.lanHosts[0].allowed = true;
+    narrow.routing.blockAds = true;
+    narrow.blockedJustNow = 3;
+    narrow.blockedLately = {L"mobile.events.data.microsoft.com"};
+    sovereign::tray::RenderMainWindowSnapshot(narrow, UiPage::Settings, logs, 360, 1400, 96,
+                                              dir + L"\\settings-360-lan.png");
+  });
   // A configuration's page: the first one's.
   sovereign::tray::RenderMainWindowSnapshot(content, UiPage::Profile, logs, 400, 620, 96, dir + L"\\profile.png");
   // The settings whole, one page: every group, the printer let in, an update waiting.
@@ -1137,7 +1148,7 @@ int LayoutTest(const std::wstring& dir) {
   UiContent content = SampleContent();
   content.checks = SampleChecks();
   // The variants live on the heap: fifteen UiContents on the stack pass /analyze's 16 KB (C6262).
-  std::vector<UiContent> variants(15, content);
+  std::vector<UiContent> variants(16, content);
   UiContent& routed = variants[0];
   // WARP on, with a site of its own: its card lists it, "Свои правила" doesn't.
   routed.routing.rules = {{L"qwen.ai, qwenlm.ai, alicdn.com, aliyun.com", L"напрямую"},
@@ -1223,12 +1234,19 @@ int LayoutTest(const std::wstring& dir) {
   UiContent& ownedSubscription = variants[10];
   ownedSubscription.profiles.front().ownHost = L"packetlab.tech";
   ownedSubscription.profiles.front().ownProbe = L"Debian 12, вход root, порт 443 занят";
+  // His narrow settings (20.11.2026): the router alone let in, ads blocked, three cut just now.
+  UiContent& lanNarrow = variants[15];
+  lanNarrow.lanHosts.resize(1);
+  lanNarrow.lanHosts[0].allowed = true;
+  lanNarrow.routing.blockAds = true;
+  lanNarrow.blockedJustNow = 3;
+  lanNarrow.blockedLately = {L"mobile.events.data.microsoft.com"};
   struct Page {
     UiPage page;
     const wchar_t* name;
     const UiContent* content;
   };
-  const std::array<Page, 24> pages = {{{UiPage::Overview, L"overview", &content},
+  const std::array<Page, 25> pages = {{{UiPage::Overview, L"overview", &content},
                                       {UiPage::Overview, L"overview-troubled", &troubled},
                                       {UiPage::Logs, L"logs-troubled", &troubled},
                                       {UiPage::Servers, L"servers", &content},
@@ -1251,7 +1269,8 @@ int LayoutTest(const std::wstring& dir) {
                                       {UiPage::Overview, L"add-open", &addOpened},
                                       {UiPage::Overview, L"add-folding", &addFolding},
                                       {UiPage::Overview, L"failed-one", &failedOne},
-                                      {UiPage::Overview, L"failed-two", &failedTwo}}};
+                                      {UiPage::Overview, L"failed-two", &failedTwo},
+                                      {UiPage::Settings, L"settings-lan-narrow", &lanNarrow}}};
   CreateDirectoryW(dir.c_str(), nullptr);
   int failures = 0;
   int cut = 0;

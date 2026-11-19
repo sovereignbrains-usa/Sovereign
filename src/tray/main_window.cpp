@@ -6519,7 +6519,8 @@ class Painter {
   // at rest. Its button is the hood; the scene round it is placed from it.
   void DrawPower(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed) const {
     if (!vitrine_) {
-      vitrine_ = std::make_unique<VitrineArt>(wic_.get(), ResourceBytes(IDR_VITRINE_BOX));
+      vitrine_ =
+          std::make_unique<VitrineArt>(wic_.get(), ResourceBytes(IDR_VITRINE_BOX), ResourceBytes(IDR_VITRINE_OPEN));
     }
     vitrine_->Draw(k.t, k.vitrine != nullptr ? *k.vitrine : VitrineRest(c.display), VitrinePlaceFor(it.rect), hovered,
                    pressed);

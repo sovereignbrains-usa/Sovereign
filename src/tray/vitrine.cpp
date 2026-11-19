@@ -11,6 +11,7 @@
 #include <cmath>
 #include <initializer_list>
 #include <numbers>
+#include <tuple>
 #include <utility>
 
 namespace sovereign::tray {
@@ -84,6 +85,7 @@ constexpr Point kLidW = Sub(kLidL, kLidT);
 constexpr float kFlapRise = 106;
 constexpr float kOpenBack = 108;   // degrees the back flaps open
 constexpr float kOpenFront = 118;  // the front ones
+constexpr float kPictureGlow = 0.35f;  // the flow's warmth over the opened picture's own
 
 // The spiral over the box's mouth.
 constexpr float kStreamX = 263;
@@ -845,12 +847,12 @@ void CutLid(std::vector<std::uint8_t>& pixels, UINT n) {
 }
 
 // The spotlight on the box: strongest on its top, fading down, round its middle - only on the box itself.
-std::vector<std::uint8_t> LightOnBox(const std::vector<std::uint8_t>& shape, UINT n) {
+// The picture is `n` pixels square, `unit` scene units each, its corner at (`origin`, `origin`).
+std::vector<std::uint8_t> LightOnBox(const std::vector<std::uint8_t>& shape, UINT n, float unit, float origin = 0) {
   std::vector<std::uint8_t> out(shape.size());
-  const float unit = kScene / static_cast<float>(n);
   const float spotY = kBoxTop + kBoxH * 0.18f;
   for (std::size_t j = 0; j < n; ++j) {
-    const float y = (static_cast<float>(j) + 0.5f) * unit;
+    const float y = origin + (static_cast<float>(j) + 0.5f) * unit;
     const float f = (y - kBoxTop) / (kBoxH * 0.62f);
     float a = 0;
     float g = 232;
@@ -869,7 +871,7 @@ std::vector<std::uint8_t> LightOnBox(const std::vector<std::uint8_t>& shape, UIN
     }
     for (std::size_t i = 0; i < n; ++i) {
       const std::size_t o = (j * n + i) * 4;
-      const float x = (static_cast<float>(i) + 0.5f) * unit;
+      const float x = origin + (static_cast<float>(i) + 0.5f) * unit;
       const float d = std::hypot(x - kCx, y - spotY) / 270;
       const float m = d < 0.6f ? 1 - 0.3f * d / 0.6f : (d < 1 ? 0.7f * (1 - (d - 0.6f) / 0.4f) : 0.0f);
       const float alpha = a * m * static_cast<float>(shape[o + 3]) / 255;
@@ -964,6 +966,8 @@ struct VitrineArt::Impl {
   wil::com_ptr<IWICImagingFactory> wic;
   std::vector<std::uint8_t> source;
   UINT side = 0;
+  std::vector<std::uint8_t> openSource;  // the opened box, the scene and a sixteenth round it
+  UINT openSide = 0;
 
   wil::com_ptr<ID2D1RenderTarget> owner;
   wil::com_ptr<ID2D1DeviceContext> dc;
@@ -985,6 +989,9 @@ struct VitrineArt::Impl {
   UINT pixels = 0;
   wil::com_ptr<ID2D1Bitmap> box, body, lightClosed, lightOpen, beam;
   wil::com_ptr<ID2D1BitmapBrush> lid;
+  UINT pad = 0;  // the opened picture's pixels past the scene on each side
+  wil::com_ptr<ID2D1Bitmap> openBox, lightOpenBox;
+  wil::com_ptr<ID2D1Layer> flapsLayer;  // the drawn flaps giving way to the picture
 
   std::shared_ptr<const Shatter> shapesFor;
   std::vector<wil::com_ptr<ID2D1PathGeometry>> shapes;
@@ -998,10 +1005,12 @@ struct VitrineArt::Impl {
   }
 
   bool MakeStatic(ID2D1RenderTarget* target) {
-    Impl fresh;  // all the old target's things dropped; the picture kept
+    Impl fresh;  // all the old target's things dropped; the pictures kept
     fresh.wic = std::move(wic);
     fresh.source = std::move(source);
     fresh.side = side;
+    fresh.openSource = std::move(openSource);
+    fresh.openSide = openSide;
     *this = std::move(fresh);
     owner = target;
     dc = owner.try_query<ID2D1DeviceContext>();
@@ -1013,6 +1022,7 @@ struct VitrineArt::Impl {
                                                            D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND),
                                nullptr, 0, round.put());
     target->CreateLayer(layer.put());
+    target->CreateLayer(flapsLayer.put());
     ID2D1Factory* f = factory.get();
     const std::array<Point, 6> outline = Hood();
     hood = Path(f, outline);
@@ -1073,10 +1083,23 @@ struct VitrineArt::Impl {
     }
     std::vector<std::uint8_t> opened = picture;
     CutLid(opened, n);
+    const float unit = kScene / static_cast<float>(n);
     box = Bitmap(owner.get(), picture, n, n);
     body = Bitmap(owner.get(), opened, n, n);
-    lightClosed = Bitmap(owner.get(), LightOnBox(picture, n), n, n);
-    lightOpen = Bitmap(owner.get(), LightOnBox(opened, n), n, n);
+    lightClosed = Bitmap(owner.get(), LightOnBox(picture, n, unit), n, n);
+    lightOpen = Bitmap(owner.get(), LightOnBox(opened, n, unit), n, n);
+    // The opened one on the same pixels: whole ones past the scene, so its walls stay on the closed one's.
+    openBox.reset();
+    lightOpenBox.reset();
+    pad = (n + 8) / 16;
+    const UINT wide = n + 2 * pad;
+    if (!openSource.empty()) {
+      const std::vector<std::uint8_t> open = Resample(wic.get(), openSource, openSide, wide);
+      if (!open.empty()) {
+        openBox = Bitmap(owner.get(), open, wide, wide);
+        lightOpenBox = Bitmap(owner.get(), LightOnBox(open, wide, unit, -static_cast<float>(pad) * unit), wide, wide);
+      }
+    }
     const float perUnit = static_cast<float>(n) / kScene / 2;  // the beam is soft: half the pixels do
     const auto bw = static_cast<UINT>(std::max(2L, std::lround(kBeamWidth * perUnit)));
     const auto bh = static_cast<UINT>(std::max(2L, std::lround(kBeamHeight * perUnit)));
@@ -1251,13 +1274,20 @@ struct VitrineArt::Impl {
     }
   }
 
-  void TopLight(float a, bool opened) const {
-    ID2D1Bitmap* light = opened ? lightOpen.get() : lightClosed.get();
-    if (a <= 0 || light == nullptr) {
+  // `pic`: the opened box's share that is its picture (Share).
+  void TopLight(float a, bool opened, float pic) const {
+    if (a <= 0) {
       return;
     }
     const Lighter add(dc.get());
-    t->DrawBitmap(light, D2D1::RectF(0, 0, kScene, kScene), std::min(1.0f, a), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    const float k = std::min(1.0f, a);
+    ID2D1Bitmap* light = opened ? lightOpen.get() : lightClosed.get();
+    if (light != nullptr && pic < 1) {
+      t->DrawBitmap(light, D2D1::RectF(0, 0, kScene, kScene), k * (1 - pic), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+    if (lightOpenBox && pic > 0) {
+      t->DrawBitmap(lightOpenBox.get(), OpenRect(), k * pic, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
   }
 
   void RimFront(float glow, float pa) const {
@@ -1627,10 +1657,52 @@ struct VitrineArt::Impl {
     }
   }
 
+  // How much of the opened box is its picture: none while the flaps swing up,
+  // all from nearly open; the same way back as they close.
+  float Share(float op) const { return openBox ? Smooth01((op - 0.5f) / 0.45f) : 0.0f; }
+
+  D2D1_RECT_F OpenRect() const {
+    const float m = static_cast<float>(pad) * kScene / static_cast<float>(std::max(1U, pixels));
+    return {-m, -m, kScene + m, kScene + m};
+  }
+
   void OpenBox(float op, float stream, double time) const {
+    const float gl = std::min(1.0f, 0.3f * std::min(1.0f, op) + 0.7f * stream);
+    const float pic = Share(op);
+    if (pic < 1) {
+      // The drawn flaps give way to the picture over its second half.
+      const float drawn = std::min(1.0f, 2 * (1 - pic));
+      const bool faded = drawn < 1 && flapsLayer;
+      if (faded) {
+        t->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+                                           D2D1::IdentityMatrix(), drawn),
+                     flapsLayer.get());
+      }
+      DrawnBox(op, gl, pic > 0 ? 0.0f : stream, time);
+      if (faded) {
+        t->PopLayer();
+      }
+    }
+    if (pic > 0) {
+      t->DrawBitmap(openBox.get(), OpenRect(), pic, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+      if (gl > 0 && insideGlow) {
+        const Lighter add(dc.get());
+        insideGlow->SetOpacity(std::min(1.0f, kPictureGlow * gl * pic));
+        Fill(mouth.get(), insideGlow.get());
+      }
+      Stream(stream, time);
+    }
+    if (gl > 0 && mouthBloom) {
+      const Lighter add(dc.get());
+      mouthBloom->SetOpacity(std::min(1.0f, gl));
+      Ellipse({263, 140}, 230, 287.5f, mouthBloom.get());
+    }
+  }
+
+  // The flaps drawn swinging on the lid's edges, the lid's picture on the big ones.
+  void DrawnBox(float op, float gl, float stream, double time) const {
     const float thB = op * kOpenBack * kDegrees;
     const float thF = op * kOpenFront * kDegrees;
-    const float gl = std::min(1.0f, 0.3f * std::min(1.0f, op) + 0.7f * stream);
     const Point oBL = FlapOff(kLidU, thB);
     const Point oBR = FlapOff(kLidW, thB);
     const Point oFR = FlapOff(Times(kLidU, -1), thF);
@@ -1668,11 +1740,6 @@ struct VitrineArt::Impl {
       Fill(frontRight.get(), flapShadow.get());
     }
     FlapEdges(frontRight.get(), kLidR, kLidF, oFR, 0.6f);
-    if (gl > 0 && mouthBloom) {
-      const Lighter add(dc.get());
-      mouthBloom->SetOpacity(std::min(1.0f, gl));
-      Ellipse({263, 140}, 230, 287.5f, mouthBloom.get());
-    }
   }
 
   void Draw(ID2D1RenderTarget* target, const VitrineFrame& f, const VitrinePlace& place, bool hovered, bool pressed) {
@@ -1736,7 +1803,7 @@ struct VitrineArt::Impl {
     } else if (box) {
       t->DrawBitmap(box.get(), D2D1::RectF(0, 0, kScene, kScene), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
-    TopLight(cone, opened);
+    TopLight(cone, opened, opened ? Share(o.open) : 0.0f);
     t->SetTransform(scene);
 
     RimFront(o.rim * pa, pa);
@@ -1765,10 +1832,12 @@ struct VitrineArt::Impl {
   }
 };
 
-VitrineArt::VitrineArt(IWICImagingFactory* wic, std::span<const std::byte> png) : impl_(std::make_unique<Impl>()) {
-  impl_->wic = wic;
+namespace {
+
+// A square PNG's pixels, premultiplied BGRA, and its side; nothing if it isn't one.
+std::pair<std::vector<std::uint8_t>, UINT> Decode(IWICImagingFactory* wic, std::span<const std::byte> png) {
   if (wic == nullptr || png.empty()) {
-    return;
+    return {};
   }
   wil::com_ptr<IWICStream> stream;
   wil::com_ptr<IWICBitmapDecoder> decoder;
@@ -1785,14 +1854,22 @@ VitrineArt::VitrineArt(IWICImagingFactory* wic, std::span<const std::byte> png) 
       FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0,
                                    WICBitmapPaletteTypeCustom)) ||
       FAILED(converter->GetSize(&w, &h)) || w != h || w == 0) {
-    return;
+    return {};
   }
   std::vector<std::uint8_t> pixels(static_cast<std::size_t>(w) * h * 4);
   if (FAILED(converter->CopyPixels(nullptr, w * 4, static_cast<UINT>(pixels.size()), pixels.data()))) {
-    return;
+    return {};
   }
-  impl_->source = std::move(pixels);
-  impl_->side = w;
+  return {std::move(pixels), w};
+}
+
+}  // namespace
+
+VitrineArt::VitrineArt(IWICImagingFactory* wic, std::span<const std::byte> png, std::span<const std::byte> openPng)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->wic = wic;
+  std::tie(impl_->source, impl_->side) = Decode(wic, png);
+  std::tie(impl_->openSource, impl_->openSide) = Decode(wic, openPng);
 }
 
 VitrineArt::~VitrineArt() = default;

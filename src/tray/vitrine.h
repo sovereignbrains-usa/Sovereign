@@ -220,10 +220,12 @@ vitrine::Point ToScene(const VitrinePlace& place, D2D1_POINT_2F at);
 D2D1_RECT_F FromScene(const VitrinePlace& place, D2D1_RECT_F scene);
 
 // The case's bitmaps and brushes for one render target, made from the box's
-// picture (a PNG). Made again whenever the target is.
+// pictures (PNGs): closed, and opened - its walls on the closed one's, the
+// scene widened by a sixteenth each side for the flaps. Without the opened
+// one the flaps are drawn. Made again whenever the target is.
 class VitrineArt {
  public:
-  VitrineArt(IWICImagingFactory* wic, std::span<const std::byte> png);
+  VitrineArt(IWICImagingFactory* wic, std::span<const std::byte> png, std::span<const std::byte> openPng = {});
   ~VitrineArt();
   VitrineArt(const VitrineArt&) = delete;
   VitrineArt& operator=(const VitrineArt&) = delete;

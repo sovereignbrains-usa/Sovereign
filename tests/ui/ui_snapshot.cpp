@@ -316,13 +316,8 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\routing-warp-off-narrow.png");
     routed.routing.warp = true;
     routed.routing.warpState = L"напрямую: через VPN не прошёл, пробуем «AnyTLS-Reality | Frankfurt №1»";
-    // The mode's menu dropped from the sentence's pill, over the scheme.
-    routed.routeMenu = true;
-    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
-                                              dir + L"\\routing-menu.png");
-    routed.routeMenu = false;
-    // "В обход блокировок" (the only one with «напрямую» since 0.6.19): the pill's words on a line of
-    // their own, the line's end says the blocked go through the VPN. Nothing named «Напрямую» is
+    // "В обход блокировок" (the only one with «напрямую» since 0.6.19): its key on in the mode's switch,
+    // the caption under it says so; the line's end says the blocked go through the VPN. Nothing named «Напрямую» is
     // hidden - it goes there without the race; the services the client sends through the VPN by
     // itself, a quiet chip; what goes each way just now (the core's connections, the block's log).
     routed.routing.finalDirect = true;
@@ -343,10 +338,6 @@ int Snapshots(const std::wstring& dir) {
     routed.routeNowMore = {};
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
                                               dir + L"\\routing-rest-bare.png");
-    routed.routeMenu = true;
-    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
-                                              dir + L"\\routing-smart-menu.png");
-    routed.routeMenu = false;
     // What the client worked out itself: a line each under the board.
     routed.routing.learned = {L"linkedin.com — через VPN (молчание)", L"rutracker.org — через VPN (сброс соединения)",
                               L"адрес 5.9.10.11 — через VPN (обрыв после рукопожатия)"};

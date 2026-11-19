@@ -391,7 +391,6 @@ struct UiContent {
   bool routingMore = false;             // the settings' fine settings (QUIC, IPv4, DNS) unfolded
   bool settingsMore = false;            // the configurations' relay fold open (the window's own)
   int profileTab = 0;                   // the configurations' tab: 0 subscriptions, 1 own servers (the window's own)
-  bool routeMenu = false;               // the routing mode's menu dropped (the window's own)
   bool addOpen = false;                 // the configurations' add keys rolled out of the "+" (the window's own)
   // The names the box's connections went to in the last minutes, newest first, each with its
   // bucket (kBucketDirect, kBucketProxy, kBucketWarp): off the box's tracker, one per name and way.

@@ -83,15 +83,14 @@ constexpr float kWheelStep = 64;
 constexpr float kAppIcon = 20;     // a program's icon in the per-app list
 constexpr float kTag = 32;         // a thing on the routing scheme, and its "+"
 // The routing scheme (Routing): its lines down a strip at the page's left, the words and things
-// past it (the metro map he took, 03.11.2026: "симуляция веток метро").
+// past it (the metro map he took, 03.11.2026: "симуляция веток метро"; a trunk and its branches since
+// 20.11.2026, his "3", the block's end the metro's sign).
 constexpr float kSchemeIndent = 36;  // the words and things, from the page's left
-constexpr float kLineX = 10;         // the main line, from the page's left
-constexpr float kLineTurn = 10;      // a branch's turn off it: its radius
-constexpr float kStationX = 24;      // a station, from the page's left
-constexpr float kMenuDot = 28;       // the mode menu: a row's words from its left (the dot of the way's colour before them)
-constexpr float kMenuCheck = 32;     // and from its right (the check)
-constexpr float kPillSide = 12;      // the mode's pill: its words from its ends
-constexpr float kPillKnob = 25;      // the round knob that holds the chevron, 5 from the pill's right end
+constexpr float kLineX = 10;         // the trunk, from the page's left
+constexpr float kLineTurn = 12;      // a branch's turn off it: its radius
+constexpr float kBranchEnd = 30;     // a branch's arrow tip, from the page's left
+constexpr float kModeHeight = 34;    // the routing mode's switch: its groove
+constexpr float kModeInset = 3;      // its keys in the groove
 constexpr ULONGLONG kToggleGraceMs = 400;  // a tray click right after the window lost focus hides it
 
 // The log page: a row's height (an event: what happened, and with what under
@@ -103,6 +102,8 @@ constexpr std::size_t kLogKeep = 5000;
 // where it was pressed, and held this long (or moved) it ends on release.
 constexpr float kLogBar = 14;
 constexpr UINT_PTR kPanTimer = 3;
+constexpr UINT_PTR kFlowTimer = 5;   // the routing scheme's traffic runs (MainWindow's Flowing)
+constexpr UINT kFlowFrameMs = 40;    // its frames: the dots go 10 px a second, 25 a second is smooth
 constexpr UINT_PTR kLidTimer = 4;    // the kill switch's lid lifted (ItemAction::LiftLid): it shuts again after this
 constexpr UINT kLidUpMs = 5000;
 constexpr UINT kPanFrameMs = 16;
@@ -190,6 +191,7 @@ constexpr const wchar_t* kGlyphRoute = L"\xE8F0";
 constexpr const wchar_t* kGlyphShield = L"\xEA18";
 constexpr const wchar_t* kGlyphLightning = L"\xE945";   // auto: the fastest server by itself
 constexpr const wchar_t* kGlyphDiagnostic = L"\xE9D9";  // the measurements in full
+constexpr const wchar_t* kGlyphScheme = L"\xE1D3";  // the routing in full: the scheme in small, ours (DrawLineIcon)
 constexpr const wchar_t* kGlyphCalendar = L"\xE787";
 constexpr const wchar_t* kGlyphReport = L"\xEBE8";
 constexpr const wchar_t* kGlyphServer = L"\xE839";  // Network: a server of one's own  // Bug: "something's wrong", plainer than the feedback bubble
@@ -250,12 +252,10 @@ enum class Kind : std::uint8_t {
   Question,      // MainWindow::Ask's card, the window dimmed round it (index: its UiQuestion::Tone)
   Pill,          // a small label in a rounded outline, not a button (`warn`: amber)
   Day,           // a calendar's key on a question's card: a day (text: its number, checked: chosen, sub 1: today) or a step (glyph set, sub: -1 back, 1 on)
-  Lead,          // the routing page's opening words, larger: "Всё идёт"
-  ModePill,      // the routing mode, a pill with a chevron: a click drops its menu (`checked`: it's open)
+  ModeTrack,     // the routing mode's switch: the groove its two keys lie in
+  ModeKey,       // one of them (`checked`: the mode on - a raised plate, a bar under its word: sub 0 the VPN's, 1 direct and VPN)
   Route,         // a line of the routing scheme (rail: its way; sub: kRouteSpine, kRouteStation, kRouteEnd)
   GhostAdd,      // a dashed key adding to a way (rail: the way); its text empty: a square "+"
-  Menu,          // a dropped menu's panel (the routing mode's), over the page
-  MenuItem,      // a choice on it: its way's dot (rail), a title, what it means (detail), a check (`checked`)
   ServerColumns, // the heads of a server's ways' columns: ОТКРЫТИЕ, ИГРЫ, СКОРОСТЬ, over them
   Way,           // a way to a server (index: protocols; checked: the traffic goes by it, sub 1: pinned by hand): dot, name, figures
   Link,          // a word that is a button, in the VPN's blue (a way's "замерить")
@@ -278,12 +278,12 @@ constexpr float kDelayColFull = 88;
 constexpr float kColGap = 12;  // the Choice's inner margin to the right of the last column
 constexpr float kColSplit = 4;  // between the latency's column and the failures'
 
-// The routing scheme's lines (Kind::Route's sub). The main line runs from
-// the mode down to the way everything else goes, a station at its end; a
-// way of its own branches off it to a station, the block to a dead end.
-constexpr int kRouteSpine = 0;    // rect.top: the mode's node, rect.bottom: where it turns into its way
-constexpr int kRouteStation = 1;  // a branch, the station on the middle of its rect
-constexpr int kRouteEnd = 2;      // a branch ending in a bar: the block
+// The routing scheme's lines (Kind::Route's sub). The trunk, all the traffic, runs from the mode
+// down to the last way; each way branches off it in its colour, an arrow at its end, the block's a
+// "no entry" sign.
+constexpr int kRouteSpine = 0;    // the trunk: rect.top the mode's node, rect.bottom where the last branch turns off
+constexpr int kRouteStation = 1;  // a branch to the name on the middle of its rect
+constexpr int kRouteEnd = 2;      // the block's branch: it ends in the sign
 
 // A Muted line with a lamp (Item::lamp): the dot's room before the text.
 constexpr float kMutedLamp = 13;
@@ -310,7 +310,6 @@ enum class ItemAction : std::uint8_t {
   ProfileTab,  // the configurations' tab (index: 0 subscriptions, 1 own servers; the window's own)
   ToggleServer,  // a server's card opened or folded (text2: its key, index: open now; the window's own)
   Hide,        // our title bar's cross: the window away to the tray
-  RouteMenu,   // the routing mode's pill: its menu dropped or put away (the window's own)
   Hint,
   Answer,      // a question's button (index: 1 yes, 0 no); while one is open, the only ones that take a click
   LiftLid      // the kill switch's lid: lifted for 5 s, the next click turns the switch (the window's own)
@@ -709,6 +708,7 @@ struct Interaction {
   std::optional<D2D1_RECT_F> edit;
   int editWay = -1;
   std::optional<VitrineFrame> vitrine;  // the switch mid-motion (vitrine.h); none: at rest in its state's pose
+  float flow = 0;  // the routing scheme's traffic: seconds on a clock, its dots' place along their lines (DrawRoute)
 };
 
 bool Contains(const D2D1_RECT_F& r, float x, float y) { return x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
@@ -1089,7 +1089,6 @@ class Painter {
     wic_ = wil::CoCreateInstanceNoThrow<IWICImagingFactory>(CLSID_WICImagingFactory);
     fonts_ = LoadFontCollection(dwrite_.get());
     THROW_IF_FAILED(dwrite_->CreateEllipsisTrimmingSign(MakeFormat(Text(), 14).get(), ellipsis_.put()));
-    lead_ = MakeFormat(Display(), ui::kTLead, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     state_ = MakeFormat(Display(), ui::kTTitle, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     delay_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     delay_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
@@ -1098,12 +1097,13 @@ class Painter {
     caption_ = MakeFormat(Text(), 12.5f);
     button_ = MakeFormat(Text(), 14);
     button_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    mode_ = MakeFormat(Text(), 13.5f, DWRITE_FONT_WEIGHT_MEDIUM);
+    mode_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     chip_ = MakeFormat(Text(), 12.5f);
     chip_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     micro_ = MakeFormat(Text(), ui::kTMicro);
     center_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     center_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    strong_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     wrap_ = MakeFormat(Text(), 14, DWRITE_FONT_WEIGHT_NORMAL, true);
     captionWrap_ = MakeFormat(Text(), 12.5f, DWRITE_FONT_WEIGHT_NORMAL, true);
     mono_ = MakeFormat(L"Consolas", 12.5f);
@@ -1127,12 +1127,6 @@ class Painter {
         D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_ROUND,
                                     10, D2D1_DASH_STYLE_CUSTOM, 0),
         kDashes.data(), static_cast<UINT32>(kDashes.size()), dashed_.put()));
-    // The main line's traffic: round dots 11.5 apart at a width of 1.5 (in widths: a dash of 1/3, a gap of 7.33).
-    constexpr std::array<float, 2> kDots = {0.5f / 1.5f, 11.0f / 1.5f};
-    THROW_IF_FAILED(d2d_->CreateStrokeStyle(
-        D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
-                                    D2D1_LINE_JOIN_ROUND, 10, D2D1_DASH_STYLE_CUSTOM, 0),
-        kDots.data(), static_cast<UINT32>(kDots.size()), dots_.put()));
   }
 
   ID2D1Factory* D2d() const { return d2d_.get(); }
@@ -1347,7 +1341,7 @@ class Painter {
     if (FAILED(t->CreateSolidColorBrush(Rgb(0, 0, 0), brush.put()))) {
       return;
     }
-    Canvas k{t, brush.get(), dwrite_.get(), Flags(t), in.vitrine ? &*in.vitrine : nullptr};
+    Canvas k{t, brush.get(), dwrite_.get(), Flags(t), in.vitrine ? &*in.vitrine : nullptr, in.flow};
     const D2D1_SIZE_F size = t->GetSize();
     t->Clear(FromColorRef(ui::kWindowColor));
     if (l.glow) {
@@ -1417,7 +1411,7 @@ class Painter {
       }
       if (n == in.focus && in.focusVisible) {
         // A title bar key's ring goes round its pill: the cell runs to the window's edges.
-        const float radius = it.chrome ? 10 : it.kind == Kind::ModePill ? (it.rect.bottom - it.rect.top) / 2 + 2 : kRadius;
+        const float radius = it.chrome ? 10 : kRadius;
         t->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(it.chrome ? KeyPill(it) : Plate(it), 2), radius, radius),
                                 SetColor(brush.get(), Rgb(255, 255, 255, 0.9f)), 2);
       }
@@ -1513,13 +1507,13 @@ class Painter {
     return line;
   }
   std::wstring Describe(const Layout& l, float width) const {
-    static constexpr std::array<const wchar_t*, 49> kNames = {
+    static constexpr std::array<const wchar_t*, 47> kNames = {
         L"Card",     L"Divider",  L"Title",    L"Heading",  L"Text",     L"Muted",  L"Wrap",   L"Caption",
         L"Error",    L"Field",    L"Power",    L"Server",   L"Banner",
         L"Button",   L"Accent",   L"Danger",   L"Icon",     L"Switch",   L"Choice", L"Profile", L"Toggle",
         L"Check",    L"Segment",  L"Chip",     L"App",      L"Log",      L"Hint",   L"Value",   L"Meter",  L"Tag",
-        L"AppTitle", L"Question", L"Pill",     L"Day",      L"Lead",   L"Mode",    L"Route",  L"Ghost",
-        L"Menu",     L"MenuItem", L"Columns",  L"Way",      L"Link",   L"Instrument", L"Dot",  L"Trace",
+        L"AppTitle", L"Question", L"Pill",     L"Day",      L"Track",  L"Mode",    L"Route",  L"Ghost",
+        L"Columns",  L"Way",      L"Link",     L"Instrument", L"Dot",  L"Trace",
         L"Readout",  L"Find",     L"Days"};
     // One per Kind, in its order: a kind added or gone shifts every name after it.
     static_assert(kNames.size() == static_cast<std::size_t>(Kind::Days) + 1);
@@ -1534,8 +1528,7 @@ class Painter {
       switch (it.kind) {
         case Kind::Title:
         case Kind::Heading: room = w; need = TextWidth(it.text, heading_.get()); break;
-        case Kind::Lead: room = w; need = TextWidth(it.text, lead_.get()); break;
-        case Kind::ModePill: room = w - kPillSide - 4 - 8 - kPillKnob - 5; need = TextWidth(it.text, lead_.get()); break;
+        case Kind::ModeKey: room = w; need = TextWidth(it.text, mode_.get()); break;
         case Kind::GhostAdd:
           if (!it.text.empty()) {
             room = w - 2 * 12;
@@ -1588,9 +1581,8 @@ class Painter {
           const D2D1_RECT_F s = Seen(o);
           const bool over = Interactive(o) && s.left < r.right && s.right > r.left && s.top < r.bottom && s.bottom > r.top;
           // A card that is a link holds buttons and lines that are links of their own: they take the click.
-          // A question's buttons lie over the page, which takes no click while it's open; so do the
-          // routing mode's choices.
-          const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer || o.kind == Kind::MenuItem ||
+          // A question's buttons lie over the page, which takes no click while it's open.
+          const bool allowed = o.kind == Kind::Hint || o.action == ItemAction::Answer ||
                                (o.kind == Kind::IconButton &&
                                 (it.kind == Kind::Title || it.kind == Kind::Card || it.kind == Kind::Instrument)) ||
                                (o.action == ItemAction::ToggleServer && it.kind == Kind::Choice) ||  // a server's chevron
@@ -1703,6 +1695,7 @@ class Painter {
     IDWriteFactory* dwrite;  // for text with flags in it
     ID2D1Bitmap* sprite;     // the flags (flags.h); null if it couldn't be had
     const VitrineFrame* vitrine;  // the switch's frame mid-motion; null: its state's at rest (vitrine.h)
+    float flow;                   // Interaction::flow
 
     ID2D1Brush* Color(D2D1_COLOR_F c) const { return SetColor(b, c); }
     void Fill(D2D1_RECT_F r, D2D1_COLOR_F c) const { t->FillRectangle(r, Color(c)); }
@@ -2062,48 +2055,72 @@ class Painter {
     return y + h;
   }
 
-  // The routing scheme, a metro line (03.11.2026, the mockup he took: "симуляция веток метро ...
-  // ахуенно"): the mode's sentence on top - "Всё идёт [через VPN ▾]", its pill drops the two modes
-  // (RouteMenu) - its node on the line beside it; the spine down the left in the mode's colour to
-  // the way everything else goes, at the foot; off it a branch to each other way's station. A
-  // way's name and what goes there by its station - chips, a dashed "+" after them (BoardAdd:
-  // what can go there, a site typed across the ways); a click on a chip: where it goes instead,
-  // or away (ChipMenu). Pointing at a chip, a way's name or its "+" lights its route and puts the
-  // others back (Draw's `hot`). Each mode keeps its own lists (RoutingSettings); the way
-  // everything else goes shows what's named there anyway, quieter (UiChip::idle). Returns the
-  // foot; `leadBottom`: where the sentence ends (the mode's menu hangs from it).
-  float Board(Layout& l, const UiContent& c, float x0, float x1, float y, float& leadBottom) const {
-    const UiRouting& r = c.routing;
+  // The routing scheme (03.11.2026 a metro line, his "симуляция веток метро ... ахуенно"; 20.11.2026 a
+  // trunk and its branches, his "3"): the mode's switch on top (two keys, ModeKey), its node on the
+  // trunk beside it; the trunk down the left in grey - all the traffic - and off it a branch to each
+  // way, the rest's last, in the way's colour, ending in an arrow by its name (the block's: the
+  // metro's "no entry" sign). A way's name and what goes there by it - chips, a dashed "+" after
+  // them (BoardAdd: what can go there, a site typed across the ways); a click on a chip: where it
+  // goes instead, or away (ChipMenu). Pointing at a chip, a way's name or its "+" lights its route
+  // and puts the others back (Draw's `hot`). Each mode keeps its own lists (RoutingSettings); the
+  // way everything else goes shows what's named there anyway, quieter (UiChip::idle). Returns the foot.
+  float Board(Layout& l, const UiContent& c, float x0, float x1, float y) const {    const UiRouting& r = c.routing;
     const int mode = r.finalDirect ? kBucketDirect : kBucketProxy;
     const float left = x0 + kSchemeIndent;
     l.boardLeft = left;
     l.boardRight = x1;
     const std::size_t lines = l.items.size();  // the scheme's lines go in here, under all of it
 
-    // "Всё идёт" and the pill on one line while they fit, the pill on a line of its own else.
-    const std::wstring lead = L"Всё идёт";
-    const float leadWidth = std::ceil(TextWidth(lead, lead_.get()));
-    l.items.push_back(Make(Kind::Lead, {left, y, left + leadWidth + 4, y + kTag}, lead));
-    // Two modes since 0.6.19: "напрямую" alone (only the list «Через VPN» through it) is
-    // RoutingFromJson's «в обход блокировок» now - what it sent directly still goes so.
-    const std::wstring word = r.smart ? L"в обход блокировок" : L"через VPN";
-    const float pillWidth = kPillSide + 4 + std::ceil(TextWidth(word, lead_.get())) + 8 + kPillKnob + 5;
-    float pillX = left + leadWidth + 8;
-    float pillY = y;
-    if (pillX + pillWidth > x1) {
-      pillX = left;
-      pillY = y + kTag + 8;
+    // The mode: two keys in a groove, the one on raised, its way's colour under its word, and a line
+    // under them of what it means (20.11.2026, his "A": the sentence "Всё идёт [через VPN ▾]" and its
+    // menu were a key that read as a heading). Two modes since 0.6.19: "напрямую" alone (only the list
+    // «Через VPN» through it) is RoutingFromJson's «в обход блокировок» now.
+    struct ModeChoice {
+      std::wstring word;
+      std::wstring narrow;  // where the groove can't hold both words whole
+      const wchar_t* tip;
+      int command;  // UiCommand::SetRouteMode's index
+      bool on;
+    };
+    const std::array<ModeChoice, 2> modes = {{
+        {L"Всё через VPN", L"Через VPN", L"Всё через сервер VPN, кроме списка «Напрямую»", 0, !r.finalDirect},
+        // Sovereign tries each site directly and through the VPN at once, keeps directly what opens (gocore/smart.go).
+        {L"В обход блокировок", L"В обход", L"Напрямую, а что не открывается — через VPN", 2, r.smart},
+    }};
+    l.items.push_back(Make(Kind::ModeTrack, {left, y, x1, y + kModeHeight}));
+    const float inner = x1 - left - 2 * kModeInset;
+    std::array<float, 2> need{};
+    bool narrow = false;
+    for (int pass = 0; pass < 2; ++pass) {
+      for (std::size_t i = 0; i < modes.size(); ++i) {
+        need[i] = std::ceil(TextWidth(narrow ? modes[i].narrow : modes[i].word, mode_.get()));
+      }
+      if (need[0] + need[1] + 4 * 8 <= inner || narrow) {
+        break;
+      }
+      narrow = true;
     }
-    Item pill = Make(Kind::ModePill, {pillX, pillY, pillX + pillWidth, pillY + kTag}, word);
-    pill.action = ItemAction::RouteMenu;
-    pill.checked = c.routeMenu;
-    l.items.push_back(std::move(pill));
-    const float nodeY = y + kTag / 2;
-    leadBottom = pillY + kTag;
+    // As wide as its word and an even share of what's left, each.
+    const float spare = std::max(0.0f, inner - need[0] - need[1]) / 2;
+    float kx = left + kModeInset;
+    for (std::size_t i = 0; i < modes.size(); ++i) {
+      const ModeChoice& m = modes[i];
+      const float w = i + 1 == modes.size() ? x1 - kModeInset - kx : need[i] + spare;
+      Item key = CommandItem(Kind::ModeKey, {kx, y + kModeInset, kx + w, y + kModeHeight - kModeInset},
+                             narrow ? m.narrow : m.word, nullptr, UiCommand::SetRouteMode, m.command);
+      key.checked = m.on;
+      key.sub = m.command == 2 ? 1 : 0;  // its colour under the word: the VPN's, or direct then the VPN's
+      key.tip = m.tip;
+      l.items.push_back(std::move(key));
+      kx += w;
+    }
+    const float nodeY = y + kModeHeight / 2;
+    y = Paragraph(l, Kind::Caption,
+                  r.smart ? L"Напрямую, а что закрыто — само через VPN." : L"Мимо VPN — только список «Напрямую».", left,
+                  x1, y + kModeHeight + 8);
     // No "кроме того, что в списках ниже" under it: the line's end says "и всё
     // остальное", an empty way its "+ сайт, сервис или программа" (03.11.2026).
-    y = leadBottom + 20;
-
+    y += 20;
     struct Way {
       const wchar_t* name;
       const wchar_t* verb;  // what a thing on it does: "YouTube идёт через VPN"
@@ -2135,7 +2152,7 @@ class Painter {
                                          ? std::array<int, 4>{kBucketProxy, kBucketWarp, kBucketBlock, kBucketDirect}
                                          : std::array<int, 4>{kBucketDirect, kBucketWarp, kBucketBlock, kBucketProxy};
     const auto idle = std::count_if(r.board.begin(), r.board.end(), [](const UiChip& chip) { return chip.idle; });
-    std::vector<Item> routes;  // the branches, then the spine goes in front of them
+    std::vector<Item> routes;  // the trunk, then the branches over it
     float restY = nodeY;
     for (const int id : order) {
       const Way& way = ways.at(static_cast<std::size_t>(id));
@@ -2379,15 +2396,13 @@ class Painter {
         }
         foot = ly + 22;
       }
+      // Its branch off the trunk, the rest's too: the trunk runs down to the last one's turn.
       Item route = Make(Kind::Route, {x0, cy - kLineTurn, x0 + kSchemeIndent - 4, cy + kLineTurn});
       route.rail = id;
       route.sub = id == kBucketBlock ? kRouteEnd : kRouteStation;
-      route.checked = !now.empty();  // sites went this way just now: its dots run (DrawRoute)
-      if (rest) {
-        restY = cy;
-      } else {
-        routes.push_back(std::move(route));
-      }
+      route.checked = c.routeDetailed && !now.empty();  // sites went this way just now: its dots run (DrawRoute)
+      routes.push_back(std::move(route));
+      restY = cy;
       y = foot + 20;
     }
     // What the client worked out itself in «в обход блокировок»: the sites its first way
@@ -2410,58 +2425,15 @@ class Painter {
       l.items.push_back(Make(Kind::Caption, {left, y + 32, x1, y + 32 + h}, text));
       y += 32 + h + 20;
     }
-    Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY});
+    // The trunk: from the mode's node down to the last branch's turn; first, the branches go over it.
+    Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY - kLineTurn});
     spine.rail = mode;
     spine.sub = kRouteSpine;
-    routes.push_back(std::move(spine));  // last: it is drawn over the branches' first stretch
+    spine.checked = c.routeDetailed;  // "Подробно": the traffic runs down it
+    routes.insert(routes.begin(), std::move(spine));
     l.items.insert(l.items.begin() + static_cast<std::ptrdiff_t>(lines), std::make_move_iterator(routes.begin()),
                    std::make_move_iterator(routes.end()));
     return y - 20;
-  }
-
-  // The routing mode's menu, dropped from the sentence's pill over the page: the two modes, a
-  // dot of their way's colour, what each means, a check by the one on; under them that each
-  // keeps its lists. Returns its foot.
-  float RouteMenu(Layout& l, const UiRouting& r, float x0, float x1, float top) const {
-    struct Choice {
-      const wchar_t* title;
-      const wchar_t* detail;
-      int bucket;
-      int command;  // UiCommand::SetRouteMode's index
-    };
-    // "Напрямую" alone is gone (0.6.19, 15.11.2026: "нужны ли 2 режима когда мы сделали
-    // нормальный 3?"): the smart mode sends directly all it did, and the rest it can't open.
-    const std::array<Choice, 2> choices = {{
-        {L"Через VPN", L"Всё, кроме списка «Напрямую»", kBucketProxy, 0},
-        // Sovereign tries each site directly and through the VPN at once, keeps directly what
-        // opens (gocore/smart.go, 04.11.2026).
-        {L"В обход блокировок", L"Напрямую, а что не открывается — через VPN", kBucketProxy, 2},
-    }};
-    // Not the page's width: as wide as its words need, under the sentence's own left edge.
-    float need = 0;
-    for (const Choice& choice : choices) {
-      need = std::max({need, std::ceil(TextWidth(choice.title, strong_.get())), std::ceil(TextWidth(choice.detail, caption_.get()))});
-    }
-    x0 += kSchemeIndent;
-    x1 = std::min(x1, x0 + 4 + kMenuDot + need + 2 + kMenuCheck + 4);
-    const std::size_t panel = l.items.size();
-    l.items.push_back(Make(Kind::Menu, {x0, top, x1, top}));
-    float y = top + 4;
-    const float textWidth = (x1 - 4) - (x0 + 4) - kMenuDot - kMenuCheck;
-    for (std::size_t i = 0; i < choices.size(); ++i) {
-      const Choice& choice = choices[i];
-      const float h = 6 + 20 + 2 + TextHeight(choice.detail, captionWrap_.get(), textWidth) + 6;
-      Item item = CommandItem(Kind::MenuItem, {x0 + 4, y, x1 - 4, y + h}, choice.title, nullptr,
-                              UiCommand::SetRouteMode, choice.command);
-      item.detail = choice.detail;
-      item.rail = choice.bucket;
-      item.checked = choice.command == 0 ? !r.finalDirect : r.smart;
-      l.items.push_back(std::move(item));
-      y += h;
-    }
-    y += 4;
-    l.items[panel].rect.bottom = y;
-    return y;
   }
 
   // What the hidden things on the way everything else goes to say of
@@ -2535,14 +2507,14 @@ class Painter {
     }
     // The routing board: the scheme alone, or with what goes each way just now and the blocked counts
     // (15.11.2026, his: "может 2 режима сделать тут подробный и обычный"). The Servers' "подробные
-    // замеры" key's way: one key by the cross, lit while the detail is on.
+    // замеры" key's way: one key by the cross, lit while the detail is on. Its glyph the scheme in small
+    // (20.11.2026, his "1"), the traffic running on it while it's on; the pulse it had was the Servers'.
     if (page == UiPage::Routing) {
       Item details = chrome(CommandItem(Kind::IconButton, {right - kKey, 0, right, kCaption}, L"Подробно",
-                                        kGlyphDiagnostic, UiCommand::ToggleRouteDetails));
+                                        kGlyphScheme, UiCommand::ToggleRouteDetails));
       details.checked = c.routeDetailed;
-      details.tip = c.routeDetailed ? L"Подробно: с тем, что идёт каждым путём сейчас, и счётчиками блока. Нажми — останется "
-                                      L"одна схема"
-                                    : L"Обычный вид: одна схема. Нажми — добавятся «сейчас: …» по каждому пути и счётчики блока";
+      details.tip = c.routeDetailed ? L"Скрыть, что идёт сейчас"
+                                    : L"Показать, что идёт сейчас: сайты по каждому пути и счётчики блока";
       keys.push_back(std::move(details));
       right -= kKey;
     }
@@ -3971,13 +3943,12 @@ class Painter {
   }
 
   // Where traffic goes (routing.h): the metro scheme (Board), the lists' state under it, the listed
-  // programs' mode; the mode's menu over all of it while open. The route check is a line under the
+  // programs' mode. The route check is a line under the
   // lists again since the checks' page went (11.11.2026): one compact row, its "Проверить" the
   // only key (03.11.2026, his: "ни разу не пригодилась кнопка" - the tiles' one went).
   float Routing(Layout& l, const UiContent& c, float x0, float x1, float y) const {
     const UiRouting& r = c.routing;
-    float leadBottom = y;
-    y = Board(l, c, x0, x1, y, leadBottom);
+    y = Board(l, c, x0, x1, y);
     if (!r.lists.empty()) {  // only while the lists are downloading, or failed
       y = Paragraph(l, r.listsFailed ? Kind::ErrorText : Kind::Caption, r.lists, x0 + kSchemeIndent, x1, y) + 4;
     }
@@ -3985,8 +3956,7 @@ class Painter {
     if (c.checks.size() > kCheckRoute) {
       y = RouteProbe(l, c, x0, x1, y) + kGap;
     }
-    const float end = c.appsInclude ? Apps(l, c, x0, x1, y) : y;
-    return c.routeMenu ? std::max(end, RouteMenu(l, r, x0, x1, leadBottom + 8)) : end;
+    return c.appsInclude ? Apps(l, c, x0, x1, y) : y;
   }
 
   // The route check as the page's own tool (15.11.2026, his: the card with a dot, a title, a "?" and an
@@ -5105,30 +5075,33 @@ class Painter {
         k.Text(it.text, heading_.get(), r, hovered && it.action != ItemAction::None ? lit : primary);
         break;
       case Kind::Heading: k.Text(it.text, heading_.get(), r, primary); break;
-      case Kind::Lead: k.Text(it.text, lead_.get(), r, primary); break;
-      case Kind::ModePill: {
-        // A key in the sentence: the card's plate, a hairline brightened while open, the
-        // chevron turned over then (the mockup's .pill).
-        // 15.11.2026 (his: "вид улучшить"): the outline all round read as a field to type in; now a plate
-        // with a lit top edge, and the chevron in a round knob of its own - the part that opens.
-        const float radius = (r.bottom - r.top) / 2;
-        k.Round(r, radius, Rgb(255, 255, 255, hovered || it.checked ? 0.09f : 0.05f));
-        if (pressed) {
-          k.Round(r, radius, Rgb(0, 0, 0, 0.12f));
-        }
-        k.Outline(r, radius, Rgb(255, 255, 255, it.checked ? 0.30f : hovered ? 0.22f : 0.12f));
-        k.Text(it.text, lead_.get(), {r.left + kPillSide + 4, r.top, r.right - 5 - kPillKnob - 8, r.bottom}, primary);
-        const float cx = r.right - 5 - kPillKnob / 2;
-        const float cy = (r.top + r.bottom) / 2;
-        const float knob = std::min(kPillKnob / 2, radius - 4);
-        k.t->FillEllipse(D2D1::Ellipse({cx, cy}, knob, knob),
-                         k.Color(it.checked ? FromColorRef(ui::kLit, 0.22f) : Rgb(255, 255, 255, hovered ? 0.16f : 0.09f)));
-        const float turn = it.checked ? -1.0f : 1.0f;
-        Polyline(k, {{cx - 3.5f, cy - 1.75f * turn}, {cx, cy + 1.75f * turn}, {cx + 3.5f, cy - 1.75f * turn}}, primary,
-                 1.75f);
+      case Kind::ModeTrack:  // the mode's groove: the card's plate sunk in a hairline (his "A", 20.11.2026)
+        k.Round(r, 10, FromColorRef(ui::kCardColor));
+        k.Outline(r, 10, Rgb(255, 255, 255, 0.08f));
         break;
-      }
-      case Kind::Route: DrawRoute(k, it); break;
+      case Kind::ModeKey: {
+        // The mode on: a raised plate - a soft shadow under it, a lit top edge - and its way's colour under
+        // its word (the VPN's; «в обход блокировок» direct, then the VPN's). Off: its word, lit pointed at.
+        if (it.checked) {
+          k.Round({r.left, r.top + 1, r.right, r.bottom + 1.5f}, 7, Rgb(0, 0, 0, 0.30f));
+          k.Round(r, 7, FromColorRef(ui::kRaisedColor));
+          k.Line({r.left + 7, r.top + 0.5f}, {r.right - 7, r.top + 0.5f}, Rgb(255, 255, 255, 0.06f));
+          const float bar0 = r.left + 14;
+          const float bar1 = r.right - 14;
+          const D2D1_RECT_F bar{bar0, r.bottom - 2, bar1, r.bottom};
+          if (it.sub == 1) {
+            const float w = bar1 - bar0;
+            k.Round({bar0, bar.top, bar0 + w * 0.48f, bar.bottom}, 1, FromColorRef(ui::kDirect));
+            k.Round({bar0 + w * 0.54f, bar.top, bar1, bar.bottom}, 1, FromColorRef(ui::kVpn));
+          } else {
+            k.Round(bar, 1, FromColorRef(ui::kVpn));
+          }
+        } else if (pressed) {
+          k.Round(r, 7, Rgb(255, 255, 255, 0.04f));
+        }
+        k.Text(it.text, mode_.get(), r, it.checked ? primary : hovered ? lit : secondary);
+        break;
+      }      case Kind::Route: DrawRoute(k, it); break;
       case Kind::GhostAdd: {
         // A dashed place for one more: its way's colour round it under the pointer.
         const COLORREF tone = BucketColor(it.rail);
@@ -5147,33 +5120,6 @@ class Painter {
           Polyline(k, {{cx, cy - 5}, {cx, cy + 5}}, ink, 1.5f);
         } else {
           k.Text(it.text, wrap_.get(), {r.left + 12, r.top + 6, r.right - 12, r.bottom - 6}, ink);
-        }
-        break;
-      }
-      case Kind::Menu: {
-        // Raised over the page: a soft shadow under it, its own lighter plate, a hairline.
-        for (int n = 1; n <= 4; ++n) {
-          const float grow = static_cast<float>(n) * 4;
-          k.Round({r.left - grow / 2, r.top + grow / 2, r.right + grow / 2, r.bottom + grow},
-                  kRadius + grow / 2, Rgb(0, 0, 0, 0.14f));
-        }
-        k.Round(r, kRadius, FromColorRef(ui::kRaisedColor));
-        k.Outline(r, kRadius, Rgb(255, 255, 255, 0.13f));
-        break;
-      }
-      case Kind::MenuItem: {
-        if (hoverAlpha > 0) {
-          k.Round(r, 6, Rgb(255, 255, 255, pressed ? 0.04f : 0.06f));
-        }
-        const float textLeft = r.left + kMenuDot;
-        const float textRight = r.right - kMenuCheck;
-        k.t->FillEllipse(D2D1::Ellipse({r.left + 8 + 4, r.top + 6 + 10}, 4, 4), k.Color(FromColorRef(BucketColor(it.rail))));
-        k.Text(it.text, strong_.get(), {textLeft, r.top + 6, textRight, r.top + 6 + 20}, primary);
-        k.Text(it.detail, captionWrap_.get(), {textLeft, r.top + 6 + 20 + 2, textRight, r.bottom - 6}, secondary);
-        if (it.checked) {
-          const float x = r.right - 8 - 16;
-          const float y = r.top + 6 + 2;
-          Polyline(k, {{x + 3, y + 8.5f}, {x + 6.2f, y + 11.5f}, {x + 13, y + 4.5f}}, lit, 1.75f);
         }
         break;
       }
@@ -6143,56 +6089,76 @@ class Painter {
     }
   }
 
-  // A line of the routing scheme (Kind::Route): the mode's spine from its node down to the way
-  // everything else goes, or a way's branch off it to its station (the block's: a bar, the line
-  // ends). Steady: the pointer does not light it. The main line is drawn after the branches (Board):
-  // it runs on unbroken, a branch comes out from under it instead of painting a stretch of it its
-  // own colour. A branch that carries traffic just now (Item::checked: its "сейчас:" has sites)
-  // has the main line's dots on it; one that doesn't is quieter (15.11.2026).
+  // A line of the routing scheme (Kind::Route), his "3" (20.11.2026): the trunk - all the traffic, in grey -
+  // from the mode's node down to the last branch's turn; or a way's branch off it in the way's colour, round
+  // its turn to an arrow by the way's name - the block's into the metro's "no entry" sign, a ring with a bar
+  // (his "в блок я бы взял из метро знак"). Steady: the pointer does not light it. The trunk goes first
+  // (Board), the branches over it. Item::checked ("Подробно"): the traffic, white dots running down the
+  // trunk, and along a branch that carried some just now (its "сейчас:" has sites).
   void DrawRoute(const Canvas& k, const Item& it) const {
     const D2D1_RECT_F r = it.rect;
-    const bool spine = it.sub == kRouteSpine;
-    const bool live = spine || it.checked;
-    const D2D1_COLOR_F ink = FromColorRef(BucketColor(it.rail), live ? 1.0f : 0.55f);
-    const D2D1_COLOR_F hole = FromColorRef(ui::kWindowColor);
     const float x = r.left + kLineX;
-    const float end = r.left + kStationX;
-    const float width = spine ? 3.0f : 2.0f;
-    const float y = spine ? r.bottom : (r.top + r.bottom) / 2;  // where it turns into its way
-    const float from = spine ? r.top : y - kLineTurn;
+    const float end = r.left + kBranchEnd;
+    const bool trunk = it.sub == kRouteSpine;
+    const bool block = it.sub == kRouteEnd;
+    constexpr float kWidth = 2.5f;
+    constexpr float kSign = 5.5f;      // the block's sign: its ring's radius
+    const float sign = end - 2;        // its middle
+    const float y = (r.top + r.bottom) / 2;  // a branch's way: the name's line
+    const D2D1_COLOR_F hole = FromColorRef(ui::kWindowColor);
+    const D2D1_COLOR_F ink = trunk ? FromColorRef(ui::kSecondaryText, 0.42f) : FromColorRef(BucketColor(it.rail));
     wil::com_ptr<ID2D1PathGeometry> path;
     wil::com_ptr<ID2D1GeometrySink> sink;
     if (SUCCEEDED(d2d_->CreatePathGeometry(path.put())) && SUCCEEDED(path->Open(sink.put()))) {
-      sink->BeginFigure({x, from}, D2D1_FIGURE_BEGIN_HOLLOW);
-      sink->AddLine({x, y - kLineTurn});
-      sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment({x, y}, {x + kLineTurn, y}));
-      sink->AddLine({end, y});
+      if (trunk) {
+        sink->BeginFigure({x, r.top}, D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddLine({x, r.bottom});
+      } else {
+        sink->BeginFigure({x, y - kLineTurn}, D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment({x, y}, {x + kLineTurn, y}));
+        sink->AddLine({block ? sign - kSign : end, y});
+      }
       sink->EndFigure(D2D1_FIGURE_END_OPEN);
       if (SUCCEEDED(sink->Close())) {
-        k.t->DrawGeometry(path.get(), k.Color(ink), width, roundCaps_.get());
-        if (live) {  // the traffic: dots along the line (the main line's always, a branch's while it carries some)
-          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, spine ? 0.55f : 0.7f)), 1.5f, dots_.get());
+        k.t->DrawGeometry(path.get(), k.Color(ink), kWidth, roundCaps_.get());
+        if (it.checked) {
+          k.t->DrawGeometry(path.get(), k.Color(Rgb(255, 255, 255, trunk ? 0.45f : 0.7f)), kFlowWidth, FlowDots(k.flow));
         }
       }
     }
-    if (it.sub == kRouteEnd) {  // the block: the line ends in a bar
-      k.t->DrawLine({end, y - 6}, {end, y + 6}, k.Color(ink), width, roundCaps_.get());
-    } else {  // a station, hollow: the window's colour inside its ring
-      const float radius = spine ? 6.0f : 4.0f;
-      if (spine) {  // the line's end: the faint ring the mode's node at the top has
-        k.t->DrawEllipse(D2D1::Ellipse({end, y}, 10, 10), k.Color(FromColorRef(BucketColor(it.rail), 0.25f)), 1.5f);
-      }
-      k.t->FillEllipse(D2D1::Ellipse({end, y}, radius, radius), k.Color(hole));
-      k.t->DrawEllipse(D2D1::Ellipse({end, y}, radius, radius), k.Color(ink), spine ? 3.0f : 2.0f);
-    }
-    if (spine) {  // the mode's node at the top: a faint ring, a disc, a hole
+    if (trunk) {  // the mode's node at the top: a faint halo, a disc, a hole - the hand's white, not a way's
       const D2D1_POINT_2F node{x, r.top};
-      k.t->DrawEllipse(D2D1::Ellipse(node, 10, 10), k.Color(FromColorRef(BucketColor(it.rail), 0.25f)), 1.5f);
-      k.t->FillEllipse(D2D1::Ellipse(node, 6, 6), k.Color(FromColorRef(BucketColor(it.rail))));
-      k.t->FillEllipse(D2D1::Ellipse(node, 2.5f, 2.5f), k.Color(hole));
+      k.t->FillEllipse(D2D1::Ellipse(node, 9, 9), k.Color(FromColorRef(ui::kLit, 0.14f)));
+      k.t->FillEllipse(D2D1::Ellipse(node, 5.5f, 5.5f), k.Color(FromColorRef(ui::kLit)));
+      k.t->FillEllipse(D2D1::Ellipse(node, 2.2f, 2.2f), k.Color(hole));
+    } else if (block) {
+      k.t->FillEllipse(D2D1::Ellipse({sign, y}, kSign, kSign), k.Color(hole));
+      k.t->DrawEllipse(D2D1::Ellipse({sign, y}, kSign, kSign), k.Color(ink), 2.0f);
+      k.t->DrawLine({sign - 2.6f, y}, {sign + 2.6f, y}, k.Color(ink), 2.0f, roundCaps_.get());
+    } else {
+      Polyline(k, {{end - 4, y - 4}, {end, y}, {end - 4, y + 4}}, ink, 2.0f);
     }
   }
-
+  // The traffic's dots on the scheme's lines at `flow` seconds: round dots 10.5 apart, a period each 1.1 s
+  // down the line (the mockup's .flow). One stroke a frame, kept for the frame's other lines.
+  static constexpr float kFlowWidth = 1.6f;
+  ID2D1StrokeStyle* FlowDots(float flow) const {
+    if (!flowDots_ || flow != flowAt_) {
+      constexpr float kPeriod = 10.5f;
+      constexpr std::array<float, 2> kDots = {1.5f / kFlowWidth, 9.0f / kFlowWidth};
+      const float ahead = std::fmod(flow / 1.1f, 1.0f) * kPeriod;  // how far they've gone, 0..a period
+      flowDots_.reset();
+      flowAt_ = flow;
+      if (FAILED(d2d_->CreateStrokeStyle(
+              D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
+                                          D2D1_LINE_JOIN_ROUND, 10, D2D1_DASH_STYLE_CUSTOM,
+                                          (kPeriod - ahead) / kFlowWidth),
+              kDots.data(), static_cast<UINT32>(kDots.size()), flowDots_.put()))) {
+        return roundCaps_.get();
+      }
+    }
+    return flowDots_.get();
+  }
   // The title bar's own icons, drawn as lines like the cross and the dash -
   // one stroke, round ends, 14 DIPs across, nothing filled - instead of
   // Segoe's glyphs, which differ in weight and detail from each other
@@ -6272,8 +6238,29 @@ class Painter {
       }
       line(0, -3.5f, 0, -0.5f);
       k.t->FillEllipse(D2D1::Ellipse({cx, cy + 1.4f}, 0.85f, 0.85f), k.Color(ink));
-    } else if (glyph == kGlyphBack) {  // back: an arrow to the left, the title bar's first key
-      line(-6, 0, 6, 0);
+    } else if (glyph == kGlyphScheme) {
+      // The routing scheme in small (his "1", 20.11.2026): a trunk down the left, three branches off it to the right.
+      wil::com_ptr<ID2D1PathGeometry> scheme;
+      wil::com_ptr<ID2D1GeometrySink> sink;
+      if (SUCCEEDED(d2d_->CreatePathGeometry(scheme.put())) && SUCCEEDED(scheme->Open(sink.put()))) {
+        const auto p = [&](float x, float y) { return D2D1_POINT_2F{cx + x, cy + y}; };
+        const auto branch = [&](float from, float y, float to) {  // off the trunk at `from`, round to `y`, on to `to`
+          sink->BeginFigure(p(-5.5f, from), D2D1_FIGURE_BEGIN_HOLLOW);
+          if (from < y - 2) {
+            sink->AddLine(p(-5.5f, y - 2));
+          }
+          sink->AddQuadraticBezier(D2D1::QuadraticBezierSegment(p(-5.5f, y), p(-3.5f, y)));
+          sink->AddLine(p(to, y));
+          sink->EndFigure(D2D1_FIGURE_END_OPEN);
+        };
+        branch(-6.5f, 4.5f, 6);  // the trunk and the last
+        branch(-6.5f, -4.5f, 3);
+        branch(-2, 0, 4.5f);
+        if (SUCCEEDED(sink->Close())) {
+          k.t->DrawGeometry(scheme.get(), k.Color(ink), kIconStroke, roundCaps_.get());
+        }
+      }
+    } else if (glyph == kGlyphBack) {  // back: an arrow to the left, the title bar's first key      line(-6, 0, 6, 0);
       line(-6, 0, -1, -5);
       line(-6, 0, -1, 5);
     } else if (glyph == kGlyphChevron) {  // goes on to a choice
@@ -6411,8 +6398,30 @@ class Painter {
     } else if (!DrawLineIcon(k, it.glyph, cx, cy, ink)) {
       k.Text(it.glyph, glyph_.get(), r, ink);
     }
+    if (it.glyph == kGlyphScheme && it.checked) {  // on: the ways' traffic runs along its branches
+      SchemeDots(k, cx, cy);
+    }
   }
-  // The switch is the relic under glass (vitrine.h): in the frame the window
+  // Dots of the ways' colours, each down its branch of kGlyphScheme and fading in and out at its ends - their
+  // own pace and start, so they never march together (the mockup's g1). At k.flow seconds.
+  void SchemeDots(const Canvas& k, float cx, float cy) const {
+    struct Run {
+      float y;
+      float to;
+      COLORREF tone;
+      float period;
+      float start;
+    };
+    constexpr std::array<Run, 3> runs{{{-4.5f, 3, ui::kDirect, 1.5f, 0.2f},
+                                       {0, 4.5f, ui::kWarp, 1.7f, 0.9f},
+                                       {4.5f, 6, ui::kVpn, 1.3f, 0.5f}}};
+    for (const Run& run : runs) {
+      const float at = std::fmod(k.flow + run.start, run.period) / run.period;  // 0..1 along it
+      const float shown = std::clamp(std::min(at, 1.0f - at) * 3.0f, 0.0f, 1.0f);
+      const float x = -3 + (run.to + 3) * at;
+      k.t->FillEllipse(D2D1::Ellipse({cx + x, cy + run.y}, 1.35f, 1.35f), k.Color(FromColorRef(run.tone, shown)));
+    }
+  }  // The switch is the relic under glass (vitrine.h): in the frame the window
   // animates it through, or - a still picture, a snapshot - the state's own
   // at rest. Its button is the hood; the scene round it is placed from it.
   void DrawPower(const Canvas& k, const Item& it, const UiContent& c, bool hovered, bool pressed) const {
@@ -6430,17 +6439,17 @@ class Painter {
   wil::com_ptr<IWICImagingFactory> wic_;
   wil::com_ptr<ID2D1StrokeStyle> roundCaps_;  // the title bar's cross and dash
   wil::com_ptr<ID2D1StrokeStyle> dashed_;     // a ghost key's outline
-  wil::com_ptr<ID2D1StrokeStyle> dots_;       // the routing scheme's main line, its traffic
+  mutable wil::com_ptr<ID2D1StrokeStyle> flowDots_;  // the routing scheme's traffic at flowAt_ (FlowDots)
+  mutable float flowAt_ = -1;
   wil::com_ptr<IDWriteInlineObject> ellipsis_;
-  wil::com_ptr<IDWriteTextFormat> lead_;  // the routing page's opening words and its mode (17.75)
   wil::com_ptr<IDWriteTextFormat> state_;
   wil::com_ptr<IDWriteTextFormat> delay_;
   wil::com_ptr<IDWriteTextFormat> heading_;
   wil::com_ptr<IDWriteTextFormat> body_;
   wil::com_ptr<IDWriteTextFormat> caption_;
+  wil::com_ptr<IDWriteTextFormat> mode_;  // the routing mode's keys: 13.5 medium, centred
   wil::com_ptr<IDWriteTextFormat> button_;
   wil::com_ptr<IDWriteTextFormat> center_;
-  wil::com_ptr<IDWriteTextFormat> strong_;  // 14 semibold from the left: a menu choice's title
   wil::com_ptr<IDWriteTextFormat> chip_;
   wil::com_ptr<IDWriteTextFormat> micro_;     // a word beside an icon on a small key (the add keys)
   wil::com_ptr<IDWriteTextFormat> wrap_;
@@ -6592,7 +6601,6 @@ struct MainWindow::Impl {
   bool settingsMore = false;   // the configurations' relay fold open (UiContent::settingsMore)
   bool addOpen = false;        // the configurations' add keys rolled out (UiContent::addOpen)
   int profileTab = 0;          // the configurations' tab (UiContent::profileTab)
-  bool routeMenu = false;      // the routing mode's menu dropped (UiContent::routeMenu)
   bool lidUp = false;          // the kill switch's lid lifted, for kLidUpMs (UiContent::lidUp)
   // The servers' order on their page (UiContent::serverOrder): kept through
   // a latency test - every figure "…" there, the list would fall back to the
@@ -6692,6 +6700,17 @@ struct MainWindow::Impl {
     pendingHit.reset();
     showcase.To(display, Clock(now), hit, Motion());
     KickVitrine();
+  }
+
+  // The routing scheme's traffic runs while it's shown in full ("Подробно") on screen, animations on.
+  bool Flowing() const {
+    return Motion() && page == UiPage::Routing && content.routeDetailed && hwnd != nullptr &&
+           IsWindowVisible(hwnd) != FALSE && IsIconic(hwnd) == FALSE;
+  }
+  void KickFlow() {
+    if (Flowing()) {
+      SetTimer(hwnd, kFlowTimer, kFlowFrameMs, nullptr);
+    }
   }
 
   void KickVitrine() {
@@ -6876,9 +6895,6 @@ struct MainWindow::Impl {
       if (question && item.action != ItemAction::Answer) {
         continue;  // a question open: the page under it takes nothing
       }
-      if (routeMenu && !InMenu(item)) {
-        continue;  // the mode's menu dropped: a press elsewhere only puts it away (WM_LBUTTONDOWN)
-      }
       if ((!anyItem && !Interactive(item)) || !Contains(Hit(item), x, y)) {
         continue;
       }
@@ -6906,11 +6922,6 @@ struct MainWindow::Impl {
       }
     }
     return -1;
-  }
-
-  // The routing mode's menu and the pill it drops from: all that takes a press while it's open.
-  static bool InMenu(const Item& item) {
-    return item.kind == Kind::Menu || item.kind == Kind::MenuItem || item.kind == Kind::ModePill;
   }
 
   // What shows a tip: a "?" at once, an icon button (its name) after a while.
@@ -7165,7 +7176,6 @@ struct MainWindow::Impl {
     content.settingsMore = settingsMore;
     content.addOpen = addOpen;
     content.profileTab = profileTab;
-    content.routeMenu = routeMenu;
     content.lidUp = lidUp;
     content.serverOrder = serverOrder;
     content.serverFolds = serverFolds;
@@ -7187,6 +7197,7 @@ struct MainWindow::Impl {
                            (question && layout.items[static_cast<std::size_t>(in.focus)].action != ItemAction::Answer)))) {
       in.focus = -1;
     }
+    KickFlow();  // the scheme's traffic on the routing page in full, or stopped
     InvalidateRect(hwnd, nullptr, FALSE);
   }
 
@@ -7544,27 +7555,9 @@ struct MainWindow::Impl {
       scroll = 0;
       in.focus = -1;
       in.pressed = -1;
-      routeMenu = false;
     }
     Relayout();
     KickVitrine();  // back on the overview, the case's idle life starts again
-  }
-
-  // The routing mode's menu dropped or put away; the focus, on an item of the page, would
-  // be on nothing it can reach.
-  void SetRouteMenu(bool open) {
-    if (routeMenu == open) {
-      return;
-    }
-    routeMenu = open;
-    in.pressed = -1;
-    if (open && in.focusVisible) {
-      in.focus = -1;  // Tab goes into the menu: MoveFocus below
-    }
-    Relayout();
-    if (open && in.focusVisible) {
-      MoveFocus(false);
-    }
   }
 
   void Activate(const Item& item) {
@@ -7672,7 +7665,6 @@ struct MainWindow::Impl {
         Relayout();
         return;
       }
-      case ItemAction::RouteMenu: SetRouteMenu(!routeMenu); return;
       case ItemAction::Hide: PostMessageW(hwnd, WM_CLOSE, 0, 0); return;
       case ItemAction::Answer: Answer(item.index); return;
       case ItemAction::LiftLid:  // the switch under it takes the next click, for a while
@@ -7685,9 +7677,6 @@ struct MainWindow::Impl {
     if (item.command == UiCommand::ToggleKillSwitch && lidUp) {  // turned: the lid shuts over it again
       lidUp = false;
       KillTimer(hwnd, kLidTimer);
-    }
-    if (item.kind == Kind::MenuItem) {
-      SetRouteMenu(false);  // a mode picked: the menu goes, the command relayouts with it gone
     }
     UiArgs args;
     args.index = item.index;
@@ -7910,7 +7899,7 @@ struct MainWindow::Impl {
       // A tip's own ("?", a way's name) takes no focus: there's nothing to press.
       const Item& it = layout.items[i];
       if (Interactive(it) && it.action != ItemAction::Hint && it.kind != Kind::Day &&
-          (!question || it.action == ItemAction::Answer) && (!routeMenu || InMenu(it))) {
+          (!question || it.action == ItemAction::Answer)) {
         order.push_back(static_cast<int>(i));
       }
     }
@@ -8098,6 +8087,7 @@ struct MainWindow::Impl {
       case WM_ENABLE:
         if (wParam != FALSE) {
           KickVitrine();  // the modal box is gone (Blocked)
+          KickFlow();
         }
         return 0;
       case WM_ERASEBKGND: return 1;  // Direct2D paints everything
@@ -8130,8 +8120,7 @@ struct MainWindow::Impl {
           GetClientRect(w, &rc);
           return at.x < frame * 2 ? HTTOPLEFT : at.x >= rc.right - frame * 2 ? HTTOPRIGHT : HTTOP;
         }
-        // The mode's menu dropped: a press anywhere is the window's, to put it away.
-        if (HitAt(at) >= 0 || routeMenu ||
+        if (HitAt(at) >= 0 ||
             (!question && (InLog(at) || log.pan.has_value() || barGrab.has_value() || selecting))) {
           return HTCLIENT;
         }
@@ -8145,6 +8134,7 @@ struct MainWindow::Impl {
         Relayout();
         if (wParam != SIZE_MINIMIZED) {
           KickVitrine();  // restored from the taskbar: the idle timer stopped while it was minimized
+          KickFlow();
         }
         return 0;
       case WM_GETMINMAXINFO: {
@@ -8221,6 +8211,13 @@ struct MainWindow::Impl {
           InvalidateRect(w, nullptr, FALSE);
           return 0;
         }
+        if (wParam == kFlowTimer) {
+          if (!Flowing()) {
+            KillTimer(w, kFlowTimer);
+          }
+          InvalidateRect(w, nullptr, FALSE);
+          return 0;
+        }
         if (wParam == kPanTimer) {
           if (log.pan) {
             PanStep();
@@ -8262,11 +8259,6 @@ struct MainWindow::Impl {
         if (question) {
           in.pressed = HitAt(at);  // its buttons only: the log under it keeps its lines
           InvalidateRect(w, nullptr, FALSE);
-          return 0;
-        }
-        if (routeMenu && HitAt(at) < 0) {
-          ReleaseCapture();
-          SetRouteMenu(false);  // a press beside the mode's menu puts it away, and does nothing else
           return 0;
         }
         if (const auto thumb = page == UiPage::Logs && OnLogBar(at) && layout.logBox ? LogThumb(*layout.logBox, log)
@@ -8484,10 +8476,8 @@ struct MainWindow::Impl {
       return true;
     }
     if (key == VK_ESCAPE) {
-      // The mode's menu away first; else back (BackOf); from the overview, away.
-      if (routeMenu) {
-        SetRouteMenu(false);
-      } else if (page != UiPage::Overview) {
+      // Back (BackOf); from the overview, away.
+      if (page != UiPage::Overview) {
         Go(BackOf(page, logFrom));
       } else {
         ShowWindow(hwnd, SW_HIDE);
@@ -8541,6 +8531,7 @@ struct MainWindow::Impl {
       KickVitrine();
     }
     in.vitrine = showcase.Known() ? std::optional(VitrineAt(now)) : std::nullopt;
+    in.flow = Flowing() ? static_cast<float>(static_cast<double>(now % 3'600'000) / 1000.0) : 0.0f;
     target->BeginDraw();
     painter.Draw(target.get(), layout, content, in, log);
     if (target->EndDraw() == D2DERR_RECREATE_TARGET) {
@@ -8586,6 +8577,7 @@ void MainWindow::Show(UiPage page) {
   ShowWindow(m.hwnd, IsIconic(m.hwnd) ? SW_RESTORE : SW_SHOW);
   SetForegroundWindow(m.hwnd);
   m.KickVitrine();  // breaking or flowing while it was hidden: the timer stopped
+  m.KickFlow();
 }
 
 void MainWindow::Hide() { ShowWindow(impl_->hwnd, SW_HIDE); }

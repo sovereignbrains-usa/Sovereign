@@ -3011,6 +3011,20 @@ class Painter {
         name = flag + L" " + WithoutFlagEmoji(name);
       }
     }
+    // Off, nothing runs: the name stays grey. Auto picks nothing until it's on - its last pick with its
+    // network and latency read as if it already ran (20.11.2026); it says what it will do instead.
+    const bool idle = c.display == Display::Off || c.display == Display::ServiceDown;
+    card.quiet = idle;
+    if (idle && isAuto) {
+      card.text = L"Авто";
+      card.detail = L"при включении выберет самый быстрый";
+      card.tip = L"Выбрать сервер; авто сам берёт самый быстрый";
+      if (!c.autoServer.empty()) {
+        card.tip += L"\n\nВ прошлый раз выбрал: " + WithoutFlagEmoji(name);
+      }
+      l.items.push_back(std::move(card));
+      return y + h;
+    }
     std::vector<std::wstring> parts;
     if (isAuto) {
       parts.emplace_back(c.autoServer.empty() ? L"авто: выберет после замера" : L"авто");
@@ -5198,7 +5212,7 @@ class Painter {
         }
         const float mid = (r.top + r.bottom) / 2;
         k.Text(it.text, heading_.get(), {r.left + 16, r.top + 6, r.right - 34, mid + 2},
-               it.enabled ? primary : secondary);
+               it.enabled && !it.quiet ? primary : secondary);  // quiet: off, the server not in use
         k.Text(it.detail, caption_.get(), {r.left + 16, mid + 2, r.right - 34, r.bottom - 6}, secondary);
         if (it.enabled) {
           k.Text(it.glyph, glyph_.get(), {r.right - 30, r.top, r.right - 6, r.bottom}, secondary);

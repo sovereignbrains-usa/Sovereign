@@ -241,6 +241,14 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\subscription-none.png");
   });
   // The first screen: nothing yet - what the clipboard holds offered, or the ways to bring one.
+  // Off on auto (20.11.2026): "Авто" and what it will do, not the last pick's network and latency as if it ran.
+  variant([&](UiContent& off) {
+    off.on = false;
+    off.display = sovereign::tray::Display::Off;
+    off.down = 0;
+    off.flowVpn = off.flowDirect = off.flowWarp = 0;
+    sovereign::tray::RenderMainWindowSnapshot(off, UiPage::Overview, logs, 400, 700, 96, dir + L"\\overview-off-auto.png");
+  });
   variant([&](UiContent& first) {
     first.profiles.clear();
     first.trouble.clear();

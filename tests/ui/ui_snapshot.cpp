@@ -603,6 +603,8 @@ int Snapshots(const std::wstring& dir) {
       {L"vitrine-open-hover", Display::On, L"off@0,starting!@1,on@3,hover@11;12"},
       {L"vitrine-quiet", Display::On, L"off@0,starting!@1,on@3,traffic=0@4;12"},
       {L"vitrine-busy", Display::On, L"off@0,starting!@1,on@3,traffic=1@4;12"},
+      {L"vitrine-download", Display::On, L"off@0,starting!@1,on@3,traffic=0.8@4,up=0@4;12"},
+      {L"vitrine-upload", Display::On, L"off@0,starting!@1,on@3,traffic=0.8@4,up=1@4;12"},
       {L"vitrine-ad", Display::On, L"off@0,starting!@1,on@3,ads@11.75;12"},
       {L"vitrine-reconnect", Display::Starting, L"on@0,starting@5;7"},
       {L"vitrine-closing-start", Display::Off, L"off@0,starting!@1,on@3,off@12;12.05"},

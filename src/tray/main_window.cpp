@@ -6410,7 +6410,8 @@ bool CopyToClipboard(HWND owner, const std::wstring& text) {
 
 // The case mid-motion, for a snapshot: "off@0,starting!@1,on@4;4.3" - the states at their seconds
 // ("!": a click struck the glass; "hover", "press", "leave": the pointer on the case; "traffic=0.8":
-// the VPN's traffic level; "ad", "ads": one ad blocked, three), then the moment drawn.
+// the VPN's traffic level; "up=0.2": the upload's share of it; "ad", "ads": one ad blocked, three),
+// then the moment drawn.
 VitrineFrame VitrineScript(std::wstring_view script) {
   const std::size_t semicolon = script.find(L';');
   THROW_HR_IF(E_INVALIDARG, semicolon == std::wstring_view::npos);
@@ -6437,6 +6438,11 @@ VitrineFrame VitrineScript(std::wstring_view script) {
     constexpr std::wstring_view kTraffic = L"traffic=";
     if (name.starts_with(kTraffic)) {
       v.Traffic(static_cast<float>(seconds(name.substr(kTraffic.size()))), seconds(step.substr(at + 1)));
+      continue;
+    }
+    constexpr std::wstring_view kUp = L"up=";
+    if (name.starts_with(kUp)) {
+      v.Upload(static_cast<float>(seconds(name.substr(kUp.size()))), seconds(step.substr(at + 1)));
       continue;
     }
     if (name == L"ad" || name == L"ads") {
@@ -6601,6 +6607,9 @@ struct MainWindow::Impl {
     const ULONGLONG now = GetTickCount64();
     const bool on = c.display == Display::On;
     showcase.Traffic(on ? vitrine::TrafficLevel(c.flowVpn + c.flowWarp) : 0.0f, Clock(now));
+    // Which way it goes: the box's rates up and down (all of it, the direct
+    // too - the streams don't split by way; the share is what counts).
+    showcase.Upload(on ? vitrine::UpShare(c.down, c.up) : 0.5f, Clock(now));
     if (on && blockedSeen && c.blockedCount > *blockedSeen && Motion()) {
       showcase.Blocked(c.blockedCount - *blockedSeen, Clock(now));
     }

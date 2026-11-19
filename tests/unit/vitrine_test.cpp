@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <optional>
 
 #include "check.h"
@@ -324,6 +325,25 @@ void TestTraffic() {
   CHECK(!busy.Moving(50.1));
 }
 
+void TestUpload() {
+  // The upload's share: what goes up of all; next to nothing either way is half and half.
+  CHECK(Close(vitrine::UpShare(0, 0), 0.5f) && Close(vitrine::UpShare(-3, std::nan("")), 0.5f));
+  CHECK(Close(vitrine::UpShare(1e6, 0), 0) && Close(vitrine::UpShare(0, 1e6), 1));
+  CHECK(Close(vitrine::UpShare(3e5, 1e5), 0.25f) && Close(vitrine::UpShare(100, 0), 0.5f, 0.03f));
+  CHECK(Close(vitrine::UpShare(1, std::numeric_limits<double>::infinity()), 0.5f));
+  // Eased like the level: the packets turn round over a second, not at once.
+  Vitrine v;
+  v.To(Display::On, 0, std::nullopt, true);
+  CHECK(Close(v.At(10).upShare, 0.5f) && !v.Moving(10));
+  v.Upload(0, 10);
+  const float midway = v.At(10.6).upShare;
+  CHECK(midway > 0 && midway < 0.5f && v.Moving(10.6));
+  CHECK(Close(v.At(12).upShare, 0) && !v.Moving(12));
+  v.Upload(0, 20);
+  CHECK(!v.Moving(20.1));
+  CHECK(Close(VitrineRest(Display::On).upShare, 0.3f));
+}
+
 std::size_t Burning(const VitrineFrame& f) {
   return static_cast<std::size_t>(std::count_if(f.sparks.begin(), f.sparks.end(), [](const vitrine::Spark& s) { return s.age >= 0; }));
 }
@@ -390,6 +410,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestMissedTheGlass();
     TestTints();
     TestTraffic();
+    TestUpload();
     TestSparks();
     TestPlace();
   } catch (const std::exception& e) {

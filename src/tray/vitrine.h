@@ -133,6 +133,10 @@ float StreamFade(float h);
 // The VPN's traffic, bytes a second, as the spiral's 0..1: a trickle a
 // little, a video or two most of it, 4 MB/s and more all of it.
 float TrafficLevel(double bytesPerSecond);
+// The upload's share of the traffic, 0..1, from the rates each way (bytes a
+// second): the spiral's packets rising out of the box for it, falling into
+// it for the download. Half and half with next to nothing either way.
+float UpShare(double downBytesPerSecond, double upBytesPerSecond);
 
 // A blocked ad burning on the rim of the box's mouth: for so long, so many at once at most.
 inline constexpr float kSparkLife = 0.6f;
@@ -163,6 +167,7 @@ struct VitrineFrame {
   float flow = 1;          // the spiral's and the spotlight's strength (weak while it reconnects)
   double flowClock = 0;    // seconds on the spiral's own clock: slow while it reconnects, fast with traffic
   float traffic = 0;       // 0..1: the VPN's traffic (TrafficLevel), eased - the spiral's packets
+  float upShare = 0.5f;    // 0..1: the upload's share (UpShare), eased - the packets rising; the rest fall in
   std::array<vitrine::Spark, vitrine::kSparks> sparks{};  // blocked ads burning on the box's rim
   float hover = -1;        // 0..1: the pointer on the case, eased; <0: the window's, at once
   float press = -1;        // 0..1: the case pressed, eased; <0: the window's, at once
@@ -194,6 +199,9 @@ class Vitrine {
   // spiral turns and the more packets it carries - eased, the rates come
   // once a second.
   void Traffic(float level, double now);
+  // The upload's share of it at `now` (UpShare): so many of the packets rise
+  // out of the box, the rest fall into it - eased like the level.
+  void Upload(float share, double now);
   // `count` ads blocked at `now`: a red spark each on the box's rim, in turn,
   // a few at most - more at once would only be a smear.
   void Blocked(std::uint64_t count, double now);
@@ -216,6 +224,7 @@ class Vitrine {
   float DimAt(double now) const;
   float TrafficAt(double now) const;
   double TrafficSum(double now) const;  // the eased traffic's integral: the spiral's extra clock
+  float UpAt(double now) const;
   float MendTau(double now) const;  // the shards' time flying back, easing to 0: whole again
   double MendedAt() const;
   // Where the box is: its flight (AfterBreak's u) and how open (its k).
@@ -254,6 +263,8 @@ class Vitrine {
   float trafficFrom_ = 0, trafficTo_ = 0;
   double trafficAt_ = -100;
   double trafficSum_ = 0;  // TrafficSum at trafficAt_
+  float upFrom_ = 0.5f, upTo_ = 0.5f;
+  double upAt_ = -100;
   struct Strike {
     double at = -1e9;
     float where = 0;

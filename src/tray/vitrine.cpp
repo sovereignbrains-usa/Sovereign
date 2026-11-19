@@ -94,6 +94,24 @@ constexpr float kStreamY = 158;
 constexpr float kStreamTop = 232;
 constexpr float kPitch = 120;
 constexpr float kTurn = 1.15f;
+// Its three ribbons, one inside another: where round the turn, how wide
+// their cone (of StreamAt's), the ribbon and how bright; the inner ones
+// coil tighter and turn faster, a vortex's core - one pitch for all read as
+// a spring.
+struct Strand {
+  float phase;
+  float radius;
+  float width;
+  float light;
+  float pitch;  // of kPitch
+  float spin;   // of kTurn
+};
+constexpr std::array<Strand, 3> kStrands{{
+    {0, 1, 1, 1, 1, 1},
+    {2.0944f, 0.8f, 0.7f, 0.75f, 0.8f, 1.3f},
+    {4.18879f, 0.6f, 0.5f, 0.55f, 0.64f, 1.7f},
+}};
+constexpr float kRibbon = 9;  // the outer ribbon facing the eye, units
 
 constexpr float kGravity = 650;
 constexpr float kDriftX = 110;
@@ -352,6 +370,19 @@ float TrafficLevel(double bytesPerSecond) {
   return std::clamp(static_cast<float>(std::log2(1 + bytesPerSecond / 8192) / 9), 0.0f, 1.0f);
 }
 
+// Under 2 KB/s both ways the share means nothing: it leans to half and half.
+float UpShare(double downBytesPerSecond, double upBytesPerSecond) {
+  const double down = downBytesPerSecond > 0 ? downBytesPerSecond : 0;  // NaN too
+  const double up = upBytesPerSecond > 0 ? upBytesPerSecond : 0;
+  const double all = down + up;
+  if (!(all > 0) || !std::isfinite(all)) {
+    return 0.5f;
+  }
+  constexpr double kQuiet = 2048;
+  const double weight = std::min(1.0, all / kQuiet);
+  return std::clamp(static_cast<float>(0.5 + (up / all - 0.5) * weight), 0.0f, 1.0f);
+}
+
 }  // namespace vitrine
 
 // ---------------------------------------------------------------------------
@@ -436,6 +467,7 @@ VitrineFrame VitrineRest(Display display) {
   f.idle = 1.3;
   f.flowClock = f.idle;
   f.traffic = 0.3f;  // a page or two loading
+  f.upShare = 0.3f;  // most of it coming in
   f.shards = rest;
   switch (display) {
     case Display::On:
@@ -485,6 +517,18 @@ void Vitrine::Traffic(float level, double now) {
   trafficFrom_ = TrafficAt(now);
   trafficTo_ = level;
   trafficAt_ = now;
+}
+
+float Vitrine::UpAt(double now) const { return Eased(upFrom_, upTo_, upAt_, now, kTrafficEase); }
+
+void Vitrine::Upload(float share, double now) {
+  share = std::clamp(share, 0.0f, 1.0f);
+  if (share == upTo_) {
+    return;
+  }
+  upFrom_ = UpAt(now);
+  upTo_ = share;
+  upAt_ = now;
 }
 
 void Vitrine::Blocked(std::uint64_t count, double now) {
@@ -707,6 +751,7 @@ VitrineFrame Vitrine::At(double now) const {
   f.flow = FlowAt(now);
   f.flowClock = FlowClock(now) + kBusyPace * TrafficSum(now);
   f.traffic = TrafficAt(now);
+  f.upShare = UpAt(now);
   std::size_t shown = 0;  // at most kSparks burn at once: they are kSparkGap apart
   for (const Strike& s : strikes_) {
     const double age = now - s.at;
@@ -792,7 +837,7 @@ bool Vitrine::Moving(double now) const {
   }
   const auto since = [now](double at) { return now - at; };
   if (since(dangerAt_) < kTint || since(flowAt_) < kTint || since(dimAt_) < kTint || since(flashAt_) < 0.5 ||
-      since(trafficAt_) < kTrafficEase || since(lastStrike_) < kSparkLife || hover_.Moving(now) || press_.Moving(now)) {
+      since(trafficAt_) < kTrafficEase || since(upAt_) < kTrafficEase || since(lastStrike_) < kSparkLife || hover_.Moving(now) || press_.Moving(now)) {
     return true;
   }
   switch (glass_) {
@@ -1204,6 +1249,7 @@ struct VitrineArt::Impl {
   ID2D1RenderTarget* t = nullptr;  // while drawing
   float zk = 1;                    // units a line is at least: a pixel on screen
   float busy = 0;                  // the frame's traffic (VitrineFrame::traffic): the spiral's packets
+  float up = 0.5f;                 // and how many of them rise (VitrineFrame::upShare)
   std::array<Spark, kSparks> sparks{};  // the frame's blocked ads
 
   ID2D1SolidColorBrush* Ink(D2D1_COLOR_F c) const {
@@ -1868,119 +1914,180 @@ struct VitrineArt::Impl {
     t->SetTransform(was);
   }
 
-  // The flow's spiral: three strands and on them, in step, the packets with
-  // the marks between. `grow`: how far it has come up out of the box (it goes
-  // back in the same way), a soft bead at its front; `a`: how bright;
-  // `clock`: its own (it slows as the flow weakens).
-  void Stream(float grow, float a, double clock) const {
+  // The flow's spiral: three ribbons of light, one inside another, each
+  // twisting as it goes up - wide where it faces the eye, its two edges one
+  // bright line where it turns edge-on, thin and faint on the far side - the
+  // top swaying and fraying into dust. On them ride the packets, a comet
+  // each with its tail behind it: the upload's rising out of the box, the
+  // download's falling into it (`up`: the share that rises). Before, three
+  // threads of one cone read as a spring, and the marks between the packets
+  // (chevrons, cells) were two or three pixels in the window - nothing
+  // (19.11.2026). `grow`: how far it has come up out of the box (it goes back
+  // in the same way), a soft bead at its front; `a`: how bright; `clock`: its
+  // own (it slows as the flow weakens); `glow`: for the scatter - the light
+  // alone, no edges, no dust.
+  void Stream(float grow, float a, double clock, bool glow = false) const {
     if (grow <= 0.003f || a <= 0.003f) {
       return;
     }
     const Lighter add(dc.get());
     const float z = zk;
-    const float zs = std::pow(z, 0.7f);
-    const float spin = static_cast<float>(std::fmod(clock * kTurn, static_cast<double>(kTwoPi)));
     constexpr float kSpan = kStreamTop + 25;
     constexpr float kFeather = 50;
-    constexpr int kSlots = 8;  // places for packets on a strand
+    constexpr float kStep = 4;                                // a ribbon's piece, units of height
+    constexpr int kPieces = static_cast<int>(kSpan / kStep);  // up to just under the top
+    constexpr int kSlots = 8;                                 // places for packets on a strand, each way
     // Taken in this order, those holding one spread evenly at any count.
     constexpr std::array<int, kSlots> kOrder{0, 4, 2, 6, 1, 5, 3, 7};
-    // Packets on a strand by the traffic: two in the quiet, all at full; the next one fades in.
-    const float carried = 2 + 6 * busy;
+    constexpr int kTail = 6;  // a comet's tail, in pieces
+    // Packets on a strand by the traffic: one and a half in the quiet, six at
+    // full, the next one fading in; so many rising, the rest falling.
+    const float carried = 1.5f + 4.5f * busy;
+    const float rising = carried * up;
+    const float falling = carried - rising;
     const float front = -25 + (kSpan + kFeather) * std::min(1.0f, grow);
     const auto shown = [front](float h) { return StreamFade(h) * Smooth01((front - h) / kFeather); };
+    const auto air = [](double x) { return static_cast<float>(std::sin(x)); };
     const float train = Phase(clock, 0.17);
     const float bead = a * std::sin(std::numbers::pi_v<float> * std::min(1.0f, grow)) * 0.8f;
-    for (int j = 0; j < 3; ++j) {
-      const float ps = static_cast<float>(j) * 2.0944f;
-      const auto at = [&](float h) { return StreamAt(h, h * kTwoPi / kPitch + ps - spin); };
-      // the thread
-      for (int step = -25; step < static_cast<int>(kStreamTop); step += 5) {
-        const auto h = static_cast<float>(step);
-        const float e = shown(h + 2.5f) * a;
-        if (e < 0.01f) {
-          continue;
-        }
+    struct Vertex {
+      Point p;
+      Point n;     // across the ribbon, a unit
+      float w = 0; // its width
+      float e = 0; // its light
+      float f = 0; // 1 on the near side, 0 the far
+    };
+    std::array<Vertex, kPieces + 1> ribbon{};
+    for (std::size_t j = 0; j < kStrands.size(); ++j) {
+      const Strand& s = kStrands.at(j);
+      const auto jf = static_cast<float>(j);
+      const float spin = static_cast<float>(std::fmod(clock * kTurn * s.spin, static_cast<double>(kTwoPi)));
+      const auto phiAt = [&](float h) { return h * kTwoPi / (kPitch * s.pitch) + s.phase - spin; };
+      // On its cone, breathing a little in and out; the axis swaying, the more the higher.
+      const auto at = [&](float h) {
+        const StreamPoint p = StreamAt(h, phiAt(h));
+        const float cy = kStreamY - h;
+        const float k = s.radius * (1 + 0.06f * air(h * 0.05 - clock * 0.9 + jf * 1.7));
+        const float sway = 7 * std::pow(std::max(0.0f, h) / kStreamTop, 1.5f) * air(clock * 0.5 + h * 0.012);
+        return StreamPoint{kStreamX + sway + (p.x - kStreamX) * k, cy + (p.y - cy) * k, p.z};
+      };
+      // Up top it breaks into pieces, more of them gone the higher.
+      const auto fray = [&](float h) {
+        const float top = Smooth01((h - 0.5f * kStreamTop) / (0.45f * kStreamTop));
+        const float gate = Smooth01((0.5f + 0.5f * air(h * 0.23 + jf * 2.1 + clock * 1.1) - 0.35f) / 0.3f);
+        return 1 + (gate - 1) * top;
+      };
+
+      for (int i = 0; i <= kPieces; ++i) {
+        const float h = -25 + kStep * static_cast<float>(i);
         const StreamPoint p = at(h);
-        const StreamPoint q = at(h + 5);
-        const float f = 0.5f + 0.5f * p.z;
-        t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(Rgba(255, 214, 150, e * (0.20f + 0.26f * f))), (1.1f + 0.6f * f) * z,
-                    round.get());
-      }
-      const auto chevron = [&](float h, float share) {
-        const StreamPoint p = at(h);
-        const StreamPoint p2 = at(h + 3);
-        const float e = shown(h) * a * share;
-        if (e < 0.02f) {
-          return;
-        }
-        const float f = 0.5f + 0.5f * p.z;
-        float dx = p2.x - p.x;
-        float dy = p2.y - p.y;
+        const StreamPoint before = at(h - 1);
+        const StreamPoint after = at(h + 1);
+        float dx = after.x - before.x;
+        float dy = after.y - before.y;
         const float len = std::hypot(dx, dy);
         if (len > 0) {
           dx /= len;
           dy /= len;
         }
-        const float sz = (4.4f + 1.6f * f) * zs;
-        const Point tip{p.x + dx * sz * 0.6f, p.y + dy * sz * 0.6f};
-        const D2D1_COLOR_F ink = Rgba(255, 228, 176, e * (0.45f + 0.45f * f));
-        Line({p.x - dx * sz - dy * sz, p.y - dy * sz + dx * sz}, tip, ink, 1.4f * z, round.get());
-        Line({p.x - dx * sz + dy * sz, p.y - dy * sz - dx * sz}, tip, ink, 1.4f * z, round.get());
-      };
-      const auto cell = [&](float h, float share) {
-        const StreamPoint p = at(h);
-        const float e = shown(h) * a * share;
-        if (e < 0.02f) {
-          return;
-        }
         const float f = 0.5f + 0.5f * p.z;
-        const float s = (3 + 1.2f * f) * zs / 2;
-        t->DrawRectangle(D2D1::RectF(p.x - s, p.y - s, p.x + s, p.y + s), Ink(Rgba(255, 214, 150, e * (0.4f + 0.4f * f))),
-                         1.1f * z, round.get());
-      };
-      // The packets in even steps, a strand a third of a step after the one before;
-      // ahead of each, by turns, a chevron the way it flows and a cell (a bit).
-      for (int n = 0; n < kSlots; ++n) {
-        const float share = std::clamp(carried - static_cast<float>(n), 0.0f, 1.0f);
-        if (share <= 0) {
-          break;
+        const float turn = std::abs(std::cos(0.37f * phiAt(h) + jf * 1.3f));  // 0: edge-on
+        const float out = 0.45f + 0.55f * Smooth01((h + 25) / 90);           // narrow out of the mouth
+        Vertex& v = ribbon.at(static_cast<std::size_t>(i));
+        v.p = {p.x, p.y};
+        v.n = {-dy, dx};
+        v.w = kRibbon * s.width * (0.3f + 0.7f * f) * (0.15f + 0.85f * turn) * out;
+        v.e = shown(h) * a * s.light * fray(h);
+        v.f = f;
+      }
+      for (std::size_t i = 0; i + 1 < ribbon.size(); ++i) {
+        const Vertex& p = ribbon.at(i);
+        const Vertex& q = ribbon.at(i + 1);
+        const float e = (p.e + q.e) / 2;
+        if (e < 0.01f) {
+          continue;
         }
-        const int i = kOrder.at(static_cast<std::size_t>(n));
-        const float slot = (static_cast<float>(i) + static_cast<float>(j) / 3) / kSlots + train;
-        const float hp = Fraction(slot) * kSpan - 25;
-        const float ka = a * share;
-        for (int s = 0; s < 5; ++s) {
-          const auto sf = static_cast<float>(s);
-          const float h0 = hp - sf * 6;
-          const float e = shown(h0) * ka * std::pow(1 - sf / 5, 1.4f);
-          if (e < 0.01f) {
-            continue;
-          }
-          const StreamPoint p = at(h0);
-          const StreamPoint q = at(h0 - 6);
-          const float f = 0.5f + 0.5f * p.z;
-          t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(Rgba(255, 236 - s * 10, 206 - s * 18, e * (0.55f + 0.45f * f))),
-                      (3.0f - sf * 0.3f) * z * (0.8f + 0.25f * f), round.get());
+        const float f = (p.f + q.f) / 2;
+        const float core = e * (0.06f + 0.14f * f) * (glow ? 1.4f : 1.0f);
+        t->DrawLine(P(p.p), P(q.p), Ink(Rgba(255, 204, 136, core)), std::max((p.w + q.w) / 2, z));
+        if (glow) {
+          continue;
         }
-        const StreamPoint head = at(hp);
-        const float e = shown(hp) * ka;
-        if (e > 0.02f) {
-          const float f = 0.5f + 0.5f * head.z;
-          const float r = 2.6f * z * (0.75f + 0.3f * f);
-          t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(head.x, head.y), r, r), Ink(Rgba(255, 248, 232, e * (0.7f + 0.3f * f))));
-        }
-        const float hm = Fraction(slot + 0.5f / kSlots) * kSpan - 25;
-        if (n % 2 == 0) {
-          chevron(hm, share);
-        } else {
-          cell(hm, share);
+        const D2D1_COLOR_F edge = Rgba(255, 234, 200, e * (0.15f + 0.33f * f));
+        for (const float across : {-0.5f, 0.5f}) {
+          t->DrawLine(P(Add(p.p, Times(p.n, across * p.w))), P(Add(q.p, Times(q.n, across * q.w))), Ink(edge), 0.9f * z);
         }
       }
+
+      // The dust it sheds up top, drifting out from the axis.
+      if (!glow) {
+        for (int k = 0; k < 5; ++k) {
+          const auto kf = static_cast<float>(k);
+          const float age = Fraction(clock * 0.3 + kf / 5 + jf * 0.37);
+          const float h0 = kStreamTop * (0.5f + 0.3f * Fraction(kf * 0.618 + jf * 0.29)) + 35 * age;
+          const StreamPoint p = at(h0);
+          const float cy = kStreamY - h0;
+          const float spread = 1 + 0.45f * age;
+          const Point d{kStreamX + (p.x - kStreamX) * spread, cy + (p.y - cy) * spread - 10 * age};
+          const float e = a * s.light * Smooth01((front - h0) / kFeather) * std::sin(std::numbers::pi_v<float> * age);
+          if (e > 0.02f) {
+            const float r = 1.3f * z;
+            t->FillEllipse(D2D1::Ellipse(P(d), r, r),
+                           Ink(Rgba(255, 226, 180, 0.5f * e * (0.4f + 0.6f * (0.5f + 0.5f * p.z)))));
+          }
+        }
+      }
+
+      // The packets in even steps, a strand a third of a step after the one
+      // before; the falling ones half a step off the rising.
+      const auto comets = [&](float count, bool rises) {
+        for (int n = 0; n < kSlots; ++n) {
+          const float share = std::clamp(count - static_cast<float>(n), 0.0f, 1.0f);
+          if (share <= 0) {
+            break;
+          }
+          const int i = kOrder.at(static_cast<std::size_t>(n));
+          const float slot = (static_cast<float>(i) + jf / 3 + (rises ? 0.0f : 0.5f)) / kSlots;
+          const float hp = Fraction(rises ? slot + train : slot - train) * kSpan - 25;
+          const float behind = rises ? -1.0f : 1.0f;
+          const float tail = 16 + 5 * static_cast<float>((i * 3 + static_cast<int>(j)) % 5);  // 16..36 units
+          const float ka = a * share;
+          for (int piece = 0; piece < kTail; ++piece) {
+            const auto pf = static_cast<float>(piece);
+            const float h0 = hp + behind * tail * pf / kTail;
+            const float h1 = hp + behind * tail * (pf + 1) / kTail;
+            const float e = shown(h0) * ka * std::pow(1 - pf / kTail, 1.4f);
+            if (e < 0.01f) {
+              continue;
+            }
+            const StreamPoint p = at(h0);
+            const StreamPoint q = at(h1);
+            const float f = 0.5f + 0.5f * p.z;
+            // Going out: near white; coming in: amber - and each tail behind its head.
+            const D2D1_COLOR_F ink = rises ? Rgba(255, 250 - piece * 6, 236 - piece * 14, e * (0.7f + 0.3f * f))
+                                           : Rgba(255, 200 - piece * 10, 116 - piece * 12, e * (0.7f + 0.3f * f));
+            t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(ink), (3.2f - pf * 0.4f) * z * (0.8f + 0.25f * f), round.get());
+          }
+          const StreamPoint head = at(hp);
+          const float e = shown(hp) * ka;
+          if (e > 0.02f) {
+            const float f = 0.5f + 0.5f * head.z;
+            const float r = 3 * z * (0.75f + 0.3f * f);
+            const D2D1_POINT_2F c = D2D1::Point2F(head.x, head.y);
+            t->FillEllipse(D2D1::Ellipse(c, 2.2f * r, 2.2f * r),
+                           Ink(rises ? Rgba(255, 244, 222, 0.2f * e) : Rgba(255, 190, 110, 0.22f * e)));
+            const D2D1_COLOR_F ink = rises ? Rgba(255, 253, 246, e * (0.75f + 0.25f * f)) : Rgba(255, 220, 160, e * (0.75f + 0.25f * f));
+            t->FillEllipse(D2D1::Ellipse(c, r, r), Ink(ink));
+          }
+        }
+      };
+      comets(rising, true);
+      comets(falling, false);
+
       // its front while it comes up or goes back in
       if (bead > 0.02f) {
         const float hb = front - kFeather / 2;
-        const float e = StreamFade(hb) * bead;
+        const float e = StreamFade(hb) * bead * s.light;
         if (e > 0.02f) {
           const StreamPoint p = at(hb);
           const float f = 0.5f + 0.5f * p.z;
@@ -2137,7 +2244,7 @@ struct VitrineArt::Impl {
     t = glowTarget.get();
     std::swap(dc, glowDc);
     Inner(kScatterInner * gl, idle);
-    Stream(grow, bright, clock);
+    Stream(grow, bright, clock, true);
     Sparks();
     std::swap(dc, glowDc);
     t = main;
@@ -2221,6 +2328,7 @@ struct VitrineArt::Impl {
     const bool opened = o.open > 0.003f && body;
     t->SetTransform(D2D1::Matrix3x2F::Translation(0, -lift) * scene);
     busy = std::clamp(f.traffic, 0.0f, 1.0f);
+    up = std::clamp(f.upShare, 0.0f, 1.0f);
     sparks = f.sparks;
     if (opened) {
       OpenBox(o.open, o.stream, bright, f.flowClock, f.idle);

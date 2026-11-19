@@ -2064,7 +2064,12 @@ class Painter {
   // goes instead, or away (ChipMenu). Pointing at a chip, a way's name or its "+" lights its route
   // and puts the others back (Draw's `hot`). Each mode keeps its own lists (RoutingSettings); the
   // way everything else goes shows what's named there anyway, quieter (UiChip::idle). Returns the foot.
-  float Board(Layout& l, const UiContent& c, float x0, float x1, float y) const {    const UiRouting& r = c.routing;
+  float Board(Layout& l, const UiContent& c, float x0, float x1, float y) const {
+    const UiRouting& r = c.routing;
+    // The VPN off (20.11.2026, the routing page's audit): none of it works - everything goes directly.
+    // An amber line over the scheme says so, its lines go faint, and nothing "just now" is shown.
+    const bool off = !c.on;
+    const bool live = c.routeDetailed && !off;  // "Подробно" while it runs: what goes each way, the counts
     const int mode = r.finalDirect ? kBucketDirect : kBucketProxy;
     const float left = x0 + kSchemeIndent;
     l.boardLeft = left;
@@ -2118,6 +2123,30 @@ class Painter {
     y = Paragraph(l, Kind::Caption,
                   r.smart ? L"Напрямую, а что закрыто — само через VPN." : L"Мимо VPN — только список «Напрямую».", left,
                   x1, y + kModeHeight + 8);
+    if (off) {
+      const std::wstring said = L"VPN выключен — всё напрямую";
+      const std::wstring turnOn = L"включить";
+      const float saidWidth = std::ceil(TextWidth(said, caption_.get())) + kMutedLamp + 4;
+      y += 4;
+      Item note = Make(Kind::Muted, {left, y, std::min(x1, left + saidWidth), y + 22}, said);
+      note.lamp = 2;
+      note.action = ItemAction::Hint;
+      note.tip = L"Пока VPN выключен, схема не действует: всё идёт напрямую, как без клиента, и блок ничего не "
+                 L"закрывает. Включишь VPN — всё пойдёт по ней.";
+      l.items.push_back(std::move(note));
+      if (c.hasConfig) {  // (nothing to run: the key would do nothing)
+        const float keyWidth = std::ceil(TextWidth(turnOn, trailing_.get())) + 2;
+        float keyX = left + saidWidth + 8;
+        if (keyX + keyWidth > x1) {  // narrow: under it, by the words
+          keyX = left + kMutedLamp;
+          y += 22;
+        }
+        Item key = CommandItem(Kind::Link, {keyX, y, keyX + keyWidth, y + 22}, turnOn, nullptr, UiCommand::Toggle);
+        key.tip = L"Включить VPN";
+        l.items.push_back(std::move(key));
+      }
+      y += 22;
+    }
     // No "кроме того, что в списках ниже" under it: the line's end says "и всё
     // остальное", an empty way its "+ сайт, сервис или программа" (03.11.2026).
     y += 20;
@@ -2173,7 +2202,7 @@ class Painter {
       const std::wstring aside = rest && r.smart ? std::wstring(L"всё остальное; заблокированное — через VPN")
                                  : rest           ? std::wstring(L"всё остальное")
                                  : id == kBucketWarp ? r.warpState
-                                 : id == kBucketBlock && c.blockedTotal > 0 && c.routeDetailed
+                                 : id == kBucketBlock && c.blockedTotal > 0 && live
                                      ? L"закрыто с подключения: " + Grouped(c.blockedTotal)
                                      : std::wstring();
       // WARP off with things on it (turned off in the JSON): they go as the rest does, and a key turns it
@@ -2233,7 +2262,7 @@ class Painter {
         }
         // Whole pixels up: a chip as wide as its text to the last float got its
         // last letters trimmed to "…" (brave.exe -> "brave.e…", 30.10.2026).
-        const bool counted = c.routeDetailed && !chip.detail.empty();  // (the scheme alone: no figure after the name)
+        const bool counted = live && !chip.detail.empty();  // (the scheme alone: no figure after the name)
         float w = 32 + std::ceil(TextWidth(chip.text, body_.get())) + 12 +
                   (counted ? 8 + std::ceil(TextWidth(chip.detail, caption_.get())) : 0.0f);
         float h = kTag;
@@ -2264,10 +2293,13 @@ class Painter {
         // The number after a list's name: how many it has shut since the connection came up.
         if ((chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies ||
              chip.kind == UiChip::Kind::Trackers || chip.kind == UiChip::Kind::Malware) &&
-            c.routeDetailed && !chip.detail.empty()) {
+            live && !chip.detail.empty()) {
           tag.tip += L"\nЦифра рядом: сколько обращений закрыто с подключения — " + chip.detail + L".";
         }
-        tag.detail = c.routeDetailed ? chip.detail : std::wstring();
+        if (off) {
+          tag.tip += L"\nСейчас VPN выключен: всё идёт напрямую.";
+        }
+        tag.detail = live ? chip.detail : std::wstring();
         tag.stacked = at.bottom - at.top > kTag + 0.5f;
         tag.text2 = chip.icon;
         tag.logo = chip.logo;
@@ -2362,7 +2394,7 @@ class Painter {
       }
       // What goes this way just now, off the log: a few sites, the rest counted; "ещё N" opens the log of them.
       const auto& now = c.routeNow.at(static_cast<std::size_t>(id));
-      if (c.routeDetailed && !now.empty()) {
+      if (live && !now.empty()) {
         const std::wstring prefix = id == kBucketBlock ? L"сейчас закрыто: " : L"сейчас: ";
         const std::size_t total = now.size() + c.routeNowMore.at(static_cast<std::size_t>(id));
         std::size_t shown = now.size();
@@ -2400,14 +2432,15 @@ class Painter {
       Item route = Make(Kind::Route, {x0, cy - kLineTurn, x0 + kSchemeIndent - 4, cy + kLineTurn});
       route.rail = id;
       route.sub = id == kBucketBlock ? kRouteEnd : kRouteStation;
-      route.checked = c.routeDetailed && !now.empty();  // sites went this way just now: its dots run (DrawRoute)
+      route.checked = live && !now.empty();  // sites went this way just now: its dots run (DrawRoute)
+      route.quiet = off;
       routes.push_back(std::move(route));
       restY = cy;
       y = foot + 20;
     }
     // What the client worked out itself in «в обход блокировок»: the sites its first way
     // couldn't open and where they go now - a line each, under the board.
-    if (c.routeDetailed && r.smart && !r.learned.empty()) {
+    if (live && r.smart && !r.learned.empty()) {
       const float nameWidth = std::ceil(TextWidth(L"Клиент решил сам", heading_.get()));
       Item head = Make(Kind::Heading, {left, y, left + nameWidth + 4, y + 28}, L"Клиент решил сам");
       head.action = ItemAction::Hint;
@@ -2429,7 +2462,8 @@ class Painter {
     Item spine = Make(Kind::Route, {x0, nodeY, x0 + kSchemeIndent - 4, restY - kLineTurn});
     spine.rail = mode;
     spine.sub = kRouteSpine;
-    spine.checked = c.routeDetailed;  // "Подробно": the traffic runs down it
+    spine.checked = live;  // "Подробно": the traffic runs down it
+    spine.quiet = off;
     routes.insert(routes.begin(), std::move(spine));
     l.items.insert(l.items.begin() + static_cast<std::ptrdiff_t>(lines), std::make_move_iterator(routes.begin()),
                    std::make_move_iterator(routes.end()));
@@ -6094,7 +6128,8 @@ class Painter {
   // its turn to an arrow by the way's name - the block's into the metro's "no entry" sign, a ring with a bar
   // (his "в блок я бы взял из метро знак"). Steady: the pointer does not light it. The trunk goes first
   // (Board), the branches over it. Item::checked ("Подробно"): the traffic, white dots running down the
-  // trunk, and along a branch that carried some just now (its "сейчас:" has sites).
+  // trunk, and along a branch that carried some just now (its "сейчас:" has sites). Item::quiet: the VPN is
+  // off and none of it works - the lines faint, the node an empty ring.
   void DrawRoute(const Canvas& k, const Item& it) const {
     const D2D1_RECT_F r = it.rect;
     const float x = r.left + kLineX;
@@ -6106,7 +6141,9 @@ class Painter {
     const float sign = end - 2;        // its middle
     const float y = (r.top + r.bottom) / 2;  // a branch's way: the name's line
     const D2D1_COLOR_F hole = FromColorRef(ui::kWindowColor);
-    const D2D1_COLOR_F ink = trunk ? FromColorRef(ui::kSecondaryText, 0.42f) : FromColorRef(BucketColor(it.rail));
+    const D2D1_COLOR_F ink = trunk      ? FromColorRef(ui::kSecondaryText, it.quiet ? 0.22f : 0.42f)
+                             : it.quiet ? FromColorRef(BucketColor(it.rail), 0.38f)
+                                        : FromColorRef(BucketColor(it.rail));
     wil::com_ptr<ID2D1PathGeometry> path;
     wil::com_ptr<ID2D1GeometrySink> sink;
     if (SUCCEEDED(d2d_->CreatePathGeometry(path.put())) && SUCCEEDED(path->Open(sink.put()))) {
@@ -6126,7 +6163,11 @@ class Painter {
         }
       }
     }
-    if (trunk) {  // the mode's node at the top: a faint halo, a disc, a hole - the hand's white, not a way's
+    if (trunk && it.quiet) {  // off: an empty ring, nothing in it
+      const D2D1_POINT_2F node{x, r.top};
+      k.t->FillEllipse(D2D1::Ellipse(node, 5.5f, 5.5f), k.Color(hole));
+      k.t->DrawEllipse(D2D1::Ellipse(node, 5.0f, 5.0f), k.Color(FromColorRef(ui::kSecondaryText, 0.6f)), 1.5f);
+    } else if (trunk) {  // the mode's node at the top: a faint halo, a disc, a hole - the hand's white, not a way's
       const D2D1_POINT_2F node{x, r.top};
       k.t->FillEllipse(D2D1::Ellipse(node, 9, 9), k.Color(FromColorRef(ui::kLit, 0.14f)));
       k.t->FillEllipse(D2D1::Ellipse(node, 5.5f, 5.5f), k.Color(FromColorRef(ui::kLit)));
@@ -6702,9 +6743,9 @@ struct MainWindow::Impl {
     KickVitrine();
   }
 
-  // The routing scheme's traffic runs while it's shown in full ("Подробно") on screen, animations on.
+  // The routing scheme's traffic runs while it's shown in full ("Подробно") on screen, animations on, the VPN on.
   bool Flowing() const {
-    return Motion() && page == UiPage::Routing && content.routeDetailed && hwnd != nullptr &&
+    return Motion() && page == UiPage::Routing && content.routeDetailed && content.on && hwnd != nullptr &&
            IsWindowVisible(hwnd) != FALSE && IsIconic(hwnd) == FALSE;
   }
   void KickFlow() {

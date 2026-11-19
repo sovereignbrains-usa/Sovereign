@@ -316,6 +316,14 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\routing-warp-off-narrow.png");
     routed.routing.warp = true;
     routed.routing.warpState = L"напрямую: через VPN не прошёл, пробуем «AnyTLS-Reality | Frankfurt №1»";
+    // The VPN off (20.11.2026): an amber line over the scheme and a key to turn it on, the lines faint,
+    // the node an empty ring, nothing "сейчас:" and no counts though "Подробно" is on.
+    routed.on = false;
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96,
+                                              dir + L"\\routing-off.png");
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96,
+                                              dir + L"\\routing-off-narrow.png");
+    routed.on = true;
     // "В обход блокировок" (the only one with «напрямую» since 0.6.19): its key on in the mode's switch,
     // the caption under it says so; the line's end says the blocked go through the VPN. Nothing named «Напрямую» is
     // hidden - it goes there without the race; the services the client sends through the VPN by
@@ -1157,7 +1165,7 @@ int LayoutTest(const std::wstring& dir) {
   UiContent content = SampleContent();
   content.checks = SampleChecks();
   // The variants live on the heap: fifteen UiContents on the stack pass /analyze's 16 KB (C6262).
-  std::vector<UiContent> variants(16, content);
+  std::vector<UiContent> variants(17, content);
   UiContent& routed = variants[0];
   // WARP on, with a site of its own: its card lists it, "Свои правила" doesn't.
   routed.routing.rules = {{L"qwen.ai, qwenlm.ai, alicdn.com, aliyun.com", L"напрямую"},
@@ -1250,12 +1258,16 @@ int LayoutTest(const std::wstring& dir) {
   lanNarrow.routing.blockAds = true;
   lanNarrow.blockedJustNow = 3;
   lanNarrow.blockedLately = {L"mobile.events.data.microsoft.com"};
+  // The routing page with the VPN off: the amber line and its key over the scheme.
+  UiContent& routedOff = variants[16];
+  routedOff = routed;
+  routedOff.on = false;
   struct Page {
     UiPage page;
     const wchar_t* name;
     const UiContent* content;
   };
-  const std::array<Page, 25> pages = {{{UiPage::Overview, L"overview", &content},
+  const std::array<Page, 26> pages = {{{UiPage::Overview, L"overview", &content},
                                       {UiPage::Overview, L"overview-troubled", &troubled},
                                       {UiPage::Logs, L"logs-troubled", &troubled},
                                       {UiPage::Servers, L"servers", &content},
@@ -1264,6 +1276,7 @@ int LayoutTest(const std::wstring& dir) {
                                       {UiPage::Settings, L"settings", &content},
                                       {UiPage::Profile, L"profile", &content},
                                       {UiPage::Routing, L"routing", &routed},
+                                      {UiPage::Routing, L"routing-off", &routedOff},
                                       {UiPage::Overview, L"question", &asked},
                                       {UiPage::Profile, L"question-date", &dated},
                                       {UiPage::Subscription, L"relay-open", &relayOpen},

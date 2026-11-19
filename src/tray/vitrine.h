@@ -145,6 +145,9 @@ struct VitrineFrame {
   float mendFlash = -1;    // seconds since the glass mended, for its soft flash; <0 none
   vitrine::Opened opened;
   float flow = 1;          // the spiral's and the spotlight's strength (weak while it reconnects)
+  double flowClock = 0;    // seconds on the spiral's own clock: it slows while it reconnects
+  float hover = -1;        // 0..1: the pointer on the case, eased; <0: the window's, at once
+  float press = -1;        // 0..1: the case pressed, eased; <0: the window's, at once
   float danger = 0;        // 0..1: the error's red
   float dim = 0;           // 0..1: the service down
   vitrine::Point shake;
@@ -166,12 +169,25 @@ class Vitrine {
   bool Moving(double now) const;
   bool Known() const { return known_; }
   Display Shown() const { return display_; }
+  // The pointer on the case and its press at `now`, eased in and out (with
+  // `motion` false at once); true if either changed.
+  bool Touch(bool hovered, bool pressed, double now, bool motion);
 
  private:
   enum class Glass : std::uint8_t { Whole, Cracking, Broken, Mending };
+  // A value eased from one end to the other over its own time.
+  struct Ease {
+    float from = 0, to = 0;
+    double at = -100;
+    float span = 0;
+    float At(double now) const;
+    bool Moving(double now) const { return now - at < span; }
+    bool Set(float value, double now, float in, float out);
+  };
 
   float DangerAt(double now) const;
   float FlowAt(double now) const;
+  double FlowClock(double now) const;
   float DimAt(double now) const;
   float MendTau(double now) const;  // the shards' time flying back; <= 0: whole again
   double MendedAt() const;
@@ -204,6 +220,8 @@ class Vitrine {
   double dangerAt_ = -100;
   float flowFrom_ = 1, flowTo_ = 1;
   double flowAt_ = -100;
+  double flowClock_ = -100;  // FlowClock at flowAt_
+  Ease hover_, press_;
   float dimFrom_ = 0, dimTo_ = 0;
   double dimAt_ = -100;
 };

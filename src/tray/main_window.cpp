@@ -716,6 +716,7 @@ struct Particle {
 struct LiveTraffic {
   std::vector<Particle> particles;
   std::array<float, 3> owed{};  // dots due a stream (Vpn, Warp, Direct), the fraction kept
+  std::array<float, 4> lane{};  // where a stream's (Vpn, Warp, Direct, Blocked) next dot goes across, 0..1
   std::uint64_t blockedSeen = 0;
   bool blockedKnown = false;
   std::uint32_t seed = 0x2545F491u;
@@ -723,6 +724,15 @@ struct LiveTraffic {
   float Random() {  // 0..1
     seed = seed * 1664525u + 1013904223u;
     return static_cast<float>(seed >> 8) / 16777216.0f;
+  }
+  // The next lane across a stream: a golden-ratio step, so the dots spread
+  // evenly over its width and never bunch - a random one each looked like
+  // dust thrown at the box (19.11.2026).
+  float Lane(Stream stream) {
+    float& at = lane.at(std::min<std::size_t>(static_cast<std::size_t>(stream), lane.size() - 1));
+    at += 0.618034f;
+    at -= std::floor(at);
+    return at * 2 - 1;
   }
 };
 
@@ -735,9 +745,10 @@ float DotsPerSecond(double rate) {
   return rate < 64 ? 0.0f : std::min(160.0f, 3 + 26 * std::log2(1 + static_cast<float>(rate) / 32768));
 }
 
-// A dot's size: bigger as the stream swells, DIPs.
-float DotSize(double rate, float random) {
-  return 1.2f + 1.2f * random + std::min(1.2f, std::log2(1 + static_cast<float>(rate) / 262144) * 0.5f);
+// A dot's size: bigger as the stream swells, DIPs - the same for all of a
+// stream's dots at once, so it reads as one flow, not a scatter.
+float DotSize(double rate) {
+  return 1.5f + std::min(1.0f, std::log2(1 + static_cast<float>(rate) / 262144) * 0.4f);
 }
 
 // How fast: a trip of a little over two seconds, quicker as the rate grows.
@@ -806,8 +817,9 @@ void StepLive(LiveTraffic& live, const UiContent& c, bool on, float dt, D2D1_REC
 
   const auto spawn = [&](Stream stream, double rate) {
     if (live.particles.size() < kMaxParticles) {
-      live.particles.push_back({.stream = stream, .t = 0, .speed = DotSpeed(rate) * (0.85f + 0.3f * live.Random()),
-                                .offset = live.Random() * 2 - 1, .size = DotSize(rate, live.Random()), .at = {}, .v = {}});
+      // A stream's dots keep one pace and evenly spread lanes: a river, not a swarm.
+      live.particles.push_back({.stream = stream, .t = 0, .speed = DotSpeed(rate), .offset = live.Lane(stream),
+                                .size = DotSize(rate), .at = {}, .v = {}});
     }
   };
   const std::array<std::pair<Stream, double>, 3> streams = {
@@ -6131,9 +6143,10 @@ class Painter {
           }
         }
       }
-      color.a = alpha * 0.16f;
-      k.t->FillEllipse(D2D1::Ellipse(at, p.size * 2.8f, p.size * 2.8f), k.Color(color));
-      color.a = alpha * 0.95f;
+      // A quiet halo: a glow round each read as cheap neon next to the box's own light.
+      color.a = alpha * 0.1f;
+      k.t->FillEllipse(D2D1::Ellipse(at, p.size * 2.4f, p.size * 2.4f), k.Color(color));
+      color.a = alpha * 0.8f;
       k.t->FillEllipse(D2D1::Ellipse(at, p.size, p.size), k.Color(color));
     }
   }
@@ -6590,7 +6603,7 @@ bool CopyToClipboard(HWND owner, const std::wstring& text) {
 }
 
 // The case mid-motion, for a snapshot: "off@0,starting!@1,on@4;4.3" - the states at their seconds
-// ("!": a click struck the glass), then the moment drawn.
+// ("!": a click struck the glass; "hover", "press", "leave": the pointer on the case), then the moment drawn.
 VitrineFrame VitrineScript(std::wstring_view script) {
   const std::size_t semicolon = script.find(L';');
   THROW_HR_IF(E_INVALIDARG, semicolon == std::wstring_view::npos);
@@ -6610,6 +6623,10 @@ VitrineFrame VitrineScript(std::wstring_view script) {
     const std::size_t at = step.find(L'@');
     THROW_HR_IF(E_INVALIDARG, at == std::wstring_view::npos);
     std::wstring_view name = step.substr(0, at);
+    if (name == L"hover" || name == L"press" || name == L"leave") {
+      v.Touch(name != L"leave", name == L"press", seconds(step.substr(at + 1)), true);
+      continue;
+    }
     std::optional<vitrine::Point> hit;
     if (name.ends_with(L'!')) {
       name.remove_suffix(1);
@@ -8610,7 +8627,12 @@ struct MainWindow::Impl {
       }
       target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
     }
-    in.vitrine = showcase.Known() ? std::optional(VitrineAt(GetTickCount64())) : std::nullopt;
+    const ULONGLONG now = GetTickCount64();
+    // The pointer on the case and the press ease in and out: frames while they do.
+    if (showcase.Touch(IsKind(in.hover, Kind::Power), IsKind(in.pressed, Kind::Power), Clock(now), Motion())) {
+      KickVitrine();
+    }
+    in.vitrine = showcase.Known() ? std::optional(VitrineAt(now)) : std::nullopt;
     target->BeginDraw();
     painter.Draw(target.get(), layout, content, in, log, &live);
     if (target->EndDraw() == D2DERR_RECREATE_TARGET) {

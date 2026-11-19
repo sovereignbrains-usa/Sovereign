@@ -297,21 +297,37 @@ Shatter BreakGlass(Point impact, std::uint32_t seed) {
 }
 
 Opened AfterBreak(double u, float k) {
+  // Closing (k going down), the parts go in turn - the spiral back into the
+  // box, the flaps, then the box down onto its plinth; opening again, the
+  // other way round. Each takes its own stretch of k.
   const double kk = k;
+  const double kLift = Smooth(k / 0.6f);
+  const double kOpen = Smooth((k - 0.2f) / 0.6f);
+  const double kStream = Smooth((k - 0.45f) / 0.55f);
+  // The light comes at once; the box has weight: it starts up from rest
+  // (critically damped), then floats, bobbing.
   const double e = (1 - std::exp(-u * 3.2)) * kk;
-  const double bob = (u > 0.9 ? std::sin((u - 0.9) * 2.3) * std::min(1.0, u - 0.9) : 0.0) * kk;
+  const double w = 4.2 * u;
+  const double rise = 1 - (1 + w) * std::exp(-w);
+  const double bob = u > 0.9 ? std::sin((u - 0.9) * 2.3) * std::min(1.0, u - 0.9) : 0.0;
   const double burst = std::exp(-u * 4) * std::min(1.0, u * 14) * kk;
-  const double ou = std::max(0.0, u - 0.04);
-  const double s0 = std::clamp((u - 0.22) / 0.5, 0.0, 1.0);
+  // The flaps: a spring let go from rest - slow to start, a little past open, back.
+  constexpr double kZeta = 0.55;
+  constexpr double kOmega = 8.5;
+  const double damped = kOmega * std::sqrt(1 - kZeta * kZeta);
+  const double ou = std::max(0.0, u - 0.06);
+  const double swing = 1 - std::exp(-kZeta * kOmega * ou) *
+                               (std::cos(damped * ou) + kZeta * kOmega / damped * std::sin(damped * ou));
+  const double s0 = std::clamp((u - 0.3) / 0.8, 0.0, 1.0);
   Opened o;
-  o.lift = static_cast<float>(12 * e + 2.2 * bob);
+  o.lift = static_cast<float>((12 * rise + 2.2 * bob) * kLift);
   o.pool = static_cast<float>((0.28 + 0.22 * e) * kk);
   o.cone = static_cast<float>((e + 0.9 * burst) * 0.8);
   o.motes = static_cast<float>(e);
   o.rim = static_cast<float>(0.25 * e);
   o.plinth = static_cast<float>(1 - e);
-  o.open = static_cast<float>(kk * (1 - std::exp(-ou * 6.5) * std::cos(ou * 10)));
-  o.stream = static_cast<float>(kk * s0 * s0 * (3 - 2 * s0));
+  o.open = static_cast<float>(kOpen * swing);
+  o.stream = static_cast<float>(kStream * s0 * s0 * (3 - 2 * s0));
   return o;
 }
 
@@ -337,7 +353,7 @@ using vitrine::kHold;
 constexpr float kCrackFirst = 140;  // units the cracks run at the blow
 constexpr float kCrackMore = 220;   // and creep on while it connects
 constexpr float kHealFade = 0.45f;  // cracks fading when it gave up before breaking
-constexpr float kMendClose = 0.55f; // the box sinking and closing
+constexpr float kMendClose = 0.8f;  // the box closing and sinking (AfterBreak's parts in turn)
 constexpr float kMendDelay = 0.25f; // before the shards start back
 constexpr float kMendRate = 1.6f;   // their flight's seconds per second, backwards
 constexpr float kMendCap = 1.25f;   // from no further than this (all faded by then)
@@ -345,6 +361,11 @@ constexpr float kMendFade = 0.3f;   // the whole glass fading in over them
 constexpr float kMendGlow = 0.5f;   // its soft flash
 constexpr float kTint = 0.45f;      // the error's red, the dimming, the flow easing
 constexpr float kFlowWeak = 0.3f;   // the spiral while it reconnects
+constexpr float kFlowPace = 0.35f;  // its speed at no flow (all of it at 1): it falters, not stops
+constexpr float kHoverIn = 0.2f;    // the pointer coming onto the case, leaving it
+constexpr float kHoverOut = 0.35f;
+constexpr float kPressIn = 0.07f;   // the press taking, letting go
+constexpr float kPressOut = 0.3f;
 constexpr float kFlightEnd = 3.6f;  // the last dust gone
 constexpr double kNever = -1e9;
 // A flight at rest on: the box up, open, between two bobs.
@@ -388,6 +409,7 @@ VitrineFrame VitrineRest(Display display) {
   VitrineFrame f;
   f.display = display;
   f.idle = 1.3;
+  f.flowClock = f.idle;
   f.shards = rest;
   switch (display) {
     case Display::On:
@@ -414,6 +436,37 @@ VitrineFrame VitrineRest(Display display) {
 float Vitrine::DangerAt(double now) const { return Eased(dangerFrom_, dangerTo_, dangerAt_, now); }
 float Vitrine::FlowAt(double now) const { return Eased(flowFrom_, flowTo_, flowAt_, now); }
 float Vitrine::DimAt(double now) const { return Eased(dimFrom_, dimTo_, dimAt_, now); }
+
+// The spiral's clock runs at its speed, kFlowPace at no flow and whole at
+// full: the flow's easing integrated, so a change of speed never jumps it.
+double Vitrine::FlowClock(double now) const {
+  const double d = std::max(0.0, now - flowAt_);
+  const double x = std::min(1.0, d / kTint);
+  const double eased = kTint * (x * x * x - x * x * x * x / 2) + std::max(0.0, d - kTint);  // Smooth01's integral
+  const double flowed = flowFrom_ * d + (flowTo_ - flowFrom_) * eased;
+  return flowClock_ + kFlowPace * d + (1 - kFlowPace) * flowed;
+}
+
+float Vitrine::Ease::At(double now) const {
+  return span <= 0 ? to : from + (to - from) * EaseOut(static_cast<float>(now - at) / span);
+}
+
+bool Vitrine::Ease::Set(float value, double now, float in, float out) {
+  if (value == to) {
+    return false;
+  }
+  from = At(now);
+  to = value;
+  at = now;
+  span = value > from ? in : out;
+  return true;
+}
+
+bool Vitrine::Touch(bool hovered, bool pressed, double now, bool motion) {
+  const bool hoverMoved = hover_.Set(hovered ? 1.0f : 0.0f, now, motion ? kHoverIn : 0, motion ? kHoverOut : 0);
+  const bool pressMoved = press_.Set(pressed ? 1.0f : 0.0f, now, motion ? kPressIn : 0, motion ? kPressOut : 0);
+  return hoverMoved || pressMoved;
+}
 
 float Vitrine::MendTau(double now) const {
   return mendTau_ - kMendRate * std::max(0.0f, static_cast<float>(now - mendAt_) - kMendDelay);
@@ -468,6 +521,7 @@ void Vitrine::To(Display display, double now, std::optional<vitrine::Point> hit,
     dimFrom_ = dimTo_ = dim;
     flowFrom_ = flowTo_ = 1;
     dangerAt_ = dimAt_ = flowAt_ = now - 100;
+    flowClock_ = flowAt_;  // the spiral's clock on the window's
     flashAt_ = kNever;
     healAt_ = -1;
     reopenAt_ = -1;
@@ -564,6 +618,7 @@ void Vitrine::To(Display display, double now, std::optional<vitrine::Point> hit,
 
   const float flow = display == Display::Starting && glass_ == Glass::Broken ? kFlowWeak : 1.0f;
   if (flow != flowTo_) {
+    flowClock_ = FlowClock(now);
     flowFrom_ = FlowAt(now);
     flowTo_ = flow;
     flowAt_ = now;
@@ -579,6 +634,9 @@ VitrineFrame Vitrine::At(double now) const {
   f.idle = now;
   f.danger = DangerAt(now);
   f.flow = FlowAt(now);
+  f.flowClock = FlowClock(now);
+  f.hover = hover_.At(now);
+  f.press = press_.At(now);
   f.dim = DimAt(now);
   f.shards = shatter_;
   const double sinceFlash = now - flashAt_;
@@ -652,7 +710,8 @@ bool Vitrine::Moving(double now) const {
     return false;
   }
   const auto since = [now](double at) { return now - at; };
-  if (since(dangerAt_) < kTint || since(flowAt_) < kTint || since(dimAt_) < kTint || since(flashAt_) < 0.5) {
+  if (since(dangerAt_) < kTint || since(flowAt_) < kTint || since(dimAt_) < kTint || since(flashAt_) < 0.5 ||
+      hover_.Moving(now) || press_.Moving(now)) {
     return true;
   }
   switch (glass_) {
@@ -712,28 +771,34 @@ float Wave(double x) { return static_cast<float>(std::sin(x)); }
 
 float Phase(double time, double rate) { return static_cast<float>(std::fmod(time * rate, 1.0)); }
 
-// The specks of dust in the spotlight's beam: their paths fixed, their place a function of time.
+// The specks of dust in the spotlight's beam: three depths, each spread evenly
+// (a low-discrepancy sequence: no clumps, no holes), all on the same slow air.
+constexpr int kMoteDepths = 3;
+constexpr int kMotesPerDepth = 22;
+constexpr std::array<float, kMoteDepths> kMoteFall{2.6f, 3.8f, 5.2f};  // units a second, far to near
+constexpr std::array<float, kMoteDepths> kMoteSize{0.9f, 1.3f, 1.9f};
+constexpr std::array<float, kMoteDepths> kMoteGain{0.45f, 0.7f, 0.9f};
+constexpr float kMoteTop = 20;
+constexpr float kMoteRange = 380;
+
 struct Mote {
-  float x = 0, y = 0, speed = 0, rate = 0, phase = 0, sway = 0, size = 0, twinkle = 0;
-  bool front = false;
+  float across = 0, down = 0, phase = 0;  // 0..1 over the beam's width and its height; the glint's
+  std::size_t depth = 0;
 };
+
+float Fraction(double x) { return static_cast<float>(x - std::floor(x)); }
 
 const std::vector<Mote>& Motes() {
   static const std::vector<Mote> motes = [] {
-    Rng r(99);
     std::vector<Mote> all;
-    all.reserve(150);
-    for (int i = 0; i < 150; ++i) {
+    all.reserve(static_cast<std::size_t>(kMoteDepths) * static_cast<std::size_t>(kMotesPerDepth));
+    for (int n = 0; n < kMoteDepths * kMotesPerDepth; ++n) {
+      const double k = n + 1;
       Mote m;
-      m.x = kCx + (r() - 0.5f) * 400;
-      m.y = 30 + r() * 360;
-      m.speed = 5 + r() * 12;
-      m.rate = 0.4f + r() * 1.1f;
-      m.phase = r() * 6.28f;
-      m.sway = 3 + r() * 10;
-      m.size = 0.8f + r() * 1.3f;
-      m.twinkle = 1 + r() * 2;
-      m.front = i % 4 == 0;
+      m.across = Fraction(0.5 + 0.7548776662 * k);  // R2: the plastic number's
+      m.down = Fraction(0.5 + 0.5698402910 * k);
+      m.phase = Fraction(0.5 + 0.6180339887 * k) * kTwoPi;
+      m.depth = static_cast<std::size_t>(n / kMotesPerDepth);
       all.push_back(m);
     }
     return all;
@@ -920,6 +985,41 @@ std::vector<std::uint8_t> Beam(UINT w, UINT h) {
   return out;
 }
 
+// A shaft of the light scattered in the air over the open box, kShaftWidth x
+// kShaftHeight units: narrow at its foot in the box, wider and gone further up.
+constexpr float kShaftWidth = 110;
+constexpr float kShaftHeight = 260;
+
+std::vector<std::uint8_t> Shaft(UINT w, UINT h) {
+  std::vector<std::uint8_t> out(static_cast<std::size_t>(w) * h * 4);
+  std::uint32_t noise = 0x2545F491u;
+  for (std::size_t j = 0; j < h; ++j) {
+    const float up = 1 - (static_cast<float>(j) + 0.5f) / static_cast<float>(h);  // 0 at its foot
+    const float half = 0.38f + 0.62f * up;
+    const float along = Smooth01(up / 0.14f) * std::pow(1 - up, 1.6f);
+    for (std::size_t i = 0; i < w; ++i) {
+      const float dx = std::abs((static_cast<float>(i) + 0.5f) / static_cast<float>(w) * 2 - 1) / half;
+      float a = 0;
+      if (dx < 1) {
+        const float p = 1 - dx * dx;
+        a = 0.2f * p * p * along;
+      }
+      noise = noise * 1664525u + 1013904223u;
+      const float dither = static_cast<float>(noise >> 8) / 16777216.0f - 0.5f;
+      const float v = std::clamp(a * 255 + dither, 0.0f, 255.0f);
+      const std::size_t o = (j * w + i) * 4;
+      out[o] = Byte(v * 160 / 255);
+      out[o + 1] = Byte(v * 216 / 255);
+      out[o + 2] = Byte(v);
+      out[o + 3] = Byte(v);
+    }
+  }
+  return out;
+}
+
+// The light in the box breathing, slowly and hardly: two waves that don't repeat together.
+float Breath(double idle) { return 0.93f + 0.04f * Wave(idle * 1.21) + 0.03f * Wave(idle * 0.67 + 1.3); }
+
 wil::com_ptr<ID2D1Bitmap> Bitmap(ID2D1RenderTarget* t, const std::vector<std::uint8_t>& pixels, UINT w, UINT h) {
   wil::com_ptr<ID2D1Bitmap> bitmap;
   if (pixels.size() < static_cast<std::size_t>(w) * h * 4) {
@@ -983,11 +1083,12 @@ struct VitrineArt::Impl {
   wil::com_ptr<ID2D1LinearGradientBrush> plinthShade, plaqueBrass, rimBrass, gloss, insideLeftShade, insideRightShade,
       warm, flapShadow;
   std::array<wil::com_ptr<ID2D1LinearGradientBrush>, 4> flaps;
-  wil::com_ptr<ID2D1RadialGradientBrush> poolWarm, poolRed, shadow, floorGlow, bloom, insideGlow, mouthBloom, flash;
+  wil::com_ptr<ID2D1RadialGradientBrush> poolWarm, poolRed, shadow, floorGlow, bloom, insideGlow, insideCore, mouthBloom,
+      flash;
   std::array<wil::com_ptr<ID2D1LinearGradientBrush>, kShardLooks * kShardHeats> shardFill;
 
   UINT pixels = 0;
-  wil::com_ptr<ID2D1Bitmap> box, body, lightClosed, lightOpen, beam;
+  wil::com_ptr<ID2D1Bitmap> box, body, lightClosed, lightOpen, beam, shaft;
   wil::com_ptr<ID2D1BitmapBrush> lid;
   UINT pad = 0;  // the opened picture's pixels past the scene on each side
   wil::com_ptr<ID2D1Bitmap> openBox, lightOpenBox;
@@ -1069,6 +1170,9 @@ struct VitrineArt::Impl {
                    {kCx, kBoxTop + kBoxH * 0.5f}, 330, 280.5f);
     insideGlow = Radial(target, {{0, Rgba(255, 214, 150, 0.95f)}, {0.4f, Rgba(255, 178, 92, 0.42f)}, {1, Rgba(255, 160, 70, 0)}},
                         {263, 196}, 172.5f, 120);
+    // Its source deep in the box, under the front lip: the walls lit most low down.
+    insideCore = Radial(target, {{0, Rgba(255, 244, 222, 0.75f)}, {0.4f, Rgba(255, 212, 150, 0.3f)}, {1, Rgba(255, 180, 100, 0)}},
+                        {263, 214}, 96, 54);
     mouthBloom = Radial(target, {{0, Rgba(255, 226, 170, 0.30f)}, {0.45f, Rgba(255, 200, 130, 0.12f)}, {1, Rgba(255, 190, 110, 0)}},
                         {263, 140}, 230, 287.5f);
     flash = Radial(target, {{0, Rgba(255, 250, 240, 1)}, {0.35f, Rgba(255, 238, 210, 0.38f)}, {1, Rgba(255, 230, 190, 0)}});
@@ -1104,6 +1208,9 @@ struct VitrineArt::Impl {
     const auto bw = static_cast<UINT>(std::max(2L, std::lround(kBeamWidth * perUnit)));
     const auto bh = static_cast<UINT>(std::max(2L, std::lround(kBeamHeight * perUnit)));
     beam = Bitmap(owner.get(), Beam(bw, bh), bw, bh);
+    const auto sw = static_cast<UINT>(std::max(2L, std::lround(kShaftWidth * perUnit)));
+    const auto sh = static_cast<UINT>(std::max(2L, std::lround(kShaftHeight * perUnit)));
+    shaft = Bitmap(owner.get(), Shaft(sw, sh), sw, sh);
     lid.reset();
     if (box) {
       owner->CreateBitmapBrush(box.get(),
@@ -1252,25 +1359,47 @@ struct VitrineArt::Impl {
     }
   }
 
-  void DrawMotes(float a, double time, bool front) const {
+  // The far depths behind the box, the near one in front. They settle slowly
+  // on one air, fade by the beam's own profile (none pops at its edge), and
+  // over the open box take its warmth (`warmth`, the flow's).
+  void DrawMotes(float a, float warmth, double time, bool front) const {
     if (a <= 0.003f) {
       return;
     }
     const Lighter add(dc.get());
+    const D2D1_COLOR_F dust = Rgba(255, 240, 210);
+    const D2D1_COLOR_F lit = Rgba(255, 206, 140);
     for (const Mote& m : Motes()) {
-      if (m.front != front) {
+      const std::size_t d = m.depth;
+      if ((d == kMoteDepths - 1) != front) {
         continue;
       }
-      const float y = m.y - static_cast<float>(std::fmod(time * m.speed, 340.0));
-      const float yy = y < 30 ? y + 340 : y;
-      const float x = m.x + Wave(time * m.rate + m.phase) * m.sway;
-      const float half = (125 + 150 * (yy / (kOy + 40))) * 0.85f;
-      if (std::abs(x - kCx) > half || yy > kOy + 10) {
+      const float y = kMoteTop + Fraction(m.down + time * kMoteFall[d] / kMoteRange) * kMoteRange;
+      const float half = (125 + 165 * (y - kBeamTop) / kBeamHeight) * 0.9f;
+      const float x0 = kCx + (m.across * 2 - 1) * half;
+      const auto dd = static_cast<float>(d);
+      const float drift =
+          (7 * Wave(time * 0.21 + y * 0.011 + dd * 0.7) + 3 * Wave(time * 0.13 + x0 * 0.017)) * (0.6f + 0.2f * dd);
+      const float x = x0 + drift;
+      const float across = std::abs(x - kCx) / half;
+      if (across >= 1) {
         continue;
       }
-      const float alpha = a * (0.15f + 0.55f * (0.5f + 0.5f * Wave(time * m.twinkle + m.phase)));
-      t->FillRectangle(D2D1::RectF(x - m.size / 2, yy - m.size / 2, x + m.size / 2, yy + m.size / 2),
-                       Ink(Rgba(255, 240, 210, alpha)));
+      const float profile = (1 - across * across) * (1 - across * across);
+      const float ends = Smooth((y - kMoteTop) / 60) * Smooth((kOy + 10 - y) / 50);
+      const float glint = 0.8f + 0.2f * Wave(time * 0.35 + m.phase);
+      const float alpha = std::min(1.0f, a * kMoteGain[d] * profile * ends * glint);
+      if (alpha < 0.01f) {
+        continue;
+      }
+      const float aside = (x - 263) / 120;  // from the column over the box
+      const float heat = std::clamp(warmth * std::exp(-aside * aside) * Smooth((210 - y) / 80), 0.0f, 1.0f);
+      D2D1_COLOR_F ink = Mix(dust, lit, heat);
+      const float r = kMoteSize[d] / 2;
+      ink.a = alpha * 0.18f;
+      t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), r * 2, r * 2), Ink(ink));
+      ink.a = alpha;
+      t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, y), r, r), Ink(ink));
     }
   }
 
@@ -1312,7 +1441,8 @@ struct VitrineArt::Impl {
     }
   }
 
-  void Glass(float a, float danger, double idle, bool hovered, bool pressed) const {
+  // `hover`, `press`: 0..1, eased.
+  void Glass(float a, float danger, double idle, float hover, float press) const {
     if (a <= 0) {
       return;
     }
@@ -1327,10 +1457,10 @@ struct VitrineArt::Impl {
       const Point dir{std::cos(-0.35f) * 40, std::sin(-0.35f) * 40};
       gloss->SetStartPoint(D2D1::Point2F(x - dir.x, kOy - dir.y));
       gloss->SetEndPoint(D2D1::Point2F(x + dir.x, kOy + dir.y));
-      gloss->SetOpacity(std::min(1.0f, a * (hovered ? 1.7f : 1.0f) * (pressed ? 0.6f : 1.0f)));
+      gloss->SetOpacity(std::min(1.0f, a * (1 + 0.6f * hover) * (1 - 0.4f * press)));
       Fill(hood.get(), gloss.get());
     }
-    const float edge = (pressed ? 0.55f : (hovered ? 1.0f : 0.8f)) * a;
+    const float edge = std::clamp(0.8f + 0.2f * hover - 0.25f * press, 0.0f, 1.0f) * a;
     const D2D1_COLOR_F ink = Mix(Rgba(235, 245, 255, edge), red, tint);
     Stroke(hood.get(), Ink(ink), 1.6f * zk, round.get());
     Line(kGC, kGUL, ink, 1.6f * zk, round.get());
@@ -1552,76 +1682,95 @@ struct VitrineArt::Impl {
     Line(Add(a, o), Add(b, o), Rgba(236, 222, 196, 0.28f + 0.4f * lit), 1.2f * zk);
   }
 
-  void Interior(float gl) const {
-    Fill(insideLeft.get(), insideLeftShade.get());
-    Fill(insideRight.get(), insideRightShade.get());
+  // The light inside: a soft halo over the walls and its hot source deep in
+  // the box, both breathing slowly.
+  void Inner(float gl, double idle) const {
+    if (gl <= 0) {
+      return;
+    }
     const Lighter add(dc.get());
+    const float b = std::min(1.0f, gl * Breath(idle));
     if (insideGlow) {
-      insideGlow->SetOpacity(std::min(1.0f, gl));
+      insideGlow->SetOpacity(b);
       Fill(mouth.get(), insideGlow.get());
     }
+    if (insideCore) {
+      insideCore->SetOpacity(b);
+      Fill(mouth.get(), insideCore.get());
+    }
+  }
+
+  void Interior(float gl, double idle) const {
+    Fill(insideLeft.get(), insideLeftShade.get());
+    Fill(insideRight.get(), insideRightShade.get());
+    Inner(gl, idle);
+    const Lighter add(dc.get());
     Line(kLidT, kLidF, Rgba(255, 222, 170, 0.10f + 0.30f * gl), zk);
   }
 
-  void Stream(float a, double time) const {
-    if (a <= 0.003f) {
+  // The light scattered in the air over the open box: a few faint shafts out
+  // of its source, each breathing on its own slow wave.
+  void Shafts(float a, double idle) const {
+    if (a <= 0.003f || !shaft) {
+      return;
+    }
+    constexpr Point kSource{263, 214};
+    constexpr float kHaze = 0.6f;
+    constexpr std::array<float, 5> kAngles{-24, -11, 1, 12, 23};  // degrees from upright
+    constexpr std::array<double, 5> kRates{0.41, 0.53, 0.37, 0.61, 0.47};
+    const Lighter add(dc.get());
+    D2D1::Matrix3x2F was = D2D1::Matrix3x2F::Identity();
+    t->GetTransform(&was);
+    const D2D1_RECT_F at{kSource.x - kShaftWidth / 2, kSource.y - kShaftHeight, kSource.x + kShaftWidth / 2, kSource.y};
+    for (std::size_t i = 0; i < kAngles.size(); ++i) {
+      const float breath = 0.6f + 0.4f * (0.5f + 0.5f * Wave(idle * kRates[i] + static_cast<double>(i) * 2.39996));
+      t->SetTransform(D2D1::Matrix3x2F::Rotation(kAngles[i], P(kSource)) * was);
+      t->DrawBitmap(shaft.get(), at, std::min(1.0f, a * breath * kHaze), D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    }
+    t->SetTransform(was);
+  }
+
+  // The flow's spiral: three strands and on them, in step, the packets with
+  // the marks between. `grow`: how far it has come up out of the box (it goes
+  // back in the same way), a soft bead at its front; `a`: how bright;
+  // `clock`: its own (it slows as the flow weakens).
+  void Stream(float grow, float a, double clock) const {
+    if (grow <= 0.003f || a <= 0.003f) {
       return;
     }
     const Lighter add(dc.get());
     const float z = zk;
     const float zs = std::pow(z, 0.7f);
-    const float spin = static_cast<float>(std::fmod(time * kTurn, static_cast<double>(kTwoPi)));
+    const float spin = static_cast<float>(std::fmod(clock * kTurn, static_cast<double>(kTwoPi)));
     constexpr float kSpan = kStreamTop + 25;
+    constexpr float kFeather = 50;
+    constexpr int kSlots = 6;  // packets on a strand
+    const float front = -25 + (kSpan + kFeather) * std::min(1.0f, grow);
+    const auto shown = [front](float h) { return StreamFade(h) * Smooth01((front - h) / kFeather); };
+    const float train = Phase(clock, 0.17);
+    const float bead = a * std::sin(std::numbers::pi_v<float> * std::min(1.0f, grow)) * 0.8f;
     for (int j = 0; j < 3; ++j) {
       const float ps = static_cast<float>(j) * 2.0944f;
       const auto at = [&](float h) { return StreamAt(h, h * kTwoPi / kPitch + ps - spin); };
       // the thread
       for (int step = -25; step < static_cast<int>(kStreamTop); step += 5) {
         const auto h = static_cast<float>(step);
-        const StreamPoint p = at(h);
-        const StreamPoint q = at(h + 5);
-        const float e = StreamFade(h + 2.5f) * a;
+        const float e = shown(h + 2.5f) * a;
         if (e < 0.01f) {
           continue;
         }
+        const StreamPoint p = at(h);
+        const StreamPoint q = at(h + 5);
         const float f = 0.5f + 0.5f * p.z;
         t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(Rgba(255, 214, 150, e * (0.20f + 0.26f * f))), (1.1f + 0.6f * f) * z,
                     round.get());
       }
-      const double jj = j;
-      // packets: a bright head and a tail
-      for (int i = 0; i < 7; ++i) {
-        const float hp = std::fmod(static_cast<float>(i) / 7 + Phase(time, 0.2 + 0.035 * jj), 1.0f) * kSpan - 25;
-        for (int s = 0; s < 6; ++s) {
-          const auto sf = static_cast<float>(s);
-          const float h0 = hp - sf * 7;
-          const StreamPoint p = at(h0);
-          const StreamPoint q = at(h0 - 7);
-          const float e = StreamFade(h0) * a * std::pow(1 - sf / 6, 1.4f);
-          if (e < 0.01f) {
-            continue;
-          }
-          const float f = 0.5f + 0.5f * p.z;
-          t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(Rgba(255, 236 - s * 9, 206 - s * 16, e * (0.55f + 0.45f * f))),
-                      (3.1f - sf * 0.28f) * z * (0.8f + 0.25f * f), round.get());
-        }
-        const StreamPoint head = at(hp);
-        const float e = StreamFade(hp) * a;
-        if (e > 0.02f) {
-          const float f = 0.5f + 0.5f * head.z;
-          const float r = 2.6f * z * (0.75f + 0.3f * f);
-          t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(head.x, head.y), r, r), Ink(Rgba(255, 248, 232, e * (0.7f + 0.3f * f))));
-        }
-      }
-      // chevrons the way it flows
-      for (int i = 0; i < 5; ++i) {
-        const float hc =
-            std::fmod(static_cast<float>(i) / 5 + Phase(time, 0.15 + 0.02 * jj) + 0.07f * ps / 2.0944f, 1.0f) * kSpan - 25;
-        const StreamPoint p = at(hc);
-        const StreamPoint p2 = at(hc + 3);
-        const float e = StreamFade(hc) * a;
+      const auto chevron = [&](float h) {
+        const StreamPoint p = at(h);
+        const StreamPoint p2 = at(h + 3);
+        const float e = shown(h) * a;
         if (e < 0.02f) {
-          continue;
+          return;
         }
         const float f = 0.5f + 0.5f * p.z;
         float dx = p2.x - p.x;
@@ -1636,23 +1785,61 @@ struct VitrineArt::Impl {
         const D2D1_COLOR_F ink = Rgba(255, 228, 176, e * (0.45f + 0.45f * f));
         Line({p.x - dx * sz - dy * sz, p.y - dy * sz + dx * sz}, tip, ink, 1.4f * z, round.get());
         Line({p.x - dx * sz + dy * sz, p.y - dy * sz - dx * sz}, tip, ink, 1.4f * z, round.get());
-      }
-      // cells: hollow squares, the bits
-      for (int i = 0; i < 4; ++i) {
-        const float hq = std::fmod(static_cast<float>(i) / 4 + Phase(time, 0.11 + 0.02 * jj) + 0.5f +
-                                       0.13f * static_cast<float>(j),
-                                   1.0f) *
-                             kSpan -
-                         25;
-        const StreamPoint p = at(hq);
-        const float e = StreamFade(hq) * a;
+      };
+      const auto cell = [&](float h) {
+        const StreamPoint p = at(h);
+        const float e = shown(h) * a;
         if (e < 0.02f) {
-          continue;
+          return;
         }
         const float f = 0.5f + 0.5f * p.z;
         const float s = (3 + 1.2f * f) * zs / 2;
         t->DrawRectangle(D2D1::RectF(p.x - s, p.y - s, p.x + s, p.y + s), Ink(Rgba(255, 214, 150, e * (0.4f + 0.4f * f))),
                          1.1f * z, round.get());
+      };
+      // The packets in even steps, a strand a third of a step after the one before;
+      // between two, by turns, a chevron the way it flows and a cell (a bit).
+      for (int i = 0; i < kSlots; ++i) {
+        const float slot = (static_cast<float>(i) + static_cast<float>(j) / 3) / kSlots + train;
+        const float hp = Fraction(slot) * kSpan - 25;
+        for (int s = 0; s < 5; ++s) {
+          const auto sf = static_cast<float>(s);
+          const float h0 = hp - sf * 6;
+          const float e = shown(h0) * a * std::pow(1 - sf / 5, 1.4f);
+          if (e < 0.01f) {
+            continue;
+          }
+          const StreamPoint p = at(h0);
+          const StreamPoint q = at(h0 - 6);
+          const float f = 0.5f + 0.5f * p.z;
+          t->DrawLine({p.x, p.y}, {q.x, q.y}, Ink(Rgba(255, 236 - s * 10, 206 - s * 18, e * (0.55f + 0.45f * f))),
+                      (3.0f - sf * 0.3f) * z * (0.8f + 0.25f * f), round.get());
+        }
+        const StreamPoint head = at(hp);
+        const float e = shown(hp) * a;
+        if (e > 0.02f) {
+          const float f = 0.5f + 0.5f * head.z;
+          const float r = 2.6f * z * (0.75f + 0.3f * f);
+          t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(head.x, head.y), r, r), Ink(Rgba(255, 248, 232, e * (0.7f + 0.3f * f))));
+        }
+        const float hm = Fraction(slot + 0.5f / kSlots) * kSpan - 25;
+        if (i % 2 == 0) {
+          chevron(hm);
+        } else {
+          cell(hm);
+        }
+      }
+      // its front while it comes up or goes back in
+      if (bead > 0.02f) {
+        const float hb = front - kFeather / 2;
+        const float e = StreamFade(hb) * bead;
+        if (e > 0.02f) {
+          const StreamPoint p = at(hb);
+          const float f = 0.5f + 0.5f * p.z;
+          t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(p.x, p.y), 7 * z, 7 * z), Ink(Rgba(255, 214, 150, 0.15f * e)));
+          t->FillEllipse(D2D1::Ellipse(D2D1::Point2F(p.x, p.y), 2.2f * z, 2.2f * z),
+                         Ink(Rgba(255, 246, 228, e * (0.6f + 0.4f * f))));
+        }
       }
     }
   }
@@ -1666,8 +1853,10 @@ struct VitrineArt::Impl {
     return {-m, -m, kScene + m, kScene + m};
   }
 
-  void OpenBox(float op, float stream, double time) const {
-    const float gl = std::min(1.0f, 0.3f * std::min(1.0f, op) + 0.7f * stream);
+  // `grow`, `bright`: the spiral's (Stream); `clock`: its own; `idle`: the window's.
+  void OpenBox(float op, float grow, float bright, double clock, double idle) const {
+    const float flow = std::min(1.0f, grow) * bright;
+    const float gl = std::min(1.0f, 0.3f * std::min(1.0f, op) + 0.7f * flow);
     const float pic = Share(op);
     if (pic < 1) {
       // The drawn flaps give way to the picture over its second half.
@@ -1678,29 +1867,26 @@ struct VitrineArt::Impl {
                                            D2D1::IdentityMatrix(), drawn),
                      flapsLayer.get());
       }
-      DrawnBox(op, gl, pic > 0 ? 0.0f : stream, time);
+      DrawnBox(op, gl, pic > 0 ? 0.0f : grow, bright, clock, idle);
       if (faded) {
         t->PopLayer();
       }
     }
     if (pic > 0) {
       t->DrawBitmap(openBox.get(), OpenRect(), pic, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-      if (gl > 0 && insideGlow) {
-        const Lighter add(dc.get());
-        insideGlow->SetOpacity(std::min(1.0f, kPictureGlow * gl * pic));
-        Fill(mouth.get(), insideGlow.get());
-      }
-      Stream(stream, time);
+      Inner(kPictureGlow * gl * pic, idle);
+      Stream(grow, bright, clock);
     }
     if (gl > 0 && mouthBloom) {
       const Lighter add(dc.get());
-      mouthBloom->SetOpacity(std::min(1.0f, gl));
+      mouthBloom->SetOpacity(std::min(1.0f, gl * Breath(idle)));
       Ellipse({263, 140}, 230, 287.5f, mouthBloom.get());
     }
+    Shafts(flow, idle);
   }
 
   // The flaps drawn swinging on the lid's edges, the lid's picture on the big ones.
-  void DrawnBox(float op, float gl, float stream, double time) const {
+  void DrawnBox(float op, float gl, float grow, float bright, double clock, double idle) const {
     const float thB = op * kOpenBack * kDegrees;
     const float thF = op * kOpenFront * kDegrees;
     const Point oBL = FlapOff(kLidU, thB);
@@ -1723,11 +1909,11 @@ struct VitrineArt::Impl {
       TexFlap(backBig.get(), Times(oBL, 2), kLidW, kLidT);
     }
     FlapEdges(backBig.get(), kLidT, kLidL, oBL, gl);
-    Interior(gl);
+    Interior(gl, idle);
     if (body) {
       t->DrawBitmap(body.get(), D2D1::RectF(0, 0, kScene, kScene), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
-    Stream(stream, time);
+    Stream(grow, bright, clock);
     // The front flaps: their outsides (the big one with the tape).
     const auto frontLeft = Flap(kLidL, kLidF, oFL);
     PlainFlap(frontLeft.get(), Mid(kLidL, kLidF), Mid(Add(kLidL, oFL), Add(kLidF, oFL)), flaps[3].get(), gl, 0);
@@ -1763,7 +1949,13 @@ struct VitrineArt::Impl {
       at._31 = std::round(at._31 * px) / px;  // on whole pixels: the box's picture stays sharp
       at._32 = std::round(at._32 * px) / px;
     }
-    const D2D1::Matrix3x2F scene = D2D1::Matrix3x2F::Translation(f.shake.x, f.shake.y) * at;
+    // The pointer on the case and the press, eased (the window's at once when the frame has none).
+    const float hv = f.hover >= 0 ? f.hover : (hovered ? 1.0f : 0.0f);
+    const float pr = f.press >= 0 ? f.press : (pressed ? 1.0f : 0.0f);
+    // Pressed, the whole case gives a little, from its foot.
+    const float give = 1 - 0.016f * pr;
+    const D2D1::Matrix3x2F scene = D2D1::Matrix3x2F::Scale(give, give, P(Down(kPF, kThick))) *
+                                   D2D1::Matrix3x2F::Translation(f.shake.x, f.shake.y) * at;
     zk = std::max(1.0f, 0.8f / (scale * px));
 
     const bool dimmed = f.dim > 0.01f && layer;
@@ -1776,12 +1968,14 @@ struct VitrineArt::Impl {
 
     const Opened& o = f.opened;
     const float pa = std::clamp(o.plinth, 0.0f, 1.0f);
-    const float lift = o.lift;
-    const float press = pressed ? 0.85f : (hovered ? 1.12f : 1.0f);
-    const float cone = o.cone * (0.4f + 0.6f * f.flow) * press;
-    const float stream = o.stream * f.flow * press;
+    // Open, the box rises a touch to the pointer and gives under the press.
+    const float lift = o.lift + (1 - pa) * (1.5f * hv - 2.2f * pr);
+    const float touch = (1 + 0.1f * hv) * (1 - 0.14f * pr);
+    const float cone = o.cone * (0.4f + 0.6f * f.flow) * touch;
+    const float bright = f.flow * touch;
     const float motes = o.motes * f.flow;
-    const float pool = o.pool + 0.2f * f.danger + (hovered && f.glass > 0 ? 0.1f : 0.0f);
+    const float warmth = o.stream * f.flow;
+    const float pool = o.pool + 0.2f * f.danger + f.glass * (0.08f * hv - 0.06f * pr);
 
     if (pa > 0) {
       Plinth(pa);
@@ -1794,22 +1988,22 @@ struct VitrineArt::Impl {
     Back(f.glass, pa);
     Bloom(std::min(1.0f, cone));
     Cone(cone);
-    DrawMotes(motes, f.idle, false);
+    DrawMotes(motes, warmth, f.idle, false);
 
     const bool opened = o.open > 0.003f && body;
     t->SetTransform(D2D1::Matrix3x2F::Translation(0, -lift) * scene);
     if (opened) {
-      OpenBox(o.open, stream, f.idle);
+      OpenBox(o.open, o.stream, bright, f.flowClock, f.idle);
     } else if (box) {
       t->DrawBitmap(box.get(), D2D1::RectF(0, 0, kScene, kScene), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
     TopLight(cone, opened, opened ? Share(o.open) : 0.0f);
     t->SetTransform(scene);
 
-    RimFront(o.rim * pa, pa);
-    DrawMotes(motes * 0.7f, f.idle, true);
+    RimFront((o.rim + 0.12f * hv) * pa, pa);
+    DrawMotes(motes, warmth, f.idle, true);
     if (f.glass > 0) {
-      Glass(f.glass, f.danger, f.idle, hovered, pressed);
+      Glass(f.glass, f.danger, f.idle, hv, pr);
     }
     if (f.shards) {
       Cracks(*f.shards, f.crack, f.crackAlpha);

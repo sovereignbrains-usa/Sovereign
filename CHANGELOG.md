@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.44 — 20.11.2026
+
+- «Маршруты»: у «Рекламы» свой значок — красная плашка «AD». Прежний, щит с белой полосой, в мелком размере выглядел как знак «въезд запрещён» на конце ветки «Блок».
+
 ## 0.6.43 — 20.11.2026
 
 - «Маршруты»: у последней ветки («Через VPN», а в режиме «В обход блокировок» — «Напрямую») теперь всегда есть «+». Так исключение добавляется сразу, например один российский сайт через VPN, когда остальные идут напрямую. Раньше у пустой ветки «+» не было, и такой сайт приходилось добавлять в другую ветку, а потом переносить.

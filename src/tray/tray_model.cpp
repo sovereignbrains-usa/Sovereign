@@ -4,6 +4,26 @@
 
 namespace sovereign::tray {
 
+std::wstring CutHostStart(std::wstring_view host, std::size_t limit) {
+  if (host.size() <= limit) {
+    return std::wstring(host);
+  }
+  if (limit < 2) {
+    return L"…";
+  }
+  // The tails of whole labels, the longest first: the first that fits beside "…".
+  for (std::size_t dot = host.find(L'.'); dot != std::wstring_view::npos; dot = host.find(L'.', dot + 1)) {
+    const std::wstring_view tail = host.substr(dot + 1);
+    if (tail.find(L'.') == std::wstring_view::npos) {
+      break;  // one label: "…com" says nothing
+    }
+    if (tail.size() <= limit - 1) {
+      return L"…" + std::wstring(tail);
+    }
+  }
+  return L"…" + std::wstring(host.substr(host.size() - (limit - 1)));
+}
+
 FlowWay FlowWayOf(std::string_view tag) {
   const auto numbered = [&](std::string_view name) {
     // The tag itself, or it numbered apart from a server of the same name: "direct 2".

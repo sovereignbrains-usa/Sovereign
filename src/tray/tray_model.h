@@ -49,6 +49,12 @@ struct Stats {
 enum class FlowWay : std::uint8_t { None, Vpn, Direct, Warp };
 FlowWay FlowWayOf(std::string_view tag);
 
+// A whole host in a line of a few ("сейчас закрыто: …"), over `limit` characters
+// cut at its start - the site it's under stays - and by whole labels:
+// "…data.microsoft.com", not "…gs-win.data.microsoft.com" (20.11.2026). Two
+// labels at least; when even they don't fit, it's cut by characters.
+std::wstring CutHostStart(std::wstring_view host, std::size_t limit);
+
 enum class Action : std::uint8_t { None, Start, Stop };
 
 // The tray's decisions, apart from Win32 so they can be tested

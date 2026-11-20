@@ -7169,16 +7169,19 @@ struct MainWindow::Impl {
       const bool numbers = std::all_of(host.begin(), host.end(), [](wchar_t ch) { return (ch >= L'0' && ch <= L'9') || ch == L'.'; });
       return numbers || host.find(L':') != std::wstring::npos ? std::wstring() : host;
     };
-    // A site is cut at its end; a whole blocked name at its start, so the site it's under stays.
+    // A site is cut at its end; a whole blocked name at its start, by whole labels, so the site
+    // it's under stays (CutHostStart). Two names cut alike are named once, the other counted.
     const auto note = [&](std::size_t way, const std::wstring& name) {
       if (name.empty() || way >= seen.size() || !seen[way].insert(name).second) {
         return;
       }
-      if (content.routeNow[way].size() < kNamed) {
-        const bool whole = way == static_cast<std::size_t>(kBucketBlock);
-        content.routeNow[way].push_back(name.size() <= kName ? name
-                                        : whole              ? L"…" + name.substr(name.size() - (kName - 1))
-                                                             : name.substr(0, kName - 1) + L"…");
+      const bool whole = way == static_cast<std::size_t>(kBucketBlock);
+      std::wstring shown = name.size() <= kName ? name
+                           : whole              ? CutHostStart(name, kName)
+                                                : name.substr(0, kName - 1) + L"…";
+      std::vector<std::wstring>& list = content.routeNow[way];
+      if (list.size() < kNamed && std::find(list.begin(), list.end(), shown) == list.end()) {
+        list.push_back(std::move(shown));
       } else {
         ++content.routeNowMore[way];
       }

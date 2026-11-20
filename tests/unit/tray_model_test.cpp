@@ -231,6 +231,18 @@ void TestOffShownBeforeTheStopAnswers() {
   CHECK(restart.GetDisplay() == Display::On);
 }
 
+void TestCutHostStart() {
+  using sovereign::tray::CutHostStart;
+  CHECK(CutHostStart(L"mc.yandex.ru", 26) == L"mc.yandex.ru");
+  // Whole labels off the start, the longest tail that fits: not "…gs-win.data.microsoft.com".
+  CHECK(CutHostStart(L"settings-win.data.microsoft.com", 26) == L"…data.microsoft.com");
+  CHECK(CutHostStart(L"v10.events.data.microsoft.com", 26) == L"…events.data.microsoft.com");
+  // Two labels at least; a site too long even so is cut by characters.
+  const std::wstring cut = CutHostStart(L"averyveryveryverylonglabelname.com", 12);
+  CHECK(cut.size() == 12 && cut.starts_with(L"…") && cut.ends_with(L"belname.com"));
+  CHECK(CutHostStart(L"x.averyveryveryverylonglabelname.com", 12).size() == 12);
+}
+
 void TestFlowStreams() {
   using sovereign::tray::FlowWay;
   using sovereign::tray::FlowWayOf;
@@ -276,6 +288,7 @@ int main() {  // NOLINT(bugprone-exception-escape) - see the catch below
     TestAlreadyStartedElsewhereCountsAsOn();
     TestStartsOffAndStaysOff();
     TestFlowStreams();
+    TestCutHostStart();
     TestRestartsOnConfigMismatchOnce();
     TestFailedConfigRestartTriedAgain();
     TestMatchingOrUnknownConfigLeftAlone();

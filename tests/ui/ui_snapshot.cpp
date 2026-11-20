@@ -599,7 +599,10 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96, dir + L"\\tip-hint.png",
                                               L"Через Cloudflare WARP");
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96, dir + L"\\tip-chip.png",
-                                              L"Steam идёт напрямую");
+                                              L"Steam — напрямую");
+    // The rest's square "+" pointed at: in this mode an exception through the VPN.
+    sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 400, 900, 96, dir + L"\\tip-rest-add.png",
+                                              L"Добавить исключение");
     // An empty way's "+" pointed at: its route lit (no tip of its own: its words say it).
     std::erase_if(routed.routing.board, [](const sovereign::tray::UiChip& chip) { return chip.bucket == 2; });
     sovereign::tray::RenderMainWindowSnapshot(routed, UiPage::Routing, logs, 350, 900, 96, dir + L"\\hover-block.png",

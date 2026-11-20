@@ -1999,7 +1999,9 @@ class Painter {
                 L"Куда идёт трафик. Решает Sovereign: из подписок берутся только серверы, их правила и DNS не "
                 L"используются.\n\nРежим наверху — куда идёт всё, о чём списки молчат. Списки ниже — то, что идёт "
                 L"иначе: через VPN, напрямую, через WARP или никуда. У каждого режима свои списки: при смене они "
-                L"не теряются.\n\nНаведи на сайт или программу — подсветится её путь. Нажми — перенести или "
+                L"не теряются.\n\nЕсли сайт есть в двух списках, срабатывает более точный: сначала сайты, вписанные тобой, "
+                L"потом реклама, трекеры и прочее из «Блока», потом сервисы (Яндекс, YouTube…), потом «Российские "
+                L"сайты», последними — программы. Программа в «Блоке» закрыта целиком.\n\nНаведи на сайт или программу — подсветится её путь. Нажми — перенести или "
                 L"убрать."};
       case UiPage::Logs: return {L"Журнал", {}};
       case UiPage::Settings:
@@ -2169,26 +2171,26 @@ class Painter {
     y += 20;
     struct Way {
       const wchar_t* name;
-      const wchar_t* verb;  // what a thing on it does: "YouTube идёт через VPN"
+      const wchar_t* where;  // where a thing on it goes, after a dash: "YouTube — через VPN"
       std::wstring hint;
     };
     // By bucket: direct, proxy, block, WARP.
     const std::array<Way, 4> ways = {{
-        {L"Напрямую", L"идёт напрямую",
+        {L"Напрямую", L"напрямую",
          r.smart ? std::wstring(L"Что названо здесь — мимо VPN, как без него, и без проверки на блокировку. Для банков "
                                 L"и сайтов, которым VPN мешает.\n\nВсё остальное клиент пробует напрямую, а что "
                                 L"закрыто — пускает через VPN.")
                  : std::wstring(L"Мимо VPN, как без него. Для банков и сайтов, которым VPN мешает.")},
-        {L"Через VPN", L"идёт через VPN",
+        {L"Через VPN", L"через VPN",
          r.smart ? std::wstring(L"Всегда через сервер VPN, без проверки напрямую. Для сайтов, которые не должны видеть "
                                 L"твой настоящий адрес, или тех, что клиент не распознаёт как закрытые.")
                  : std::wstring(L"Через сервер VPN: сайт видит адрес сервера, провайдер — только связь с ним.")},
-        {L"Блок", L"заблокирован",
+        {L"Блок", L"в блоке",
          L"Сайт или программа останутся без сети: не откроются ни через VPN, ни напрямую. Например, сайт, который не "
          L"хочешь открывать, или назойливый апдейтер.\n\nРеклама, трекеры, баннеры cookie и вредоносные сайты тоже здесь: их включают в «+» "
          L"или в настройках.\n\nСайты, которые пропустил кнопкой «Сайт сломался только что?» в «Настройках», стоят в строке «Не закрывать»: "
          L"нажми на значок — и они снова закрыты.\n\nОсторожно с «Microsoft»: в этот список входят GitHub, Windows Update, OneDrive и Office."},
-        {L"Через WARP", L"идёт через WARP",
+        {L"Через WARP", L"через WARP",
          L"Через Cloudflare WARP поверх VPN. Для сайтов, которые не пускают с адреса VPN: сайт видит адрес "
          L"Cloudflare.\n\nGoogle его адреса не любит: Gemini и поиск через WARP упрутся в капчу. Не проходит поверх "
          L"VPN — Sovereign сам пустит WARP напрямую."},
@@ -2292,12 +2294,18 @@ class Painter {
       for (const auto& [n, at] : placed) {
         const UiChip& chip = r.board[n];
         Item tag = CommandItem(Kind::Tag, at, chip.text, nullptr, UiCommand::ChipMenu, static_cast<int>(n));
-        // What it does, read off its way; a program keeps the sites that have a way of their own.
+        // What it does, read off its way: "X — way", no verb, that fits "Яндекс" and "Российские сайты"
+        // alike ("Российские сайты идёт напрямую" before 0.6.43). A program keeps the sites that have a
+        // way of their own; so do the Russian sites - the user's sites, the block's lists and the
+        // services go before them (routing.cpp): Яндекс through WARP while they go directly.
         tag.tip = id == kBucketWarp && !r.warp  // (WARP off: it doesn't, it goes as the rest does)
-                      ? std::format(L"{} ждёт WARP: он выключен, пока идёт как всё остальное", chip.text)
+                      ? std::format(L"{} — через WARP, но он выключен: пока как всё остальное", chip.text)
+                  : chip.kind == UiChip::Kind::Russia
+                      ? std::format(L"{} — {}, кроме сайтов и сервисов со своим путём{}", chip.text, way.where,
+                                    id == kBucketBlock ? L"" : L" и того, что закрывает «Блок»")
                   : !chip.icon.empty() && id != kBucketBlock  // (icon: a program's exe)
-                      ? std::format(L"{} {}, кроме сайтов и сервисов, у которых свой путь", chip.text, way.verb)
-                      : std::format(L"{} {}", chip.text, way.verb);
+                      ? std::format(L"{} — {}, кроме сайтов и сервисов, у которых свой путь", chip.text, way.where)
+                      : std::format(L"{} — {}", chip.text, way.where);
         if (chip.kind == UiChip::Kind::Ads) {
           tag.tip = L"Реклама блокируется: списки рекламных адресов.";
         } else if (chip.kind == UiChip::Kind::Cookies) {
@@ -2353,12 +2361,13 @@ class Painter {
         tag.rail = id;
         l.items.push_back(std::move(tag));
       }
-      // The way everything else goes to has no list of its own to fill: only what's an exception
-      // still (a service through a country) stands there, with its "+"; else it is the line's end.
-      const bool bare = rest && placed.empty();
-      // The "+": a square after the things, a word where there are none.
-      if (!bare) {
-        const std::wstring label = !placed.empty() || byItself ? std::wstring()
+      // The "+": a square after the things, a word where there are none. The way everything else goes
+      // to has a square even with nothing on it (20.11.2026, the routing page's second audit): what's
+      // put there is an exception to a list above - one Russian site through the VPN while the rest go
+      // directly, a bank directly without the race. Before 0.6.43 an empty one had no "+": such a site
+      // took two steps, in by another way's "+" and moved by its chip.
+      {
+        const std::wstring label = !placed.empty() || byItself || rest ? std::wstring()
                                    : id == kBucketBlock        ? std::wstring(L"+ отрезать сайт или программу")
                                                                : std::wstring(L"+ сайт, сервис или программа");
         float w = kTag;
@@ -2369,10 +2378,14 @@ class Painter {
         }
         Item add = CommandItem(Kind::GhostAdd, place(w, h), label, nullptr, UiCommand::BoardAdd, id);
         add.rail = id;
-        add.tip = label.empty() ? std::wstring(L"Добавить сайт, сервис или программу") : std::wstring();
+        add.tip = !rest           ? (label.empty() ? std::wstring(L"Добавить сайт, сервис или программу") : std::wstring())
+                  : r.finalDirect ? std::wstring(L"Добавить то, что пойдёт напрямую без проверки: банки и сайты, "
+                                                 L"которым VPN мешает")
+                                  : std::wstring(L"Добавить исключение: сайт, который пойдёт через VPN, хоть он и в "
+                                                 L"списке выше — например, один российский сайт");
         l.items.push_back(std::move(add));
       }
-      float foot = bare ? top : rowTop + rowHeight;  // the last line's bottom: what comes under goes from here
+      float foot = rowTop + rowHeight;  // the last line's bottom: what comes under goes from here
       // Under the block: the sites let through its lists, by their service's name, small - a click
       // gives them back to the block (ChipMenu).
       if (id == kBucketBlock) {
@@ -4003,7 +4016,9 @@ class Painter {
     if (!r.lists.empty()) {  // only while the lists are downloading, or failed
       y = Paragraph(l, r.listsFailed ? Kind::ErrorText : Kind::Caption, r.lists, x0 + kSchemeIndent, x1, y) + 4;
     }
-    y += kGap;
+    // As far under the scheme as its ways are apart (Board's 20): with kGap (8) the well read as the
+    // last way's own (20.11.2026, the routing page's second audit).
+    y += 20;
     if (c.checks.size() > kCheckRoute) {
       y = RouteProbe(l, c, x0, x1, y) + kGap;
     }
@@ -4018,7 +4033,7 @@ class Painter {
     const UiCheck& check = c.checks[kCheckRoute];
     constexpr float kProbe = 36;
     constexpr float kAnswer = 26;
-    const float buttonLeft = x1 - 4 - kRouteButton;
+    const float buttonLeft = x1 - kRouteButton;  // on the scheme's right edge (x1 - 4 before 0.6.43)
     const std::wstring tip = L"Введи адрес — клиент откроет его и спросит ядро, как он пошёл: напрямую, через VPN, "
                              L"через WARP или заблокирован, и по какому правилу.";
     Item well = CommandItem(Kind::Find, {x0 + 4, top, buttonLeft - 8, top + kProbe}, L"", nullptr,
@@ -4027,14 +4042,14 @@ class Painter {
     well.tip = tip;
     well.enabled = !c.checksRunning;
     l.items.push_back(std::move(well));
-    Item run = CommandItem(Kind::Button, {buttonLeft, top, x1 - 4, top + kProbe}, L"Проверить", nullptr,
+    Item run = CommandItem(Kind::Button, {buttonLeft, top, x1, top + kProbe}, L"Проверить", nullptr,
                            UiCommand::CheckRoute, 0);
     run.enabled = !c.checksRunning;
     run.tip = L"Ввести сайт и узнать, каким путём он пойдёт";
     l.items.push_back(std::move(run));
     float bottom = top + kProbe;
     if (check.status != UiCheck::Status::NotRun) {
-      Item answer = Make(Kind::CheckRow, {x0 + 4, bottom + 2, x1 - 4, bottom + 2 + kAnswer});
+      Item answer = Make(Kind::CheckRow, {x0 + 4, bottom + 2, x1, bottom + 2 + kAnswer});
       answer.detail = check.summary;
       answer.index = static_cast<int>(check.status);
       answer.sub = static_cast<int>(kCheckRoute);

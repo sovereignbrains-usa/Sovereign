@@ -2140,7 +2140,7 @@ class Painter {
     }
     const float nodeY = y + kModeHeight / 2;
     y = Paragraph(l, Kind::Caption,
-                  r.smart ? L"Напрямую, а что закрыто — само через VPN." : L"Мимо VPN — только список «Напрямую».", left,
+                  r.smart ? L"Напрямую, а что не открывается — само через VPN." : L"Мимо VPN — только список «Напрямую».", left,
                   x1, y + kModeHeight + 8);
     if (off) {
       const std::wstring said = L"VPN выключен — всё напрямую";
@@ -2217,8 +2217,10 @@ class Painter {
       l.items.push_back(std::move(head));
       float top = y + 28;
       // What's said by the name: the rest's "всё, что не попало выше", how WARP goes. Beside it while
-      // it fits whole, else a line of its own under it.
-      const std::wstring aside = rest && r.smart ? std::wstring(L"всё остальное; заблокированное — через VPN")
+      // it fits whole, else a line of its own under it. What the ISP closes "не открывается": "закрыто"
+      // is the block's word on this page («закрыто с подключения», «сейчас закрыто»), and "заблокированное"
+      // just under «Блок» read as if the ads went through the VPN (20.11.2026).
+      const std::wstring aside = rest && r.smart ? std::wstring(L"всё остальное; что не открывается — через VPN")
                                  : rest           ? std::wstring(L"всё остальное")
                                  : id == kBucketWarp ? r.warpState
                                  : id == kBucketBlock && c.blockedTotal > 0 && live

@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.47 — 20.11.2026
+
+- «В обход блокировок»: Groq (groq.com, API нейросетей — не Grok от xAI) сам идёт через VPN, как ChatGPT, Claude и Grok. Российскому адресу он отвечает «доступ запрещён» (403), но соединение при этом открывается, и клиент считал, что сайт работает напрямую. Groq есть и в списке сервисов — его можно отправить другим путём.
+
 ## 0.6.46 — 20.11.2026
 
 - «Маршруты», «В обход блокировок»: то, что закрыто у провайдера, называется «не открывается» — «Напрямую, а что не открывается — само через VPN», у «Напрямую» — «что не открывается — через VPN». Слово «закрыто» на этой странице осталось только у «Блока»: прежнее «заблокированное — через VPN» прямо под ним читалось так, будто рекламу пускают через VPN.

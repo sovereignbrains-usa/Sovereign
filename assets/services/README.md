@@ -12,7 +12,7 @@ menus are always dark): a black logo is white here.
   its brand color as the fill (white for a black one).
 - [theSVG](https://github.com/glincker/thesvg) (MIT, see `LICENSE`), from Iconify's
   `thesvg-color`: chatgpt (`openai-dark`), grok (`grok-dark`), linkedin, microsoft, tiktok
-  (`tiktok-dark`).
+  (`tiktok-dark`), groq (its square's corners rounded).
 - [gilbarbara/logos](https://github.com/gilbarbara/logos) (CC0), from Iconify's `logos`: google
   (`google-icon`).
 - Also Simple Icons: cloudflare, quad9, yandex - the DNS providers (google's is the one above); yandex is the service's too.

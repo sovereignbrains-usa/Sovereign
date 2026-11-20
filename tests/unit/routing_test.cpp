@@ -676,6 +676,8 @@ void TestOwn() {
     chosen.services.push_back(ServiceRoute{.id = "youtube", .way = ServiceRoute::Way::Direct});
     const auto vpn = SmartViaVpnServices(chosen);
     CHECK(std::find(vpn.begin(), vpn.end(), "telegram") != vpn.end());
+    // Groq's API answers 403 to a Russian address, its hello goes through: a race can't see it.
+    CHECK(std::find(vpn.begin(), vpn.end(), "groq") != vpn.end());
     CHECK(std::find(vpn.begin(), vpn.end(), "youtube") == vpn.end());
   }
   // What a race can't see goes through the VPN by itself: Telegram's

@@ -95,7 +95,7 @@ constexpr std::string_view kTelegramIps = "https://raw.githubusercontent.com/Met
 constexpr std::string_view kSteamGames = R"((?i)\\steamapps\\common\\)";
 constexpr std::string_view kEpicGames = R"((?i)\\Epic Games\\)";
 
-constexpr std::array<ServiceInfo, 30> kServices = {{
+constexpr std::array<ServiceInfo, 31> kServices = {{
     {"yandex", "Яндекс", "yandex", {}, {}, {}},  // 30.10.2026, his: the only one he uses
     {"netflix", "Netflix", "netflix", {}, {}, {}},
     {"youtube", "YouTube", "youtube", {}, {}, {}},
@@ -117,6 +117,9 @@ constexpr std::array<ServiceInfo, 30> kServices = {{
     {"google", "Google", "google", {}, {}, {}},
     {"perplexity", "Perplexity", "perplexity", "Perplexity.exe", {}, {}},
     {"grok", "Grok", "xai", {}, {}, {}},
+    // Groq's API (groq.com), not xAI's Grok: it answers 403 to a Russian address while its hello
+    // goes through, so a race keeps it directly (20.11.2026, his: «грок идёт напрямую»).
+    {"groq", "Groq", "groq", {}, {}, {}},
     {"github", "GitHub", "github", "GitHubDesktop.exe", {}, {}},
     {"reddit", "Reddit", "reddit", {}, {}, {}},
     {"linkedin", "LinkedIn", "linkedin", {}, {}, {}},
@@ -1402,9 +1405,9 @@ namespace {
 // cut (YouTube). Through the VPN unless the user sent them a way of their
 // own (04.11.2026, his: «тг не работает тик ток тоже»).
 // (The board names the first two: Telegram and YouTube are the ones known.)
-constexpr std::array<std::string_view, 17> kSmartViaVpn = {
-    "telegram", "youtube", "whatsapp", "tiktok", "instagram", "facebook",   "x",       "discord", "linkedin",
-    "chatgpt",  "gemini",  "claude",   "grok",   "perplexity", "netflix",   "spotify", "disney"};
+constexpr std::array<std::string_view, 18> kSmartViaVpn = {
+    "telegram", "youtube", "whatsapp", "tiktok", "instagram",  "facebook", "x",       "discord", "linkedin",
+    "chatgpt",  "gemini",  "claude",   "grok",   "groq",       "perplexity", "netflix", "spotify", "disney"};
 
 // The settings the config is built from: the user's, and in the smart mode
 // the services above through the VPN where the user chose nothing.

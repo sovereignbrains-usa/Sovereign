@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -42,7 +43,10 @@ const (
 	udpBudget   = 8 * time.Second // all of it, both STUN servers: it runs beside the TCP test, not after it
 )
 
-// errNoUDP: the outbound carries no UDP at all (its Network() lacks it).
+// errNoUDP: the outbound carries no UDP at all - its Network() lacks it, or
+// what it dials through does: Shadowsocks over ShadowTLS claims UDP, but its
+// detour is TCP-only and answers its packet dial with os.ErrInvalid
+// (20.11.2026, his screenshot: "invalid argument" in the games' column).
 const errNoUDP = "no udp"
 
 // The STUN servers asked, by name - the server end resolves it, nearest
@@ -70,7 +74,7 @@ func probeUDP(ctx context.Context, outbound N.Dialer, networks []string) udpResu
 	var result udpResult
 	for _, target := range stunTargets {
 		result = probeUDPTo(ctx, outbound, target)
-		if result.Error == "" || ctx.Err() != nil {
+		if result.Error == "" || result.Error == errNoUDP || ctx.Err() != nil {
 			break
 		}
 	}
@@ -84,6 +88,9 @@ func probeUDPTo(ctx context.Context, outbound N.Dialer, target M.Socksaddr) udpR
 	dialCtx, dialCancel := context.WithTimeout(ctx, udpDial)
 	conn, err := outbound.ListenPacket(dialCtx, target)
 	dialCancel()
+	if errors.Is(err, os.ErrInvalid) {
+		return udpResult{Error: errNoUDP} // sing-box's "no such network here": a TCP-only outbound under it
+	}
 	if err != nil {
 		return udpResult{Error: err.Error()}
 	}

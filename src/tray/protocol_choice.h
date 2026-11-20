@@ -59,4 +59,13 @@ std::map<std::string, ServerTitle> ServerTitles(std::string_view config);
 // two letters and numbers alone ("REALITY", "NL-Naive", "AnyTLS-REALITY 2").
 bool NameIsTitle(std::string_view name, std::string_view title);
 
+// A server's name without the title's words it starts with, for the note
+// beside the title: "Hysteria2 · порты 20000-20100" under "Hysteria 2" is
+// "порты 20000-20100" - the protocol said twice, the ports cut off by it
+// (20.11.2026, his screenshot). Protocol words, the title's number after them
+// and a country's two letters before them go; a number of its own stays
+// ("REALITY 2 (резерв)": "2 (резерв)"); a name that doesn't start with them
+// is as it is. Empty: nothing but them.
+std::string NoteWithoutTitle(std::string_view name, std::string_view title);
+
 }  // namespace sovereign::tray

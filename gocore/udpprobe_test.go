@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -112,5 +114,22 @@ func TestProbeUDP(t *testing.T) {
 	}
 	if r := probeUDP(context.Background(), localStun{responder}, []string{"tcp"}); r.Error != errNoUDP {
 		t.Fatalf("tcp only: %+v", r)
+	}
+}
+
+// Shadowsocks over ShadowTLS: UDP claimed, the TCP-only detour refuses the packet dial.
+type tcpOnlyDetour struct{ localStun }
+
+func (tcpOnlyDetour) ListenPacket(context.Context, M.Socksaddr) (net.PacketConn, error) {
+	return nil, fmt.Errorf("dial udp: %w", os.ErrInvalid)
+}
+
+func TestProbeUDPOverTCPOnlyDetour(t *testing.T) {
+	started := time.Now()
+	if r := probeUDP(context.Background(), tcpOnlyDetour{}, []string{"tcp", "udp"}); r.Error != errNoUDP {
+		t.Fatalf("%+v", r)
+	}
+	if took := time.Since(started); took > time.Second {
+		t.Fatalf("took %v", took) // said at once, the second STUN server not asked
 	}
 }

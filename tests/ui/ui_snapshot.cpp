@@ -486,6 +486,46 @@ int Snapshots(const std::wstring& dir) {
     sovereign::tray::RenderMainWindowSnapshot(detailed, UiPage::Servers, logs, 400, 620, 96,
                                               dir + L"\\servers-detailed.png");
   });
+  // His server (20.11.2026, his screenshot): one German box, seven ways, on Auto - two Hysteria 2
+  // told apart by their notes, ways in the order of the opening, what one carried only in its tip,
+  // Shadowsocks over ShadowTLS with no UDP; the in-use head's tip, a column's.
+  variant([&](UiContent& box) {
+    using State = sovereign::tray::UiDelay::State;
+    box.protocols = {L"auto", L"hy2", L"hy2-hop", L"tuic", L"anytls", L"reality", L"ss-stls", L"trojan"};
+    box.protocolTitles = {L"",           L"Hysteria 2",    L"Hysteria 2", L"TUIC", L"AnyTLS",
+                          L"VLESS REALITY", L"Shadowsocks + ShadowTLS", L"Trojan"};
+    box.protocolNotes = {L"", L"", L"порты 20000-20100", L"", L"", L"", L"", L""};
+    const sovereign::tray::UiLocation de{.country = L"DE", .isp = L"PFWeb Solutions", .ip = L"203.0.113.40",
+                                         .countryName = L"Германия", .city = L"Frankfurt am Main", .hoster = {}};
+    box.locations.assign(box.protocols.size(), de);
+    box.locations[0] = {};
+    box.protocol = 0;
+    box.autoOption = 0;
+    box.autoServer = L"hy2-hop";
+    box.autoIsBest = true;
+    box.delays = {
+        {},
+        {.state = State::Ok, .ms = 60, .jitter = 2, .samples = 7, .connect = 185, .udpMs = 58, .udpJitter = 2},
+        {.state = State::Ok, .ms = 60, .jitter = 2, .samples = 7, .connect = 186, .udpMs = 59, .udpJitter = 3,
+         .seenDownKbps = 1'200},
+        {.state = State::Ok, .ms = 65, .jitter = 3, .samples = 7, .connect = 240, .udpMs = 63, .udpJitter = 4},
+        {.state = State::Ok, .ms = 70, .jitter = 4, .samples = 7, .connect = 412, .udpMs = 75, .udpJitter = 9,
+         .measuredKbps = 84'000},
+        {.state = State::Ok, .ms = 70, .jitter = 3, .samples = 7, .connect = 350, .udpMs = 72, .udpJitter = 11},
+        {.state = State::Ok, .ms = 75, .jitter = 5, .samples = 7, .connect = 430, .udpError = L"no udp"},
+        {.state = State::Ok, .ms = 70, .jitter = 4, .samples = 7, .connect = 395, .udpMs = 74, .udpJitter = 12},
+    };
+    box.serverOrder.clear();
+    sovereign::tray::RenderMainWindowSnapshot(box, UiPage::Servers, logs, 400, 760, 96,
+                                              dir + L"\\servers-ways.png");
+    sovereign::tray::RenderMainWindowSnapshot(box, UiPage::Servers, logs, 400, 760, 96,
+                                              dir + L"\\servers-ways-head.png", L"Сейчас трафик идёт");
+    sovereign::tray::RenderMainWindowSnapshot(box, UiPage::Servers, logs, 400, 760, 96,
+                                              dir + L"\\servers-ways-games.png", L"Игры и звонки");
+    sovereign::tray::RenderMainWindowSnapshot(box, UiPage::Servers, logs, 400, 760, 96,
+                                              dir + L"\\servers-ways-carried.png",
+                                              L"Замерить: 8 секунд загрузки через этот способ (до 100 МБ)\nЗа");
+  });
   // ...and as the subscription lists them, not fastest first.
   variant([&](UiContent& listed) {
     listed.serversByDelay = false;

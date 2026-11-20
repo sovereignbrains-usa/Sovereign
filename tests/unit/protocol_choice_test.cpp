@@ -124,6 +124,17 @@ void TestServerTitles() {
         NameIsTitle("AnyTLS-REALITY 2", "AnyTLS + REALITY") && NameIsTitle("🇳🇱 NL-TUIC", "TUIC"));
   CHECK(NameIsTitle("ShadowTLS-hop", "ShadowTLS") && NameIsTitle("hy2-hop", "Hysteria 2"));
   CHECK(!NameIsTitle("Германия", "Hysteria 2") && !NameIsTitle("DE Frankfurt Hysteria2", "Hysteria 2"));
+  // The note beside the title: what the name says that the title doesn't (20.11.2026).
+  CHECK(NoteWithoutTitle("Hysteria2 · порты 20000-20100", "Hysteria 2") == "порты 20000-20100");
+  CHECK(NoteWithoutTitle("hy2-hop · порты 20000-20100", "Hysteria 2") == "порты 20000-20100");
+  CHECK(NoteWithoutTitle("Hysteria 2 — резерв", "Hysteria 2") == "резерв");
+  CHECK(NoteWithoutTitle("🇩🇪 DE-Hysteria2 | Frankfurt", "Hysteria 2") == "Frankfurt");
+  CHECK(NoteWithoutTitle("WG-Germany", "WireGuard") == "Germany");
+  CHECK(NoteWithoutTitle("REALITY 2 (резерв)", "VLESS + Vision + REALITY") == "2 (резерв)");
+  CHECK(NoteWithoutTitle("VLESS (резерв)", "VLESS + Vision + REALITY") == "(резерв)");
+  CHECK(NoteWithoutTitle("DE Frankfurt Hysteria2", "Hysteria 2") == "DE Frankfurt Hysteria2");
+  CHECK(NoteWithoutTitle("🇪🇺 4G | Whitelist №2", "VLESS + Vision + REALITY") == "🇪🇺 4G | Whitelist №2");
+  CHECK(NoteWithoutTitle("Германия", "Hysteria 2") == "Германия" && NoteWithoutTitle("hy2", "Hysteria 2").empty());
 }
 
 // The core runs "auto" itself: the URL test becomes sov-auto over the same

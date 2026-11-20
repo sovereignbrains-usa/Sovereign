@@ -9,7 +9,9 @@
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace sovereign::tray {
 
@@ -173,44 +175,51 @@ std::optional<ServerTitle> TitleOf(const Json& o, std::string_view viaType = {})
   return title;
 }
 
+// A name's letters and digits, lower case: "Hysteria 2" and "hysteria2" alike.
+std::string Letters(std::string_view text) {
+  std::string out;
+  for (const char c : text) {
+    const auto u = static_cast<unsigned char>(c);
+    if (std::isalnum(u) != 0 || u >= 0x80) {
+      out += static_cast<char>(std::tolower(u));
+    }
+  }
+  return out;
+}
+
+// What a name of protocol words is made of: a title's own words, lower case.
+constexpr std::string_view kProtocolWords[] = {
+    "anytls", "vless", "vmess", "trojan", "shadowsocks", "ss", "ssr", "shadowsocksr", "hysteria", "hysteria2",
+    "hy2",    "tuic",  "wireguard", "wg", "naive", "naiveproxy", "shadowtls", "reality", "vision", "tls",
+    "ws",     "grpc",  "ech",       "tcp", "udp", "quic", "http", "https", "socks", "ssh", "tor",
+    "hop",  // a ShadowTLS under Shadowsocks, port hopping: the config's word, not a name ("ShadowTLS-hop", 06.11.2026)
+};
+
+bool IsProtocolWord(std::string_view word) {
+  return std::find(std::begin(kProtocolWords), std::end(kProtocolWords), word) != std::end(kProtocolWords);
+}
+
 }  // namespace
 
 bool NameIsTitle(std::string_view name, std::string_view title) {
-  const auto letters = [](std::string_view text) {
-    std::string out;
-    for (const char c : text) {
-      const auto u = static_cast<unsigned char>(c);
-      if (std::isalnum(u) != 0 || u >= 0x80) {
-        out += static_cast<char>(std::tolower(u));
-      }
-    }
-    return out;
-  };
-  const std::string a = letters(name);
+  const std::string a = Letters(name);
   if (a.empty()) {
     return false;
   }
-  if (a == letters(title)) {
+  if (a == Letters(title)) {
     return true;
   }
   // Or nothing but protocol words, a country's two letters and numbers
   // ("NL-Naive", "REALITY", "AnyTLS-REALITY 2"): what the title already says,
   // and the number the host tells apart. A name with any word of its own
   // ("4G | Whitelist №2", "Германия") says more.
-  static constexpr std::string_view kProtocolWords[] = {
-      "anytls", "vless", "vmess", "trojan", "shadowsocks", "ss", "ssr", "shadowsocksr", "hysteria", "hysteria2",
-      "hy2",    "tuic",  "wireguard", "wg", "naive", "naiveproxy", "shadowtls", "reality", "vision", "tls",
-      "ws",     "grpc",  "ech",       "tcp", "udp", "quic", "http", "https", "socks", "ssh", "tor",
-      "hop",  // a ShadowTLS under Shadowsocks, port hopping: the config's word, not a name ("ShadowTLS-hop", 06.11.2026)
-  };
   std::string word;
   bool own = false;
   int emoji = 0;  // the continuation bytes of a flag or another emoji still to skip
   const auto endWord = [&] {
     const bool digits = std::all_of(word.begin(), word.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
     const bool country = word.size() == 2 && std::all_of(word.begin(), word.end(), [](char c) { return std::isalpha(static_cast<unsigned char>(c)) != 0; });
-    const bool protocol = std::find(std::begin(kProtocolWords), std::end(kProtocolWords), word) != std::end(kProtocolWords);
-    own = own || (!word.empty() && !digits && !country && !protocol);
+    own = own || (!word.empty() && !digits && !country && !IsProtocolWord(word));
     word.clear();
   };
   for (const char c : name) {
@@ -228,6 +237,65 @@ bool NameIsTitle(std::string_view name, std::string_view title) {
   }
   endWord();
   return !own;
+}
+
+std::string NoteWithoutTitle(std::string_view name, std::string_view title) {
+  // Its words: ASCII letters and digits, and the code points past ASCII but the separators a name
+  // is written with - "·", "•", "–", "—" - and emoji (a flag), which aren't words either.
+  struct Word {
+    std::size_t begin = 0;
+    std::size_t end = 0;
+  };
+  std::vector<Word> words;
+  std::size_t i = 0;
+  while (i < name.size()) {
+    const auto u = static_cast<unsigned char>(name[i]);
+    const std::size_t length = u < 0x80 ? 1 : u >= 0xF0 ? 4 : u >= 0xE0 ? 3 : 2;
+    const std::string_view point = name.substr(i, length);
+    const bool separator = u < 0x80 ? std::isalnum(u) == 0
+                                    : u >= 0xF0 || point == "\xC2\xB7" || point == "\xE2\x80\xA2" ||
+                                          point == "\xE2\x80\x93" || point == "\xE2\x80\x94";
+    if (!separator) {
+      if (words.empty() || words.back().end != i) {
+        words.push_back({i, i});
+      }
+      words.back().end = std::min(i + length, name.size());
+    }
+    i += length;
+  }
+  const std::string full = Letters(title);
+  std::string run;       // the dropped words' letters: "hysteria", then "hysteria2"
+  std::size_t kept = 0;  // the first word kept
+  for (std::size_t w = 0; w < words.size(); ++w) {
+    std::string word;
+    for (std::size_t b = words[w].begin; b < words[w].end; ++b) {
+      word += static_cast<char>(std::tolower(static_cast<unsigned char>(name[b])));
+    }
+    const bool digits = std::all_of(word.begin(), word.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
+    // A number is the title's where it reads on with it ("Hysteria" "2"); else it tells one way from another.
+    if (IsProtocolWord(word) || (digits && !run.empty() && full.find(run + word) != std::string::npos)) {
+      run += word;
+      kept = w + 1;
+      continue;
+    }
+    // A country's two letters first ("DE-Hysteria2"): the card says it - gone if protocol words follow.
+    const bool country = w == 0 && word.size() == 2 &&
+                         std::all_of(word.begin(), word.end(), [](char c) { return std::isalpha(static_cast<unsigned char>(c)) != 0; });
+    if (!country) {
+      break;
+    }
+  }
+  if (kept == 0) {
+    return std::string(name);
+  }
+  if (kept >= words.size()) {
+    return {};
+  }
+  std::size_t from = words[kept].begin;
+  if (from > 0 && (name[from - 1] == '(' || name[from - 1] == '[')) {
+    --from;  // "(резерв)" whole
+  }
+  return std::string(name.substr(from));
 }
 
 std::map<std::string, ServerTitle> ServerTitles(std::string_view config) {

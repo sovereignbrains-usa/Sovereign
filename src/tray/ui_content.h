@@ -14,6 +14,7 @@
 #include <format>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -743,7 +744,11 @@ inline bool AnyDelayFailures(const UiContent& c) {
 // out (it has a card of its own): with serversByDelay the answering ones
 // fastest first, then the ones not measured, then the ones that didn't
 // answer - each in the subscription's order among its equals; else the
-// subscription's order.
+// subscription's order. Fastest is what the ОТКРЫТИЕ column says, a new
+// site's wait (the latency where it isn't known): by the latency, which the
+// page doesn't show, a card's ways read 0,13 / 0,12 / 0,23 / 0,27 / 0,13 down
+// that column (20.11.2026, his screenshot). A server's card goes where its
+// first way does: a folded one says "открытие от 0,12 с".
 inline std::vector<std::size_t> ServerOrder(const UiContent& c) {
   std::vector<std::size_t> order;
   for (std::size_t i = 0; i < c.protocols.size(); ++i) {
@@ -757,9 +762,12 @@ inline std::vector<std::size_t> ServerOrder(const UiContent& c) {
   const auto rank = [&c](std::size_t i) {
     const UiDelay* delay = i < c.delays.size() ? &c.delays[i] : nullptr;
     if (delay == nullptr || (delay->state != UiDelay::State::Ok && delay->state != UiDelay::State::Failed)) {
-      return std::pair{1, 0};
+      return std::tuple{2, 0, 0};
     }
-    return delay->state == UiDelay::State::Ok ? std::pair{0, delay->ms} : std::pair{2, 0};
+    if (delay->state != UiDelay::State::Ok) {
+      return std::tuple{3, 0, 0};
+    }
+    return delay->connect > 0 ? std::tuple{0, delay->connect, delay->ms} : std::tuple{1, delay->ms, 0};
   };
   std::stable_sort(order.begin(), order.end(), [&rank](std::size_t a, std::size_t b) { return rank(a) < rank(b); });
   return order;
@@ -833,14 +841,15 @@ inline bool GamesWarn(const UiDelay& delay) {
   return delay.state == UiDelay::State::Ok && delay.udpMs > 0 && (delay.udpJitter >= 15 || delay.udpLoss >= 10);
 }
 
-// СКОРОСТЬ: the run's figure, else the most it carried for real in the last hour; "меряю…", then
-// the speed so far with "…", while a run goes; empty: nothing to say (the page offers "замерить").
+// СКОРОСТЬ: the run's figure; "меряю…", then the speed so far with "…", while a run goes; empty:
+// not measured (the page offers "замерить"). Not what it carried in the last hour: that's what the
+// programs asked of it, and "1,7 Мбит/с" in white beside measured figures read as a slow way
+// (20.11.2026, his screenshot) - it's said in the key's tip (MeasureKey).
 inline std::wstring SpeedText(const UiDelay& delay) {
   if (delay.measuring) {  // the core's last second while it runs: the figure grows on the page
     return delay.measuredKbps > 0 ? MbitText(delay.measuredKbps) + L"…" : std::wstring(L"меряю…");
   }
-  const int kbps = delay.measuredKbps > 0 ? delay.measuredKbps : delay.seenDownKbps;
-  return kbps > 0 ? MbitText(kbps) : std::wstring();
+  return delay.measuredKbps > 0 ? MbitText(delay.measuredKbps) : std::wstring();
 }
 
 // "способ", "способа" or "способов" after the number `n`.

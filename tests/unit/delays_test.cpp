@@ -224,9 +224,9 @@ void TestWays() {
   CHECK(OpenText(way) == L"0,19 с" && GamesText(way) == L"±3 мс" && !GamesWarn(way));
   CHECK(SpeedText(way).empty());  // nothing seen: the page offers "замерить"
   way.seenDownKbps = 60'000;
-  CHECK(SpeedText(way) == L"60 Мбит/с");
+  CHECK(SpeedText(way).empty());  // what it carried isn't a speed: still "замерить", the hour's in its tip
   way.measuredKbps = 140'000;
-  CHECK(SpeedText(way) == L"140 Мбит/с");  // the run's figure over the seen one
+  CHECK(SpeedText(way) == L"140 Мбит/с");  // the run's figure
   way.measuring = true;
   CHECK(SpeedText(way) == L"140 Мбит/с…");  // the figure so far, growing while it runs
   way.measuredKbps = 0;
@@ -249,6 +249,14 @@ void TestWays() {
   CHECK(ServerSummary(c, {0, 1, 2}) == L"3 способа, работают 2 · открытие от 0,35 с");
   CHECK(ServerSummary(c, {2}) == L"сервер отклонил соединение");
   CHECK(ServerSummary(c, {0}) == L"открытие 0,41 с");
+  // Listed by what ОТКРЫТИЕ says, not by the latency the page doesn't show; then the ones known by the
+  // latency alone, the not measured, the failed (20.11.2026).
+  c.protocols = {L"a", L"b", L"dead", L"new", L"old"};
+  c.delays.push_back(UiDelay{});
+  c.delays.push_back(UiDelay{.state = UiDelay::State::Ok, .ms = 40});
+  CHECK(ServerOrder(c) == (std::vector<std::size_t>{1, 0, 4, 3, 2}));
+  c.serversByDelay = false;
+  CHECK(ServerOrder(c) == (std::vector<std::size_t>{0, 1, 2, 3, 4}));
 }
 
 // The user's own network, judged by the way around the proxy.

@@ -1501,10 +1501,10 @@ class Painter {
       case Kind::CheckRow:
       case Kind::AppRow:
       case Kind::ServerCard:
-      case Kind::ServerColumns:
       case Kind::Way:
       case Kind::Instrument: return at(left, 4) && at(right, 4);
-      case Kind::Link: return right >= 16 - 0.5f;  // in a way's speed cell, on the row's inner edge
+      case Kind::Link:  // in a way's speed cell, on the row's inner edge
+      case Kind::ServerColumns: return right >= 16 - 0.5f;  // over a way's figures: their right edges
       case Kind::ProfileRow: return at(left, 4) && right >= 4 - 0.5f;  // cut short by its switch
       case Kind::Toggle: return at(right, 8);  // a plate 64 wide round a switch 40: the switch's ink on 20
       case Kind::Divider: return at(left, 20 + it.indent) && at(right, 20);  // under an instrument's name: in by it
@@ -1974,11 +1974,17 @@ class Painter {
       case UiPage::Servers:
         return {L"Серверы",
                 L"Флаг и провайдер — где сервер на самом деле: его выход, узнанный через него самого, а не то, "
-                L"что написано в названии.\n\nЗадержка — медиана нескольких запросов через уже открытое "
-                L"соединение, округлённая до 5 мс: разница меньше — шум сети. «Подробные замеры» внизу "
-                L"покажут разброс (±), число запросов и время соединения. Авто берёт лучший по замерам и "
-                L"меняет его, только когда другой заметно быстрее два замера подряд.\n\nПравый клик по "
-                L"серверу — копировать имя или IP выхода."};
+                L"что написано в названии.\n\nВ карточке сервера — способы до него. Точка: зелёная — работает, "
+                L"жёлтая — с перебоями, красная — не проходит, серая — ещё не проверен. «сейчас» — трафик идёт "
+                L"через него, «закреплён» — выбран тобой, Авто его не сменит. Щелчок по способу закрепляет его.\n\n"
+                L"Столбцы: «Открытие» — сколько новый сайт ждёт первого ответа, по нему и порядок способов; "
+                L"«Игры» — насколько ровно идут UDP-пакеты, «нет UDP» — способ его не возит; «Скорость» — "
+                L"замер загрузки, его запускает «замерить».\n\nЗадержка у сервера — медиана нескольких "
+                L"запросов через уже открытое соединение, округлённая до 5 мс.\n\nКлючи в заголовке: "
+                L"«Проверить задержку» — замерить все заново; «Подробные замеры» — разброс (±), число запросов, "
+                L"время соединения; «Авто» — сам берёт лучший сервер: с переставшего отвечать уходит сразу, "
+                L"а на просто более быстрый — когда тот заметно быстрее два замера подряд.\n\nПравый клик по "
+                L"серверу Hysteria 2 — её скорость."};
       case UiPage::Subscription:
         // Two tabs (12.11.2026): what services gave, and VPS of one's own.
         return {L"Подписки и серверы",
@@ -3200,7 +3206,10 @@ class Painter {
       const auto at = std::find(c.protocols.begin(), c.protocols.end(), c.autoServer);
       now = at == c.protocols.end() ? -1 : static_cast<int>(at - c.protocols.begin());
     }
-    // Auto is a key in the title bar; here what it took and why, in words.
+    // Auto is a key in the title bar; here what it took and why, in words: the server as its card
+    // names it (the country; the network where it isn't known) and the way with its note - two
+    // "Hysteria 2" on the card, "PFWeb Solutions · Hysteria 2" didn't say which, nor which was
+    // "Германия" (20.11.2026, his screenshot). "Лучший" is of the server: auto picks by host.
     if (onAuto) {
       std::wstring line = L"Авто: выберет лучший после первого замера";
       if (!c.autoServer.empty()) {
@@ -3208,10 +3217,18 @@ class Painter {
         if (now >= 0) {
           const auto i = static_cast<std::size_t>(now);
           const UiLocation* loc = i < c.locations.size() ? &c.locations[i] : nullptr;
-          where = (loc != nullptr && !loc->isp.empty() ? loc->isp + L" · " : L"") + WithoutFlagEmoji(OptionTitle(c, i));
+          const std::wstring place = loc == nullptr                ? std::wstring()
+                                     : !loc->countryName.empty() ? loc->countryName
+                                     : !loc->country.empty()     ? loc->country
+                                                                 : loc->isp;
+          const std::wstring wayNote =
+              i < c.protocolNotes.size() ? WithoutFlagEmoji(c.protocolNotes[i]) : std::wstring();
+          const auto noteAt = wayNote.find_first_not_of(L' ');
+          where = (place.empty() ? L"" : place + L" · ") + WithoutFlagEmoji(OptionTitle(c, i)) +
+                  (noteAt == std::wstring::npos ? L"" : L", " + wayNote.substr(noteAt));
         }
         line = L"Авто: сейчас " + where +
-               (c.autoIsBest ? L" — лучший по замерам" : L" — другой чуть быстрее, но разница мала");
+               (c.autoIsBest ? L" — сервер лучший по замерам" : L" — другой сервер чуть быстрее, но разница мала");
       }
       y = Paragraph(l, Kind::Caption, line, x0, x1, y) + kGap;
     }
@@ -3346,9 +3363,17 @@ class Painter {
       }
       const std::size_t card = l.items.size();
       l.items.push_back(Make(Kind::Card, {x0, y, x1, y + kLatencyRow}));
+      // The server in use: its head's latency and sites are its way's - "50 мс" on it was the first
+      // way's, not the one the traffic took - and it takes no click. A click took the first way and
+      // left Auto quietly, on a head already lit (20.11.2026, his screenshot): a way is pinned below.
+      const bool inUse = now >= 0 && std::find(ways.begin(), ways.end(), static_cast<std::size_t>(now)) != ways.end();
+      const std::size_t shown = inUse ? static_cast<std::size_t>(now) : first;
       Item head = CommandItem(Kind::Choice, {x0 + 4, y + 3, x1 - 4, y + kLatencyRow - 3}, name, nullptr,
-                              UiCommand::SetProtocol, static_cast<int>(first));
-      head.checked = now >= 0 && std::find(ways.begin(), ways.end(), static_cast<std::size_t>(now)) != ways.end();
+                              UiCommand::SetProtocol, static_cast<int>(shown));
+      head.checked = inUse;
+      if (inUse) {
+        head.action = ItemAction::Hint;  // its tip and menu stay; its command too: DrawItem knows a server's head by it
+      }
       head.detail = std::move(detail);
       // More than a line under the name (the summary, or facts that wrap): the head grows, the name stays.
       const float detailWidth = (x1 - 4) - (x0 + 4) - 42 - 12;
@@ -3357,7 +3382,12 @@ class Painter {
         head.stacked = true;
         head.rect.bottom = std::max(head.rect.bottom, head.rect.top + (kLatencyRow - 6) / 2 + 2 + lines + 6);
       }
-      head.tip = L"Взять этот сервер: самый быстрый способ до него";
+      head.tip = !inUse  ? std::wstring(L"Взять этот сервер: самый быстрый способ до него") +
+                               (onAuto ? L" (Авто выключится)" : L"")
+                 : onAuto ? L"Сейчас трафик идёт через этот сервер, способ выбирает Авто.\n"
+                            L"Закрепить способ — щелчок по нему ниже"
+                          : L"Сейчас трафик идёт через этот сервер, способ закреплён.\n"
+                            L"Другой способ — щелчок по нему ниже. Отдать выбор Авто — ключ «Авто» в заголовке";
       if (placed) {
         head.tip += L"\n\nГде: " + (loc->countryName.empty() ? loc->country : loc->countryName) +
                     (loc->city.empty() ? L"" : L", " + loc->city);
@@ -3371,9 +3401,9 @@ class Painter {
       if (loc != nullptr && !loc->isp.empty()) {
         head.tip += L"\nПровайдер, чья сеть: " + loc->isp;
       }
-      if (first < c.sites.size() && !c.sites[first].empty()) {
+      if (shown < c.sites.size() && !c.sites[shown].empty()) {
         std::wstring sites;
-        for (const UiSite& site : c.sites[first]) {
+        for (const UiSite& site : c.sites[shown]) {
           const wchar_t* state = site.state == SiteCheck::State::Ok        ? L"открывается"
                                  : site.state == SiteCheck::State::Blocked ? L"не пускает отсюда"
                                                                            : L"не отвечает";
@@ -3404,7 +3434,26 @@ class Painter {
         l.items.push_back(Make(Kind::Divider, {x0 + 20, top, x1 - 20, top + 1}));
         top += 4;
         if (columns) {
-          l.items.push_back(Make(Kind::ServerColumns, {x0 + 4, top, x1 - 4, top + 20}, L""));
+          // Each head says what its column means when pointed at (20.11.2026: "ИГРЫ" with "нет UDP"
+          // under it told him nothing): right-aligned over its figures, a head wider than its
+          // column reaching left.
+          static constexpr std::array<std::pair<const wchar_t*, const wchar_t*>, 3> kColumns{{
+              {L"ОТКРЫТИЕ", L"Открытие: сколько новый сайт ждёт первого ответа через этот способ. Меньше — "
+                            L"быстрее открываются страницы. По нему и порядок способов"},
+              {L"ИГРЫ", L"Игры и звонки: насколько ровно идут UDP-пакеты (разброс задержки). «нет UDP» — "
+                        L"способ его не возит: игры и звонки через него не пойдут или пойдут по TCP"},
+              {L"СКОРОСТЬ", L"Скорость загрузки через способ: 8 секунд скачивания. Пусто — ещё не мерили, "
+                            L"«замерить» справа"},
+          }};
+          const auto cells = WayCells(x1 - 4, top, top + 20);
+          for (std::size_t k = 0; k < kColumns.size(); ++k) {
+            const float width = std::ceil(TextWidth(kColumns.at(k).first, trailing_.get())) + 2;
+            Item column = Make(Kind::ServerColumns, {cells.at(k).right - width, top, cells.at(k).right, top + 20},
+                               kColumns.at(k).first);
+            column.action = ItemAction::Hint;
+            column.tip = kColumns.at(k).second;
+            l.items.push_back(std::move(column));
+          }
           top += 20;
         }
         for (const std::size_t i : ways) {
@@ -3503,9 +3552,13 @@ class Painter {
                                index);
     measure.sub = figure.empty() ? 0 : 1;  // a figure: its own ink, the key's blue under the mouse
     const std::wstring run = L"8 секунд загрузки " + through + L" (до 100 МБ)";
-    measure.tip = figure.empty()               ? L"Замерить: " + run
-                  : delay.measuredKbps > 0 ? L"Замерено. Нажми — ещё раз: " + run
-                                           : L"Столько через него шло за последний час. Нажми — замерить: " + run;
+    // What it carried over the hour isn't its speed - as much as the programs asked for; "1,2 Мбит/с"
+    // in the column read as a slow way (20.11.2026): it's only said here.
+    measure.tip = figure.empty() ? L"Замерить: " + run : L"Замерено. Нажми — ещё раз: " + run;
+    if (delay.seenDownKbps > 0) {
+      measure.tip += L"\nЗа последний час через него шло до " + MbitText(delay.seenDownKbps) +
+                     L" — это не замер: столько просили программы";
+    }
     return measure;
   }
 
@@ -5232,15 +5285,9 @@ class Painter {
         k.Text(it.text, body_.get(), {r.left, r.top, r.left + 110, r.bottom}, secondary);
         k.Text(it.detail, body_.get(), {r.left + 110, r.top, r.right, r.bottom}, primary);
         break;
-      case Kind::ServerColumns: {
-        // Over a Way's figures, right-aligned as they are; a head wider than its column reaches left.
-        const auto cells = WayCells(r.right, r.top, r.bottom);
-        const D2D1_COLOR_F ink = FromColorRef(ui::kSecondaryText, 0.75f);
-        k.Text(L"ОТКРЫТИЕ", trailing_.get(), {cells[0].right - 90, r.top, cells[0].right, r.bottom}, ink);
-        k.Text(L"ИГРЫ", trailing_.get(), {cells[1].right - 60, r.top, cells[1].right, r.bottom}, ink);
-        k.Text(L"СКОРОСТЬ", trailing_.get(), {cells[2].right - 80, r.top, cells[2].right, r.bottom}, ink);
+      case Kind::ServerColumns:  // a column's head, its own words' width: pointed at, it lights for its tip
+        k.Text(it.text, trailing_.get(), r, FromColorRef(ui::kSecondaryText, hovered ? 1.0f : 0.75f));
         break;
-      }
       case Kind::Way: DrawWay(k, it, c, hoverAlpha); break;
       case Kind::Link:
         k.Text(it.text, trailing_.get(), r,
@@ -5356,7 +5403,7 @@ class Painter {
         break;
       }
       case Kind::Choice: {
-        if (hoverAlpha > 0) {
+        if (hoverAlpha > 0 && it.action != ItemAction::Hint) {  // the server in use: a tip, no click to light
           k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
         }
         const D2D1_POINT_2F dot{r.left + 22, it.stacked ? r.top + (kLatencyRow - 6) / 2 : (r.top + r.bottom) / 2};

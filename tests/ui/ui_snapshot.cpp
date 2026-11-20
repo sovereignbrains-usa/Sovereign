@@ -365,6 +365,11 @@ int Snapshots(const std::wstring& dir) {
                                               dir + L"\\overview-leak.png");
     sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Routing, logs, 400, 1300, 96,
                                               dir + L"\\routing-checks.png");
+    // Its address typed in, and the log's search: the whole well a plate of the box's colour, its ring whole.
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Routing, logs, 400, 1300, 96,
+                                              dir + L"\\routing-checks-typing.png", L"find:");
+    sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Logs, logs, 400, 620, 96,
+                                              dir + L"\\logs-find-typing.png", L"find:");
     checked.checksRunning = true;
     // The narrowest window: values that do not fit beside their title go under it.
     sovereign::tray::RenderMainWindowSnapshot(checked, UiPage::Servers, logs, 360, 700, 96,

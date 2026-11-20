@@ -4,6 +4,10 @@
 
 What changed for someone using Sovereign, release by release. The release workflow puts a version's section into its GitHub release. Releases up to 0.5.130 are at the project's first address, [github.com/sovereignbrains/Sovereign](https://github.com/sovereignbrains/Sovereign/releases).
 
+## 0.6.42 — 20.11.2026
+
+- Поле «Куда пойдёт сайт?» на «Маршрутах» и поиск в «Журнале» больше не выглядят дырявыми, когда в них печатаешь. Раньше окно ввода ложилось поверх рамки, было ниже поля и другого оттенка. Теперь рамка остаётся целой, лупа на месте, ввод начинается после неё, а всё поле одного цвета.
+
 ## 0.6.41 — 20.11.2026
 
 - «Маршруты»: правило по слову в имени сайта подписано по-человечески, «в имени: tracker», а не «~tracker». Изменять его можно как раньше: в поле так и остаётся «~tracker».

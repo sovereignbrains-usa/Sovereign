@@ -79,6 +79,7 @@ constexpr float kButton = 34;
 constexpr float kGap = 8;          // between cards (the law's 8)
 constexpr float kSettingsGap = 8;   // between the settings' cards
 constexpr float kRadius = 8;
+constexpr float kWellRound = 6;  // a search well's corners (Kind::Find), and its plate's while typed in
 constexpr float kWheelStep = 64;
 constexpr float kAppIcon = 20;     // a program's icon in the per-app list
 constexpr float kTag = 32;         // a thing on the routing scheme, and its "+"
@@ -707,6 +708,10 @@ struct Interaction {
   // ringed in the way's colour; what it covers (the "+", a chip) is not drawn. editWay -1: no colour of its own.
   std::optional<D2D1_RECT_F> edit;
   int editWay = -1;
+  // A search well typed in (EditInWell): the plate is the whole well, its corners and its magnifier;
+  // one over the page's head (the log's) is drawn with the head, not under the scrolled part's clip.
+  bool editFind = false;
+  bool editScrolls = true;
   std::optional<VitrineFrame> vitrine;  // the switch mid-motion (vitrine.h); none: at rest in its state's pose
   float flow = 0;  // the routing scheme's traffic: seconds on a clock, its dots' place along their lines (DrawRoute)
 };
@@ -1435,10 +1440,19 @@ class Painter {
       }
       draw(i);
     }
-    if (in.edit) {
-      k.Round(*in.edit, kRadius, FromColorRef(ui::kCardColor));
-      k.Outline(*in.edit, kRadius,
+    const auto plate = [&] {
+      const float round = in.editFind ? kWellRound : kRadius;
+      k.Round(*in.edit, round, FromColorRef(ui::kCardColor));
+      k.Outline(*in.edit, round,
                 in.editWay >= 0 ? FromColorRef(BucketColor(in.editWay), 0.7f) : Rgb(255, 255, 255, 0.3f));
+      if (in.editFind) {
+        const float cy = (in.edit->top + in.edit->bottom) / 2;
+        k.Text(kGlyphSearch, glyph_.get(), {in.edit->left + 6, cy - 10, in.edit->left + 30, cy + 10},
+               FromColorRef(ui::kSecondaryText));
+      }
+    };
+    if (in.edit && in.editScrolls) {
+      plate();
     }
     if (clipped) {
       // The scroll position, when there is somewhere to scroll.
@@ -1452,6 +1466,9 @@ class Painter {
     }
     for (const std::size_t i : over) {
       draw(i);
+    }
+    if (in.edit && !in.editScrolls) {
+      plate();
     }
     if (in.tip >= 0 && static_cast<std::size_t>(in.tip) < l.items.size()) {
       DrawTip(k, l.items[static_cast<std::size_t>(in.tip)], size);
@@ -5643,9 +5660,9 @@ class Painter {
       }
       case Kind::Find: {
         // The log's search: a dark well, a magnifier, what's sought or what to seek in it.
-        k.Round(r, 6, Rgb(0, 0, 0, 0.18f));
-        k.Round(r, 6, Rgb(255, 255, 255, hoverAlpha));
-        k.Outline(r, 6, Rgb(255, 255, 255, it.text.empty() ? 0.08f : 0.22f));
+        k.Round(r, kWellRound, Rgb(0, 0, 0, 0.18f));
+        k.Round(r, kWellRound, Rgb(255, 255, 255, hoverAlpha));
+        k.Outline(r, kWellRound, Rgb(255, 255, 255, it.text.empty() ? 0.08f : 0.22f));
         const float cy = (r.top + r.bottom) / 2;
         k.Text(kGlyphSearch, glyph_.get(), {r.left + 6, cy - 10, r.left + 30, cy + 10}, secondary);
         // (text2: what to seek in, where it isn't the log - the routing page's address)
@@ -7366,7 +7383,9 @@ struct MainWindow::Impl {
           }
         }
         const bool onScheme = anchor == UiCommand::BoardAdd || anchor == UiCommand::ChipMenu;
-        if (onScheme) {  // the box sits 4 inside a plate of its own (Interaction::edit)
+        if (it.kind == Kind::Find) {
+          EditInWell(it, onEnter, index, initial);
+        } else if (onScheme) {  // the box sits 4 inside a plate of its own (Interaction::edit)
           BeginEdit({rect.left + 4, rect.top, rect.right - 4, rect.bottom}, onEnter, index, initial, digitsOnly);
           if (edit.box) {
             in.edit = rect;
@@ -7640,8 +7659,7 @@ struct MainWindow::Impl {
         return;
       case ItemAction::LogMore: LogMoreMenu(item.rect); return;
       case ItemAction::FindLog:
-        BeginEdit({item.rect.left + 32, item.rect.top, item.rect.right - 4, item.rect.bottom}, UiCommand::RenameProfile,
-                  -1, log.search, false);
+        EditInWell(item, UiCommand::RenameProfile, -1, log.search);
         edit.search = true;
         return;
       case ItemAction::RouteLog:  // the routing board's "ещё N": the log, the sites of that way only
@@ -7995,9 +8013,25 @@ struct MainWindow::Impl {
   wil::unique_hfont editFont;
   wil::unique_hbrush editBrush;
 
+  // A search well typed in (the log's, a route's address): the box after its magnifier and inside its ring,
+  // on a plate of the box's own colour over the whole well. Before 0.6.42 the box lay over the well as it
+  // was: over the ring's sides, lower than the well and of another shade - the well looked holed at its edges.
+  void EditInWell(const Item& well, UiCommand onEnter, int index, const std::wstring& initial) {
+    BeginEdit({well.rect.left + 32, well.rect.top, well.rect.right - 6, well.rect.bottom}, onEnter, index, initial,
+              false);
+    if (edit.box) {
+      in.edit = well.rect;
+      in.editFind = true;
+      in.editScrolls = well.scrolls;
+      InvalidateRect(hwnd, nullptr, FALSE);
+    }
+  }
+
   void BeginEdit(D2D1_RECT_F rect, UiCommand onEnter, int index, const std::wstring& initial, bool digitsOnly) {
     EndEdit(false);
     in.edit.reset();
+    in.editFind = false;
+    in.editScrolls = true;
     const UINT dpi = Dpi();
     const int fontHeight = Scale(17, dpi);
     editFont.reset(CreateFontW(-fontHeight, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
@@ -8041,6 +8075,8 @@ struct MainWindow::Impl {
     const bool search = std::exchange(edit.search, false);
     edit.box.reset();  // its WM_KILLFOCUS finds no box: nothing twice
     in.edit.reset();
+    in.editFind = false;
+    in.editScrolls = true;
     InvalidateRect(hwnd, nullptr, FALSE);
     SetFocus(hwnd);
     if (search) {
@@ -8739,6 +8775,7 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
   }
   Interaction in;
   constexpr std::wstring_view kEditPrefix = L"edit:";
+  constexpr std::wstring_view kFindPrefix = L"find:";
   constexpr std::wstring_view kVitrinePrefix = L"vitrine:";
   if (tipFor.starts_with(kVitrinePrefix)) {
     in.vitrine = VitrineScript(tipFor.substr(kVitrinePrefix.size()));
@@ -8752,6 +8789,15 @@ void RenderMainWindowSnapshot(const UiContent& content, UiPage page, const std::
     in.edit = D2D1_RECT_F{layout.boardRight - it->rect.left >= 160 ? it->rect.left : layout.boardLeft, it->rect.top,
                           layout.boardRight, it->rect.top + kTag};
     in.editWay = it->rail;
+  } else if (tipFor.starts_with(kFindPrefix)) {
+    // A search well typed in (EditInWell): its plate; the box itself is a window.
+    const std::wstring_view words = tipFor.substr(kFindPrefix.size());
+    const auto it = std::find_if(layout.items.begin(), layout.items.end(),
+                                 [&](const Item& item) { return item.kind == Kind::Find && item.text2.starts_with(words); });
+    THROW_HR_IF(E_INVALIDARG, it == layout.items.end());
+    in.edit = it->rect;
+    in.editFind = true;
+    in.editScrolls = it->scrolls;
   } else if (!tipFor.empty()) {
     // Its tip, or its words where it has none: pointed at, without a tip then.
     const auto it = std::find_if(layout.items.begin(), layout.items.end(), [&](const Item& item) {

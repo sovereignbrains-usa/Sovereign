@@ -4836,7 +4836,7 @@ std::vector<sovereign::tray::UiChip> BoardOf(const View& v) {
       continue;
     }
     UiChip chip{.kind = UiChip::Kind::Rule, .index = static_cast<int>(n), .bucket = static_cast<int>(rule.action),
-                .text = Widen(rule.name.empty() ? sovereign::tray::RuleText(rule) : rule.name), .detail = {},
+                .text = Widen(rule.name.empty() ? sovereign::tray::RuleLabel(rule) : rule.name), .detail = {},
                 .icon = {}, .logo = {}};
     if (rule.processes.size() == 1 && rule.domains.empty() && rule.keywords.empty() && rule.ips.empty()) {
       for (const auto& [name, path] : v.programPaths) {
@@ -6752,10 +6752,19 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
         break;
       }
       const UiChip& chip = board[static_cast<std::size_t>(args.index)];
-      // The buckets in the board's order.
-      static constexpr std::array kOrder = {sovereign::tray::kBucketProxy, sovereign::tray::kBucketDirect,
-                                            sovereign::tray::kBucketWarp, sovereign::tray::kBucketBlock};
-      static constexpr std::array<const wchar_t*, 4> kBuckets = {L"Через VPN", L"Напрямую", L"Через WARP", L"Блок"};
+      // The buckets in the scheme's order (main_window.cpp Board): the exceptions
+      // first, the mode's own way - where everything else goes - last.
+      using sovereign::tray::kBucketBlock, sovereign::tray::kBucketDirect, sovereign::tray::kBucketProxy,
+          sovereign::tray::kBucketWarp;
+      const std::array<int, 4> wayOrder =
+          r.finalDirect ? std::array<int, 4>{kBucketProxy, kBucketWarp, kBucketBlock, kBucketDirect}
+                        : std::array<int, 4>{kBucketDirect, kBucketWarp, kBucketBlock, kBucketProxy};
+      static constexpr std::array<const wchar_t*, 4> kWayNames = {L"Напрямую", L"Через VPN", L"Блок",
+                                                                  L"Через WARP"};  // by bucket
+      std::array<const wchar_t*, 4> wayNames{};
+      for (std::size_t i = 0; i < wayOrder.size(); ++i) {
+        wayNames.at(i) = kWayNames.at(static_cast<std::size_t>(wayOrder.at(i)));
+      }
 
       if (chip.kind == UiChip::Kind::Ads || chip.kind == UiChip::Kind::Cookies || chip.kind == UiChip::Kind::Trackers ||
           chip.kind == UiChip::Kind::Malware) {
@@ -6788,13 +6797,13 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       }
       if (chip.kind == UiChip::Kind::Russia) {
         // Its way, as a rule's (WARP: turned on); or none of their own.
-        std::vector<std::wstring> items(kBuckets.begin(), kBuckets.end());
+        std::vector<std::wstring> items(wayNames.begin(), wayNames.end());
         items.emplace_back();
         items.emplace_back(L"Убрать: пусть идут как всё остальное");
-        const auto current = std::find(kOrder.begin(), kOrder.end(), chip.bucket);
-        const auto picked = PickFromMenu(owner, cursor, items, static_cast<int>(current - kOrder.begin()));
-        if (picked && *picked < kOrder.size()) {
-          send(What::Russia, false, kOrder.at(*picked));
+        const auto current = std::find(wayOrder.begin(), wayOrder.end(), chip.bucket);
+        const auto picked = PickFromMenu(owner, cursor, items, static_cast<int>(current - wayOrder.begin()));
+        if (picked && *picked < wayOrder.size()) {
+          send(What::Russia, false, wayOrder.at(*picked));
         } else if (picked && *picked == items.size() - 1) {
           send(What::Russia, false, -1);
         }
@@ -6811,7 +6820,7 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
         std::vector<std::size_t> labels;
         int current = -1;
         if (!rule.name.empty()) {
-          std::wstring inside = Widen(sovereign::tray::RuleText(rule));
+          std::wstring inside = Widen(sovereign::tray::RuleLabel(rule));
           if (inside.size() > 60) {
             inside = inside.substr(0, 59) + L"…";
           }
@@ -6820,10 +6829,10 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
           items.emplace_back();
           does.insert(does.end(), 2, {Do::Nothing, 0});
         }
-        for (std::size_t i = 0; i < kOrder.size(); ++i) {
-          current = kOrder.at(i) == chip.bucket ? static_cast<int>(items.size()) : current;
-          items.emplace_back(kBuckets.at(i));
-          does.emplace_back(Do::Way, kOrder.at(i));
+        for (std::size_t i = 0; i < wayOrder.size(); ++i) {
+          current = wayOrder.at(i) == chip.bucket ? static_cast<int>(items.size()) : current;
+          items.emplace_back(wayNames.at(i));
+          does.emplace_back(Do::Way, wayOrder.at(i));
         }
         items.emplace_back();
         does.emplace_back(Do::Nothing, 0);
@@ -6889,10 +6898,10 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
         does.insert(does.end(), 2, {Do::Nothing, 0});
       }
       int current = -1;
-      for (std::size_t i = 0; i < kOrder.size(); ++i) {
-        const bool here = kOrder.at(i) == chip.bucket && s.way != sovereign::tray::ServiceRoute::Way::Country;
+      for (std::size_t i = 0; i < wayOrder.size(); ++i) {
+        const bool here = wayOrder.at(i) == chip.bucket && s.way != sovereign::tray::ServiceRoute::Way::Country;
         current = here ? static_cast<int>(items.size()) : current;
-        items.emplace_back(kBuckets.at(i));
+        items.emplace_back(wayNames.at(i));
         does.emplace_back(Do::Way, i);
       }
       const std::vector<std::string> countries = KnownExitCountries(view);
@@ -6918,10 +6927,10 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
       switch (what) {
         case Do::Nothing: break;
         case Do::Way: {
-          static constexpr std::array<const char*, 4> kWays = {"proxy", "direct", "warp", "block"};
-          send(What::SetServiceWay, true, 0, chip.index, kWays.at(which));
+          static constexpr std::array<const char*, 4> kWays = {"direct", "proxy", "block", "warp"};  // by bucket
+          send(What::SetServiceWay, true, 0, chip.index, kWays.at(static_cast<std::size_t>(wayOrder.at(which))));
           if (chip.program >= 0) {
-            send(What::SetRuleAction, false, kOrder.at(which), chip.program);
+            send(What::SetRuleAction, false, wayOrder.at(which), chip.program);
           }
           break;
         }
@@ -6930,13 +6939,13 @@ void OnRoutingCommand(HWND owner, UiCommand command, const sovereign::tray::UiAr
           // Its app a rule of its own, in a bucket of its own: before the
           // service (routing.cpp), so it goes there whatever its names say.
           std::vector<std::wstring> ways = {L"Куда приложение " + appNames + L":", L""};
-          ways.insert(ways.end(), kBuckets.begin(), kBuckets.end());
+          ways.insert(ways.end(), wayNames.begin(), wayNames.end());
           if (const auto to = PickFromMenu(owner, cursor, ways, -1, {}, {0}); to && *to >= 2) {
             std::string typed;
             for (const std::string& app : apps) {
               typed += app + " ";
             }
-            send(What::AddRule, false, kOrder.at(*to - 2), 0, typed);
+            send(What::AddRule, false, wayOrder.at(*to - 2), 0, typed);
           }
           break;
         }

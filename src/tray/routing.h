@@ -251,6 +251,9 @@ std::optional<RouteRule> ParseRule(std::string_view text, RouteRule::Action acti
 std::optional<RouteRule> ProgramRule(std::string_view exe, RouteRule::Action action);
 // A rule as one line: "qwen.ai, alicdn.com, 10.0.0.0/8".
 std::string RuleText(const RouteRule& rule);
+// A rule as said on its chip and in its menu: RuleText, but a word in names
+// is "в имени: tracker", not the "~tracker" typed (RuleInput keeps that).
+std::string RuleLabel(const RouteRule& rule);
 
 // A config's own simple rules - names, keywords, address ranges, programs
 // sent directly, through its proxy or blocked - as the user's: what

@@ -62,7 +62,7 @@ std::vector<sovereign::tray::UiChip> SampleBoard() {
     {.kind = UiChip::Kind::Cookies, .index = 0, .bucket = 2, .text = L"Баннеры cookie", .detail = {}, .icon = {}, .logo = "cookies"},
     {.kind = UiChip::Kind::Trackers, .index = 0, .bucket = 2, .text = L"Трекеры", .detail = L"3 071", .icon = {}, .logo = "trackers"},
     {.kind = UiChip::Kind::Malware, .index = 0, .bucket = 2, .text = L"Вредоносные сайты", .detail = L"2", .icon = {}, .logo = "malware"},
-    {.kind = UiChip::Kind::Rule, .index = 2, .bucket = 2, .text = L"~tracker", .detail = {}, .icon = {}, .logo = {}},
+    {.kind = UiChip::Kind::Rule, .index = 2, .bucket = 2, .text = L"в имени: tracker", .detail = {}, .icon = {}, .logo = {}},
   {.kind = UiChip::Kind::Pass, .index = 5, .bucket = 2, .text = L"Microsoft", .detail = {}, .icon = {}, .logo = "microsoft",
    .idle = false, .program = -1, .sites = L"login.live.com, config.edge.skype.com"},
   {.kind = UiChip::Kind::Pass, .index = 6, .bucket = 2, .text = L"Google", .detail = {}, .icon = {}, .logo = "google",

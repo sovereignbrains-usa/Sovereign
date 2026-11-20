@@ -952,6 +952,16 @@ std::string RuleText(const RouteRule& rule) {
   return text;
 }
 
+std::string RuleLabel(const RouteRule& rule) {
+  RouteRule rest = rule;
+  rest.keywords.clear();
+  std::string text = RuleText(rest);
+  for (std::size_t i = 0; i < rule.keywords.size(); ++i) {
+    text += (i > 0 ? ", " : text.empty() ? "в имени: " : ", в имени: ") + rule.keywords[i];
+  }
+  return text;
+}
+
 std::optional<std::string> FailedRuleSet(std::string_view error, std::string_view config) {
   constexpr std::string_view kMark = "initialize rule-set[";
   const std::size_t mark = error.find(kMark);

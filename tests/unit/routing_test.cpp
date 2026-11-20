@@ -141,6 +141,12 @@ void TestJsonAndParse() {
     CHECK(rule->processes == std::vector<std::string>({"Telegram.exe"}));
     CHECK(rule->keywords == std::vector<std::string>({"ads"}));
     CHECK(RuleText(*rule) == "www.example.com, cdn.example.net, ru, ~ads, 1.2.3.4/32, 2001:db8::/32, Telegram.exe");
+    CHECK(RuleLabel(*rule) ==
+          "www.example.com, cdn.example.net, ru, 1.2.3.4/32, 2001:db8::/32, Telegram.exe, в имени: ads");
+  }
+  if (const auto words = ParseRule("~tracker ~ads", RouteRule::Action::Block)) {
+    CHECK(RuleLabel(*words) == "в имени: tracker, ads");
+    CHECK(RuleInput(*words) == "~tracker, ~ads");
   }
   CHECK(!ParseRule("  ,; ", RouteRule::Action::Direct));
   CHECK(!ParseRule("!!! ?? @@", RouteRule::Action::Direct));  // nothing a name, an address or a program
